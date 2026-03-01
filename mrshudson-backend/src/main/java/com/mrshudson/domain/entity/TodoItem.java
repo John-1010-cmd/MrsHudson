@@ -1,10 +1,7 @@
 package com.mrshudson.domain.entity;
 
-import jakarta.persistence.*;
+import com.baomidou.mybatisplus.annotation.*;
 import lombok.Data;
-import org.springframework.data.annotation.CreatedDate;
-import org.springframework.data.annotation.LastModifiedDate;
-import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.LocalDateTime;
 
@@ -12,44 +9,37 @@ import java.time.LocalDateTime;
  * 待办事项实体
  */
 @Data
-@Entity
-@Table(name = "todo_item")
-@EntityListeners(AuditingEntityListener.class)
+@TableName("todo_item")
 public class TodoItem {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @TableId(type = IdType.AUTO)
     private Long id;
 
-    @Column(name = "user_id", nullable = false)
+    @TableField("user_id")
     private Long userId;
 
-    @Column(nullable = false, length = 200)
+    @TableField("title")
     private String title;
 
-    @Column(columnDefinition = "TEXT")
+    @TableField("description")
     private String description;
 
-    @Enumerated(EnumType.STRING)
-    @Column(length = 20)
-    private Priority priority = Priority.MEDIUM;
+    @TableField("priority")
+    private String priority = Priority.MEDIUM.name();
 
-    @Enumerated(EnumType.STRING)
-    @Column(length = 20)
-    private Status status = Status.PENDING;
+    @TableField("status")
+    private String status = Status.PENDING.name();
 
-    @Column(name = "due_date")
+    @TableField("due_date")
     private LocalDateTime dueDate;
 
-    @Column(name = "completed_at")
+    @TableField("completed_at")
     private LocalDateTime completedAt;
 
-    @CreatedDate
-    @Column(name = "created_at", nullable = false, updatable = false)
+    @TableField(value = "created_at", fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 
-    @LastModifiedDate
-    @Column(name = "updated_at", nullable = false)
+    @TableField(value = "updated_at", fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
 
     /**

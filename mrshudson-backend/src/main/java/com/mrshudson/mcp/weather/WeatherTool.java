@@ -34,7 +34,7 @@ public class WeatherTool implements BaseTool {
                             "properties", Map.of(
                                     "city", Map.of(
                                             "type", "string",
-                                            "description", "城市名称，如\"北京\"
+                                            "description", "城市名称，如北京"
                                     ),
                                     "date", Map.of(
                                             "type", "string",

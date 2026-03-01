@@ -1,9 +1,7 @@
 package com.mrshudson.domain.entity;
 
-import jakarta.persistence.*;
+import com.baomidou.mybatisplus.annotation.*;
 import lombok.Data;
-import org.springframework.data.annotation.CreatedDate;
-import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.LocalDateTime;
 
@@ -11,43 +9,37 @@ import java.time.LocalDateTime;
  * 提醒记录实体
  */
 @Data
-@Entity
-@Table(name = "reminder")
-@EntityListeners(AuditingEntityListener.class)
+@TableName("reminder")
 public class Reminder {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @TableId(type = IdType.AUTO)
     private Long id;
 
-    @Column(name = "user_id", nullable = false)
+    @TableField("user_id")
     private Long userId;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
-    private Type type;
+    @TableField("type")
+    private String type;
 
-    @Column(name = "ref_id")
+    @TableField("ref_id")
     private Long refId;
 
-    @Column(nullable = false, length = 200)
+    @TableField("title")
     private String title;
 
-    @Column(columnDefinition = "TEXT")
+    @TableField("content")
     private String content;
 
-    @Column(name = "remind_at", nullable = false)
+    @TableField("remind_at")
     private LocalDateTime remindAt;
 
-    @Column(name = "is_read")
+    @TableField("is_read")
     private Boolean isRead = false;
 
-    @Enumerated(EnumType.STRING)
-    @Column(length = 20)
-    private Channel channel = Channel.IN_APP;
+    @TableField("channel")
+    private String channel = Channel.IN_APP.name();
 
-    @CreatedDate
-    @Column(name = "created_at", nullable = false, updatable = false)
+    @TableField(value = "created_at", fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 
     /**
@@ -56,7 +48,8 @@ public class Reminder {
     public enum Type {
         EVENT,
         TODO,
-        WEATHER
+        WEATHER,
+        SYSTEM
     }
 
     /**

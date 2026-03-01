@@ -1,10 +1,7 @@
 package com.mrshudson.domain.entity;
 
-import jakarta.persistence.*;
+import com.baomidou.mybatisplus.annotation.*;
 import lombok.Data;
-import org.springframework.data.annotation.CreatedDate;
-import org.springframework.data.annotation.LastModifiedDate;
-import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.LocalDateTime;
 
@@ -12,52 +9,46 @@ import java.time.LocalDateTime;
  * 日历事件实体
  */
 @Data
-@Entity
-@Table(name = "calendar_event")
-@EntityListeners(AuditingEntityListener.class)
+@TableName("calendar_event")
 public class CalendarEvent {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @TableId(type = IdType.AUTO)
     private Long id;
 
-    @Column(name = "user_id", nullable = false)
+    @TableField("user_id")
     private Long userId;
 
-    @Column(nullable = false, length = 200)
+    @TableField("title")
     private String title;
 
-    @Column(columnDefinition = "TEXT")
+    @TableField("description")
     private String description;
 
-    @Column(name = "start_time", nullable = false)
+    @TableField("start_time")
     private LocalDateTime startTime;
 
-    @Column(name = "end_time", nullable = false)
+    @TableField("end_time")
     private LocalDateTime endTime;
 
-    @Column(length = 200)
+    @TableField("location")
     private String location;
 
-    @Enumerated(EnumType.STRING)
-    @Column(length = 20)
-    private Category category = Category.PERSONAL;
+    @TableField("category")
+    private String category = Category.PERSONAL.name();
 
-    @Column(name = "reminder_minutes")
+    @TableField("reminder_minutes")
     private Integer reminderMinutes = 15;
 
-    @Column(name = "is_recurring")
+    @TableField("is_recurring")
     private Boolean isRecurring = false;
 
-    @Column(name = "recurrence_rule", length = 100)
+    @TableField("recurrence_rule")
     private String recurrenceRule;
 
-    @CreatedDate
-    @Column(name = "created_at", nullable = false, updatable = false)
+    @TableField(value = "created_at", fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 
-    @LastModifiedDate
-    @Column(name = "updated_at", nullable = false)
+    @TableField(value = "updated_at", fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
 
     /**

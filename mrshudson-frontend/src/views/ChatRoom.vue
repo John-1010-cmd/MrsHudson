@@ -52,6 +52,12 @@
           :disabled="loading"
         />
         <div class="input-actions">
+          <VoiceInputButton
+            :disabled="loading"
+            :loading="loading"
+            @record="handleVoiceRecord"
+            @error="handleVoiceError"
+          />
           <el-button
             type="primary"
             :loading="loading"
@@ -72,6 +78,7 @@ import { ref, onMounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { UserFilled, Promotion } from '@element-plus/icons-vue'
 import * as chatApi from '../api/chat'
+import VoiceInputButton from '../components/VoiceInputButton.vue'
 
 interface Message {
   id: string
@@ -189,6 +196,73 @@ const sendMessage = async () => {
   }
 }
 
+// 处理语音录音
+const handleVoiceRecord = async (audioBlob: Blob, duration: number) => {
+  console.log('收到语音录音，时长:', duration, '秒')
+
+  // 添加用户语音消息（显示为语音标识）
+  const userMsg: Message = {
+    id: Date.now().toString(),
+    role: 'user',
+    content: `[语音消息 ${Math.round(duration)}秒]`,
+    createdAt: new Date().toISOString()
+  }
+  messages.value.push(userMsg)
+  scrollToBottom()
+
+  // 调用API
+  loading.value = true
+  try {
+    const format = audioBlob.type.includes('webm') ? 'webm' : 'wav'
+    const res = await chatApi.sendVoiceMessage(audioBlob, format, 16000)
+
+    if (res.code === 200) {
+      // 更新用户消息为识别文本
+      const lastMsg = messages.value[messages.value.length - 1]
+      if (lastMsg.role === 'user') {
+        lastMsg.content = `[语音] ${res.data.recognizedText}`
+      }
+
+      // 添加AI回复
+      const aiMsg: Message = {
+        id: res.data.messageId,
+        role: 'assistant',
+        content: res.data.content,
+        createdAt: res.data.createdAt,
+        toolCalls: res.data.functionCalls
+      }
+      messages.value.push(aiMsg)
+
+      ElMessage.success(`语音识别: ${res.data.recognizedText}`)
+    } else {
+      ElMessage.error(res.message || '语音识别失败')
+      messages.value.push({
+        id: 'error-' + Date.now(),
+        role: 'assistant',
+        content: '语音识别失败，请重试。',
+        createdAt: new Date().toISOString()
+      })
+    }
+  } catch (error) {
+    console.error('语音发送失败:', error)
+    ElMessage.error('语音处理失败，请重试')
+    messages.value.push({
+      id: 'error-' + Date.now(),
+      role: 'assistant',
+      content: '语音处理失败，请稍后重试。',
+      createdAt: new Date().toISOString()
+    })
+  } finally {
+    loading.value = false
+    scrollToBottom()
+  }
+}
+
+// 处理语音错误
+const handleVoiceError = (message: string) => {
+  ElMessage.error(message)
+}
+
 onMounted(() => {
   loadHistory()
   scrollToBottom()
@@ -280,6 +354,8 @@ onMounted(() => {
 .input-actions {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
 }
 
 /* 打字动画 */

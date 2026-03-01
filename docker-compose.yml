@@ -1,0 +1,107 @@
+version: '3.8'
+
+services:
+  # MySQL 数据库服务
+  mysql:
+    image: mysql:8.0
+    container_name: mrshudson-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-mrshudson_root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-mrshudson}
+      MYSQL_USER: ${MYSQL_USER:-mrshudson}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-mrshudson_pass}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mrshudson-backend/src/main/resources/db/migration:/docker-entrypoint-initdb.d
+    networks:
+      - mrshudson-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-mrshudson_root}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis 缓存服务
+  redis:
+    image: redis:7-alpine
+    container_name: mrshudson-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:-mrshudson_redis}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - mrshudson-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 后端服务
+  backend:
+    build:
+      context: ./mrshudson-backend
+      dockerfile: Dockerfile
+    container_name: mrshudson-backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # 数据库配置
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-mrshudson}?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-mrshudson}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-mrshudson_pass}
+      # Redis 配置
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:-mrshudson_redis}
+      # Kimi API 配置
+      KIMI_API_KEY: ${KIMI_API_KEY}
+      # 天气 API 配置
+      WEATHER_API_KEY: ${WEATHER_API_KEY}
+      # JVM 配置
+      JAVA_OPTS: ${JAVA_OPTS:--Xms512m -Xmx1024m}
+    ports:
+      - "8080:8080"
+    networks:
+      - mrshudson-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # 前端服务
+  frontend:
+    build:
+      context: ./mrshudson-frontend
+      dockerfile: Dockerfile
+    container_name: mrshudson-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+    networks:
+      - mrshudson-network
+
+# 数据卷定义
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# 网络定义
+networks:
+  mrshudson-network:
+    driver: bridge

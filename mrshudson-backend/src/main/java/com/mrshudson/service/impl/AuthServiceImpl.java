@@ -1,14 +1,13 @@
 package com.mrshudson.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.mrshudson.domain.dto.LoginRequest;
 import com.mrshudson.domain.entity.User;
-import com.mrshudson.repository.UserRepository;
+import com.mrshudson.mapper.UserMapper;
 import com.mrshudson.service.AuthService;
 import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 /**
@@ -19,7 +18,7 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class AuthServiceImpl implements AuthService {
 
-    private final UserRepository userRepository;
+    private final UserMapper userMapper;
     private final HttpSession httpSession;
 
     // Session中存储用户ID的key
@@ -30,8 +29,12 @@ public class AuthServiceImpl implements AuthService {
         log.info("用户登录: {}", request.getUsername());
 
         // 查找用户
-        User user = userRepository.findByUsername(request.getUsername())
-                .orElseThrow(() -> new RuntimeException("用户名或密码错误"));
+        User user = userMapper.selectOne(
+                new LambdaQueryWrapper<User>().eq(User::getUsername, request.getUsername())
+        );
+        if (user == null) {
+            throw new RuntimeException("用户名或密码错误");
+        }
 
         // Demo阶段：明文密码比较
         if (!request.getPassword().equals(user.getPassword())) {
@@ -58,8 +61,11 @@ public class AuthServiceImpl implements AuthService {
         if (userId == null) {
             throw new RuntimeException("用户未登录");
         }
-        return userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("用户不存在"));
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new RuntimeException("用户不存在");
+        }
+        return user;
     }
 
     /**

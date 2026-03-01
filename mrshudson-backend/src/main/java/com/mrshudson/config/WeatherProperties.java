@@ -13,17 +13,12 @@ import org.springframework.stereotype.Component;
 public class WeatherProperties {
 
     /**
-     * API密钥
+     * API密钥（高德地图Key）
      */
     private String apiKey;
 
     /**
-     * API基础URL（使用和风天气）
+     * API基础URL（高德地图）
      */
-    private String baseUrl = "https://devapi.qweather.com/v7";
-
-    /**
-     * Geo API URL（城市搜索）
-     */
-    private String geoUrl = "https://geoapi.qweather.com/v2";
+    private String baseUrl = "https://restapi.amap.com/v3";
 }
