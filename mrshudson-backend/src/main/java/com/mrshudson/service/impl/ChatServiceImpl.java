@@ -2,12 +2,15 @@ package com.mrshudson.service.impl;
 
 import com.alibaba.fastjson2.JSON;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.mrshudson.ai.AIProvider;
+import com.mrshudson.ai.AIService;
+import com.mrshudson.ai.AIServiceFactory;
 import com.mrshudson.domain.dto.*;
 import com.mrshudson.domain.entity.ChatMessage;
+import com.mrshudson.domain.entity.Conversation;
 import com.mrshudson.mapper.ChatMessageMapper;
+import com.mrshudson.mapper.ConversationMapper;
 import com.mrshudson.mcp.ToolRegistry;
-import com.mrshudson.mcp.kimi.KimiClient;
-import com.mrshudson.mcp.kimi.dto.ChatResponse;
 import com.mrshudson.mcp.kimi.dto.Message;
 import com.mrshudson.mcp.kimi.dto.ToolCall;
 import com.mrshudson.service.ChatService;
@@ -16,6 +19,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -23,6 +28,7 @@ import java.util.stream.Collectors;
 
 /**
  * 对话服务实现
+ * 支持多AI模型切换（Kimi, Kimi-for-coding）
  */
 @Slf4j
 @Service
@@ -30,14 +36,18 @@ import java.util.stream.Collectors;
 public class ChatServiceImpl implements ChatService {
 
     private final ChatMessageMapper chatMessageMapper;
-    private final KimiClient kimiClient;
+    private final ConversationMapper conversationMapper;
+    private final AIServiceFactory aiServiceFactory;
     private final ToolRegistry toolRegistry;
 
     /**
-     * 系统提示词
+     * 构建系统提示词（包含当前日期）
      */
-    private static final String SYSTEM_PROMPT = """
+    private String buildSystemPrompt() {
+        String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy年MM月dd日"));
+        return """
             你是MrsHudson（哈德森夫人），一位贴心的私人管家助手。
+            今天是%s。
 
             你可以帮助用户：
             - 查询天气并提供穿衣建议（使用get_weather工具）
@@ -56,83 +66,113 @@ public class ChatServiceImpl implements ChatService {
             当用户询问待办、任务、提醒、清单等时，主动使用待办工具。
             请用友好、专业的语气回复，适当使用表情符号。
             如果用户的问题超出你的能力范围，礼貌地说明。
-            """;
+            """.formatted(today);
+    }
 
     @Override
     @Transactional
     public SendMessageResponse sendMessage(Long userId, SendMessageRequest request) {
         String userContent = request.getMessage();
-        log.info("用户 {} 发送消息: {}", userId, userContent);
+        Long conversationId = request.getConversationId();
+        log.info("用户 {} 发送消息: {}, 会话ID: {}", userId, userContent, conversationId);
 
         // 1. 保存用户消息
         ChatMessage userMessage = new ChatMessage();
         userMessage.setUserId(userId);
         userMessage.setRole(ChatMessage.Role.USER.name());
         userMessage.setContent(userContent);
+        if (conversationId != null) {
+            userMessage.setConversationId(conversationId);
+        }
         chatMessageMapper.insert(userMessage);
 
         // 2. 构建消息列表（系统消息 + 历史消息 + 当前消息）
-        List<Message> messages = buildMessageList(userId, userContent);
+        List<Message> messages = buildMessageList(userId, conversationId, userContent);
 
-        // 3. 调用Kimi API
-        ChatResponse response = kimiClient.chatCompletion(
+        // 3. 获取当前AI服务并调用
+        AIService aiService = aiServiceFactory.getService();
+        AIService.ChatResult result = aiService.chatCompletionWithTools(
                 messages,
                 toolRegistry.getToolDefinitions()
         );
 
         // 4. 处理AI响应
-        Message aiMessage = response.getChoices().get(0).getMessage();
+        String aiContent = result.getContent();
+        List<ToolCall> toolCalls = result.getToolCalls();
         List<SendMessageResponse.ToolCallInfo> toolCallInfos = new ArrayList<>();
 
         // 处理工具调用
-        if (aiMessage.getToolCalls() != null && !aiMessage.getToolCalls().isEmpty()) {
-            log.info("AI调用工具，数量: {}", aiMessage.getToolCalls().size());
+        if (toolCalls != null && !toolCalls.isEmpty()) {
+            log.info("AI调用工具，数量: {}", toolCalls.size());
+            log.debug("工具调用详情: {}", JSON.toJSONString(toolCalls));
 
             List<Message> toolResults = new ArrayList<>();
-            toolResults.add(aiMessage);  // 添加AI的工具调用请求
+            // 添加AI的工具调用请求，content为空字符串时设为null
+            Message toolCallMessage = Message.builder()
+                    .role("assistant")
+                    .content((aiContent == null || aiContent.isEmpty()) ? null : aiContent)
+                    .toolCalls(toolCalls)
+                    .build();
+            toolResults.add(toolCallMessage);
 
-            for (ToolCall toolCall : aiMessage.getToolCalls()) {
+            for (ToolCall toolCall : toolCalls) {
                 String toolName = toolCall.getFunction().getName();
                 String arguments = toolCall.getFunction().getArguments();
+                String toolCallId = toolCall.getId();
+
+                log.debug("处理工具调用: id={}, name={}, arguments={}", toolCallId, toolName, arguments);
+
+                if (toolCallId == null || toolCallId.isEmpty()) {
+                    log.error("工具调用ID为空，跳过此工具调用");
+                    continue;
+                }
 
                 // 执行工具
-                String result = toolRegistry.executeTool(toolName, arguments);
+                String toolResult = toolRegistry.executeTool(toolName, arguments);
 
                 toolCallInfos.add(SendMessageResponse.ToolCallInfo.builder()
                         .name(toolName)
                         .arguments(arguments)
-                        .result(result)
+                        .result(toolResult)
                         .build());
 
                 // 添加工具响应消息
-                toolResults.add(Message.tool(toolCall.getId(), result));
+                toolResults.add(Message.tool(toolCallId, toolResult));
             }
 
-            // 再次调用Kimi获取最终回复
+            // 再次调用AI获取最终回复
             messages.addAll(toolResults);
-            ChatResponse finalResponse = kimiClient.chatCompletion(
+            AIService.ChatResult finalResult = aiService.chatCompletionWithTools(
                     messages,
                     toolRegistry.getToolDefinitions()
             );
-            aiMessage = finalResponse.getChoices().get(0).getMessage();
+            aiContent = finalResult.getContent();
         }
 
         // 5. 保存AI消息
         ChatMessage assistantMessage = new ChatMessage();
         assistantMessage.setUserId(userId);
         assistantMessage.setRole(ChatMessage.Role.ASSISTANT.name());
-        assistantMessage.setContent(aiMessage.getContent());
+        assistantMessage.setContent(aiContent);
+        if (conversationId != null) {
+            assistantMessage.setConversationId(conversationId);
+        }
         if (!toolCallInfos.isEmpty()) {
             assistantMessage.setFunctionCall(JSON.toJSONString(toolCallInfos));
         }
         chatMessageMapper.insert(assistantMessage);
 
-        log.info("AI回复: {}", aiMessage.getContent());
+        // 6. 更新会话最后消息时间（如果有会话ID）
+        if (conversationId != null) {
+            updateConversationLastMessageTime(conversationId);
+        }
 
-        // 6. 构建响应
+        log.info("AI回复: {}", aiContent);
+
+        // 7. 构建响应
         return SendMessageResponse.builder()
                 .messageId(assistantMessage.getId().toString())
-                .content(aiMessage.getContent())
+                .content(aiContent)
                 .functionCalls(toolCallInfos.isEmpty() ? null : toolCallInfos)
                 .createdAt(assistantMessage.getCreatedAt())
                 .build();
@@ -140,12 +180,12 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     public ChatHistoryResponse getChatHistory(Long userId, int limit) {
-        List<ChatMessage> messages = chatMessageMapper.selectList(
-                new LambdaQueryWrapper<ChatMessage>()
-                        .eq(ChatMessage::getUserId, userId)
-                        .orderByDesc(ChatMessage::getCreatedAt)
-                        .last("LIMIT 20")
-        );
+        LambdaQueryWrapper<ChatMessage> wrapper = new LambdaQueryWrapper<ChatMessage>()
+                .eq(ChatMessage::getUserId, userId)
+                .orderByAsc(ChatMessage::getCreatedAt)
+                .last("LIMIT " + limit);
+
+        List<ChatMessage> messages = chatMessageMapper.selectList(wrapper);
 
         List<ChatHistoryResponse.MessageInfo> messageInfos = messages.stream()
                 .map(msg -> ChatHistoryResponse.MessageInfo.builder()
@@ -161,26 +201,145 @@ public class ChatServiceImpl implements ChatService {
                 .build();
     }
 
+    @Override
+    public ChatHistoryResponse getChatHistoryByConversation(Long userId, Long conversationId, int limit) {
+        LambdaQueryWrapper<ChatMessage> wrapper = new LambdaQueryWrapper<ChatMessage>()
+                .eq(ChatMessage::getUserId, userId)
+                .eq(ChatMessage::getConversationId, conversationId)
+                .orderByAsc(ChatMessage::getCreatedAt)
+                .last("LIMIT " + limit);
+
+        List<ChatMessage> messages = chatMessageMapper.selectList(wrapper);
+
+        List<ChatHistoryResponse.MessageInfo> messageInfos = messages.stream()
+                .map(msg -> ChatHistoryResponse.MessageInfo.builder()
+                        .id(msg.getId().toString())
+                        .role(msg.getRole().toLowerCase())
+                        .content(msg.getContent())
+                        .createdAt(msg.getCreatedAt())
+                        .build())
+                .collect(Collectors.toList());
+
+        return ChatHistoryResponse.builder()
+                .messages(messageInfos)
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public ConversationDTO createConversation(Long userId, CreateConversationRequest request) {
+        Conversation conversation = new Conversation();
+        conversation.setUserId(userId);
+        conversation.setTitle(request.getTitle() != null ? request.getTitle() : "新对话");
+        conversation.setProvider(aiServiceFactory.getCurrentProvider().getCode());
+
+        conversationMapper.insert(conversation);
+
+        return convertToDTO(conversation);
+    }
+
+    @Override
+    public ConversationListResponse getConversationList(Long userId, int limit) {
+        LambdaQueryWrapper<Conversation> wrapper = new LambdaQueryWrapper<Conversation>()
+                .eq(Conversation::getUserId, userId)
+                .orderByDesc(Conversation::getLastMessageAt)
+                .last("LIMIT " + limit);
+
+        List<Conversation> conversations = conversationMapper.selectList(wrapper);
+
+        List<ConversationDTO> dtos = conversations.stream()
+                .map(this::convertToDTO)
+                .collect(Collectors.toList());
+
+        return ConversationListResponse.builder()
+                .conversations(dtos)
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public void deleteConversation(Long userId, Long conversationId) {
+        // 验证会话属于当前用户
+        Conversation conversation = conversationMapper.selectById(conversationId);
+        if (conversation == null || !conversation.getUserId().equals(userId)) {
+            throw new RuntimeException("会话不存在或无权限");
+        }
+
+        // 逻辑删除会话
+        conversationMapper.deleteById(conversationId);
+
+        // 删除该会话下的所有消息
+        LambdaQueryWrapper<ChatMessage> wrapper = new LambdaQueryWrapper<ChatMessage>()
+                .eq(ChatMessage::getConversationId, conversationId);
+        chatMessageMapper.delete(wrapper);
+    }
+
+    @Override
+    public AIProviderResponse getAIProviders() {
+        AIProvider current = aiServiceFactory.getCurrentProvider();
+
+        List<AIProviderResponse.ProviderInfo> providers = aiServiceFactory.getAvailableProviders().stream()
+                .map(p -> AIProviderResponse.ProviderInfo.builder()
+                        .code(p.getCode())
+                        .name(p.getName())
+                        .build())
+                .collect(Collectors.toList());
+
+        return AIProviderResponse.builder()
+                .currentProvider(current.getCode())
+                .providers(providers)
+                .build();
+    }
+
+    /**
+     * 更新会话最后消息时间
+     */
+    private void updateConversationLastMessageTime(Long conversationId) {
+        Conversation conversation = new Conversation();
+        conversation.setId(conversationId);
+        conversationMapper.updateById(conversation);
+    }
+
+    /**
+     * 转换会话实体为DTO
+     */
+    private ConversationDTO convertToDTO(Conversation conversation) {
+        ConversationDTO dto = new ConversationDTO();
+        dto.setId(conversation.getId().toString());
+        dto.setTitle(conversation.getTitle());
+        dto.setProvider(conversation.getProvider());
+        dto.setLastMessageAt(conversation.getLastMessageAt());
+        dto.setCreatedAt(conversation.getCreatedAt());
+        return dto;
+    }
+
     /**
      * 构建消息列表
      *
-     * @param userId      用户ID
-     * @param userContent 用户消息内容
+     * @param userId         用户ID
+     * @param conversationId 会话ID（可选）
+     * @param userContent    用户消息内容
      * @return 消息列表
      */
-    private List<Message> buildMessageList(Long userId, String userContent) {
+    private List<Message> buildMessageList(Long userId, Long conversationId, String userContent) {
         List<Message> messages = new ArrayList<>();
 
         // 添加系统消息
-        messages.add(Message.system(SYSTEM_PROMPT));
+        messages.add(Message.system(buildSystemPrompt()));
 
         // 获取历史消息（最近10条）
-        List<ChatMessage> history = chatMessageMapper.selectList(
-                new LambdaQueryWrapper<ChatMessage>()
-                        .eq(ChatMessage::getUserId, userId)
-                        .orderByDesc(ChatMessage::getCreatedAt)
-                        .last("LIMIT 20")
-        );
+        LambdaQueryWrapper<ChatMessage> wrapper = new LambdaQueryWrapper<ChatMessage>()
+                .eq(ChatMessage::getUserId, userId)
+                .orderByDesc(ChatMessage::getCreatedAt)
+                .last("LIMIT 20");
+
+        // 如果指定了会话ID，只获取该会话的消息
+        if (conversationId != null) {
+            wrapper.eq(ChatMessage::getConversationId, conversationId);
+        }
+
+        List<ChatMessage> history = chatMessageMapper.selectList(wrapper);
+
         // 反转顺序（按时间正序）
         List<ChatMessage> orderedHistory = new ArrayList<>(history);
         Collections.reverse(orderedHistory);

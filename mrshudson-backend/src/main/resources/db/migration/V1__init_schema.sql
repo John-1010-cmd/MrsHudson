@@ -14,15 +14,32 @@ CREATE TABLE IF NOT EXISTS user (
 INSERT INTO user (username, password) VALUES ('admin', 'admin')
 ON DUPLICATE KEY UPDATE password = 'admin';
 
+-- 会话表
+CREATE TABLE IF NOT EXISTS conversation (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    user_id BIGINT NOT NULL,
+    title VARCHAR(200) NOT NULL DEFAULT '新对话',
+    provider VARCHAR(50) DEFAULT 'kimi-for-coding',
+    last_message_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted TINYINT DEFAULT 0,
+    INDEX idx_user_last_msg (user_id, last_message_at),
+    INDEX idx_deleted (deleted),
+    FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- 对话记录表
 CREATE TABLE IF NOT EXISTS chat_message (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     user_id BIGINT NOT NULL,
+    conversation_id BIGINT NULL,
     role VARCHAR(20) NOT NULL COMMENT 'user, assistant, system',
     content TEXT NOT NULL,
     function_call JSON DEFAULT NULL COMMENT '函数调用信息',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_user_time (user_id, created_at),
+    INDEX idx_conversation (conversation_id),
     FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

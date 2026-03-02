@@ -47,13 +47,13 @@
           v-model="inputMessage"
           type="textarea"
           :rows="2"
-          placeholder="输入消息，按Enter发送..."
+          :placeholder="conversationId ? '输入消息，按Enter发送...' : '请先创建或选择一个对话'"
           @keyup.enter.exact="sendMessage"
-          :disabled="loading"
+          :disabled="loading || !conversationId"
         />
         <div class="input-actions">
           <VoiceInputButton
-            :disabled="loading"
+            :disabled="loading || !conversationId"
             :loading="loading"
             @record="handleVoiceRecord"
             @error="handleVoiceError"
@@ -62,7 +62,7 @@
             type="primary"
             :loading="loading"
             @click="sendMessage"
-            :disabled="!inputMessage.trim()"
+            :disabled="!inputMessage.trim() || !conversationId"
           >
             <el-icon><Promotion /></el-icon>
             发送
@@ -74,11 +74,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, onMounted, nextTick, watch, inject, type Ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { UserFilled, Promotion } from '@element-plus/icons-vue'
 import * as chatApi from '../api/chat'
 import VoiceInputButton from '../components/VoiceInputButton.vue'
+
+// 从父组件注入
+const conversationId = inject<Ref<string | null>>('currentConversationId', ref(null))
 
 interface Message {
   id: string
@@ -88,17 +91,52 @@ interface Message {
   toolCalls?: chatApi.ToolCallInfo[]
 }
 
-const messages = ref<Message[]>([
-  {
-    id: 'welcome',
-    role: 'assistant',
-    content: '您好！我是MrsHudson，您的私人管家助手。\n\n我可以帮您：\n🌤️ 查询天气\n📅 管理日程\n✅ 记录待办\n\n请问有什么可以帮您的吗？',
-    createdAt: new Date().toISOString()
-  }
-])
+const messages = ref<Message[]>([])
 const inputMessage = ref('')
 const loading = ref(false)
 const messageListRef = ref<HTMLElement>()
+
+// 监听会话ID变化，加载对应会话的消息
+watch(() => conversationId.value, (newId) => {
+  if (newId) {
+    loadConversationMessages(newId)
+  } else {
+    messages.value = [{
+      id: 'welcome',
+      role: 'assistant',
+      content: '您好！我是MrsHudson，您的私人管家助手。\n\n我可以帮您：\n🌤️ 查询天气\n📅 管理日程\n✅ 记录待办\n\n请选择左侧会话或创建新对话开始聊天。',
+      createdAt: new Date().toISOString()
+    }]
+  }
+}, { immediate: true })
+
+// 加载指定会话的消息
+const loadConversationMessages = async (conversationId: string) => {
+  try {
+    const res = await chatApi.getChatHistoryByConversation(conversationId, 50)
+    if (res.code === 200) {
+      if (res.data.messages.length > 0) {
+        messages.value = res.data.messages.map(msg => ({
+          id: msg.id,
+          role: msg.role as 'user' | 'assistant' | 'system',
+          content: msg.content,
+          createdAt: msg.createdAt
+        }))
+      } else {
+        messages.value = [{
+          id: 'welcome-' + conversationId,
+          role: 'assistant',
+          content: '新对话已开始！有什么我可以帮您的吗？',
+          createdAt: new Date().toISOString()
+        }]
+      }
+      scrollToBottom()
+    }
+  } catch (error) {
+    console.error('加载会话消息失败:', error)
+    ElMessage.error('加载消息失败')
+  }
+}
 
 // 格式化消息内容（简单的Markdown样式）
 const formatMessage = (content: string) => {
@@ -122,30 +160,15 @@ const scrollToBottom = () => {
   })
 }
 
-// 加载历史消息
-const loadHistory = async () => {
-  try {
-    const res = await chatApi.getChatHistory(20)
-    if (res.code === 200 && res.data.messages.length > 0) {
-      // 将历史消息合并到当前消息列表
-      const historyMessages = res.data.messages.map(msg => ({
-        id: msg.id,
-        role: msg.role as 'user' | 'assistant' | 'system',
-        content: msg.content,
-        createdAt: msg.createdAt
-      }))
-      // 保留欢迎消息，追加历史消息
-      messages.value = [messages.value[0], ...historyMessages]
-      scrollToBottom()
-    }
-  } catch (error) {
-    console.error('加载历史消息失败:', error)
-  }
-}
-
 const sendMessage = async () => {
   const content = inputMessage.value.trim()
   if (!content || loading.value) return
+
+  // 检查是否有选中的会话
+  if (!conversationId.value) {
+    ElMessage.warning('请先创建或选择一个对话')
+    return
+  }
 
   // 添加用户消息
   const userMsg: Message = {
@@ -161,7 +184,10 @@ const sendMessage = async () => {
   // 调用API
   loading.value = true
   try {
-    const res = await chatApi.sendMessage({ message: content })
+    const res = await chatApi.sendMessage({
+      message: content,
+      conversationId: conversationId.value
+    })
     if (res.code === 200) {
       const aiMsg: Message = {
         id: res.data.messageId,
@@ -200,6 +226,12 @@ const sendMessage = async () => {
 const handleVoiceRecord = async (audioBlob: Blob, duration: number) => {
   console.log('收到语音录音，时长:', duration, '秒')
 
+  // 检查是否有选中的会话
+  if (!conversationId.value) {
+    ElMessage.warning('请先创建或选择一个对话')
+    return
+  }
+
   // 添加用户语音消息（显示为语音标识）
   const userMsg: Message = {
     id: Date.now().toString(),
@@ -214,7 +246,7 @@ const handleVoiceRecord = async (audioBlob: Blob, duration: number) => {
   loading.value = true
   try {
     const format = audioBlob.type.includes('webm') ? 'webm' : 'wav'
-    const res = await chatApi.sendVoiceMessage(audioBlob, format, 16000)
+    const res = await chatApi.sendVoiceMessage(audioBlob, format, 16000, conversationId.value)
 
     if (res.code === 200) {
       // 更新用户消息为识别文本
@@ -264,7 +296,6 @@ const handleVoiceError = (message: string) => {
 }
 
 onMounted(() => {
-  loadHistory()
   scrollToBottom()
 })
 </script>

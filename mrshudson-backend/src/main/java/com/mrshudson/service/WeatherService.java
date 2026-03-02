@@ -4,6 +4,7 @@ import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.mrshudson.config.WeatherProperties;
+import com.mrshudson.domain.dto.WeatherDTO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -14,6 +15,8 @@ import org.springframework.web.util.UriComponentsBuilder;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 天气服务 - 使用高德地图天气API
@@ -27,7 +30,127 @@ public class WeatherService {
     private final RestTemplate restTemplate = new RestTemplate();
 
     /**
-     * 获取实时天气
+     * 获取实时天气DTO（供API使用）
+     *
+     * @param city 城市名称
+     * @return 天气DTO
+     */
+    public WeatherDTO getCurrentWeatherDTO(String city) {
+        try {
+            // 1. 获取城市编码
+            String cityCode = getCityCode(city);
+            if (cityCode == null) {
+                throw new RuntimeException("未找到城市：" + city);
+            }
+
+            // 2. 查询实时天气
+            URI uri = UriComponentsBuilder
+                    .fromHttpUrl(weatherProperties.getBaseUrl() + "/weather/weatherInfo")
+                    .queryParam("key", weatherProperties.getApiKey())
+                    .queryParam("city", cityCode)
+                    .queryParam("extensions", "base")
+                    .queryParam("output", "JSON")
+                    .build()
+                    .toUri();
+
+            ResponseEntity<String> response = restTemplate.getForEntity(uri, String.class);
+            JSONObject data = JSON.parseObject(response.getBody());
+
+            if (!"1".equals(data.getString("status"))) {
+                log.error("查询天气失败: {}", data.getString("info"));
+                throw new RuntimeException("查询天气失败：" + data.getString("info"));
+            }
+
+            JSONArray lives = data.getJSONArray("lives");
+            if (lives == null || lives.isEmpty()) {
+                throw new RuntimeException("暂无该城市天气信息");
+            }
+
+            JSONObject weather = lives.getJSONObject(0);
+            WeatherDTO dto = new WeatherDTO();
+            dto.setCity(weather.getString("city"));
+            dto.setTemperature(weather.getString("temperature"));
+            dto.setWeather(weather.getString("weather"));
+            dto.setHumidity(weather.getString("humidity"));
+            dto.setWindDirection(weather.getString("winddirection"));
+            dto.setWindPower(weather.getString("windpower"));
+            dto.setReportTime(weather.getString("reporttime"));
+
+            return dto;
+
+        } catch (Exception e) {
+            log.error("获取天气失败", e);
+            throw new RuntimeException("获取天气信息失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 获取天气预报DTO（供API使用）
+     *
+     * @param city 城市名称
+     * @param days 天数（1-7）
+     * @return 天气DTO（包含预报）
+     */
+    public WeatherDTO getWeatherForecastDTO(String city, int days) {
+        try {
+            // 限制天数范围（高德免费版支持4天预报）
+            days = Math.max(1, Math.min(days, 4));
+
+            // 1. 获取当前天气
+            WeatherDTO dto = getCurrentWeatherDTO(city);
+
+            // 2. 获取城市编码
+            String cityCode = getCityCode(city);
+
+            // 3. 查询预报天气
+            URI uri = UriComponentsBuilder
+                    .fromHttpUrl(weatherProperties.getBaseUrl() + "/weather/weatherInfo")
+                    .queryParam("key", weatherProperties.getApiKey())
+                    .queryParam("city", cityCode)
+                    .queryParam("extensions", "all")
+                    .queryParam("output", "JSON")
+                    .build()
+                    .toUri();
+
+            ResponseEntity<String> response = restTemplate.getForEntity(uri, String.class);
+            JSONObject data = JSON.parseObject(response.getBody());
+
+            if (!"1".equals(data.getString("status"))) {
+                log.error("查询天气预报失败: {}", data.getString("info"));
+                return dto;
+            }
+
+            JSONArray forecasts = data.getJSONArray("forecasts");
+            if (forecasts == null || forecasts.isEmpty()) {
+                return dto;
+            }
+
+            JSONObject forecast = forecasts.getJSONObject(0);
+            JSONArray casts = forecast.getJSONArray("casts");
+
+            // 4. 构建预报列表
+            List<WeatherDTO.ForecastDayDTO> forecastList = new ArrayList<>();
+            for (int i = 0; i < Math.min(days, casts.size()); i++) {
+                JSONObject day = casts.getJSONObject(i);
+                WeatherDTO.ForecastDayDTO dayDTO = new WeatherDTO.ForecastDayDTO();
+                dayDTO.setDate(day.getString("date"));
+                dayDTO.setWeather(day.getString("dayweather"));
+                dayDTO.setTempMin(day.getString("nighttemp"));
+                dayDTO.setTempMax(day.getString("daytemp"));
+                forecastList.add(dayDTO);
+            }
+            dto.setForecast(forecastList);
+
+            return dto;
+
+        } catch (Exception e) {
+            log.error("获取天气预报失败", e);
+            throw new RuntimeException("获取天气预报失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 获取实时天气（字符串格式，供MCP工具使用）
      *
      * @param city 城市名称
      * @return 天气信息字符串

@@ -1,6 +1,7 @@
 package com.mrshudson.config;
 
 import com.mrshudson.domain.dto.Result;
+import com.mrshudson.domain.dto.UnauthorizedException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.validation.BindException;
 import org.springframework.validation.FieldError;
@@ -15,6 +16,15 @@ import java.util.stream.Collectors;
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    /**
+     * 处理未授权异常（未登录或无权限）
+     */
+    @ExceptionHandler(UnauthorizedException.class)
+    public Result<Void> handleUnauthorizedException(UnauthorizedException e) {
+        log.warn("未授权访问: {}", e.getMessage());
+        return Result.error(401, e.getMessage());
+    }
 
     /**
      * 处理业务异常

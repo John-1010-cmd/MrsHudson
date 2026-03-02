@@ -92,7 +92,7 @@ const form = ref({
   title: '',
   timeRange: [] as string[],
   location: '',
-  category: 'PERSONAL' as const,
+  category: 'PERSONAL' as 'WORK' | 'PERSONAL' | 'FAMILY',
   reminderMinutes: 15,
   description: ''
 })

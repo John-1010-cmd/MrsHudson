@@ -27,6 +27,12 @@ public class ChatMessage {
     @TableField("function_call")
     private String functionCall;
 
+    /**
+     * 会话ID
+     */
+    @TableField("conversation_id")
+    private Long conversationId;
+
     @TableField(value = "created_at", fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 

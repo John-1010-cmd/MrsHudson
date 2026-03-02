@@ -2,6 +2,7 @@ package com.mrshudson.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.mrshudson.domain.dto.LoginRequest;
+import com.mrshudson.domain.dto.UnauthorizedException;
 import com.mrshudson.domain.entity.User;
 import com.mrshudson.mapper.UserMapper;
 import com.mrshudson.service.AuthService;
@@ -59,11 +60,11 @@ public class AuthServiceImpl implements AuthService {
     public User getCurrentUser() {
         Long userId = (Long) httpSession.getAttribute(USER_ID_KEY);
         if (userId == null) {
-            throw new RuntimeException("用户未登录");
+            throw new UnauthorizedException("用户未登录");
         }
         User user = userMapper.selectById(userId);
         if (user == null) {
-            throw new RuntimeException("用户不存在");
+            throw new UnauthorizedException("用户不存在");
         }
         return user;
     }
@@ -74,7 +75,7 @@ public class AuthServiceImpl implements AuthService {
     public Long getCurrentUserId() {
         Long userId = (Long) httpSession.getAttribute(USER_ID_KEY);
         if (userId == null) {
-            throw new RuntimeException("用户未登录");
+            throw new UnauthorizedException("用户未登录");
         }
         return userId;
     }

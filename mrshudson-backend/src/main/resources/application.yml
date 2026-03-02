@@ -52,12 +52,18 @@ logging:
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
 
-# Kimi AI Configuration
-kimi:
-  api-key: ${KIMI_API_KEY:}
-  base-url: https://api.moonshot.cn/v1
-  model: moonshot-v1-8k
-  timeout: 30000
+# AI Model Configuration
+# 支持: kimi (通用), kimi-for-coding (编程专用)
+# 备选: zhipu(智谱GLM4), qwen(通义千问) - 暂未实现
+ai:
+  provider: ${AI_PROVIDER:kimi}
+  kimi:
+    api-key: ${KIMI_API_KEY:}
+    base-url: https://api.moonshot.cn/v1
+    model: moonshot-v1-8k
+    timeout: 30000
+    temperature: 0.7
+    max-tokens: 4096
 
 # Voice Recognition Configuration (讯飞语音)
 voice:

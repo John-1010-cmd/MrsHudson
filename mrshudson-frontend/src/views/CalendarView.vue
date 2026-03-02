@@ -63,7 +63,7 @@
 
     <!-- 创建/编辑事件弹窗 -->
     <EventDialog
-      v-model:visible="dialogVisible"
+      v-model="dialogVisible"
       :initial-date="selectedDate"
       :event="editingEvent"
       @save="handleSaveEvent"
@@ -132,7 +132,8 @@ const calendarDays = computed(() => {
   const month = currentDate.value.getMonth()
 
   const firstDay = new Date(year, month, 1)
-  const lastDay = new Date(year, month + 1, 0)
+  // 获取当月最后一天（预留用于后续扩展）
+  void new Date(year, month + 1, 0)
 
   const startDate = new Date(firstDay)
   startDate.setDate(startDate.getDate() - firstDay.getDay())

@@ -1,6 +1,7 @@
 package com.mrshudson.mcp.kimi;
 
 import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.filter.PropertyFilter;
 import com.mrshudson.mcp.kimi.dto.ChatRequest;
 import com.mrshudson.mcp.kimi.dto.ChatResponse;
 import com.mrshudson.mcp.kimi.dto.Message;
@@ -23,6 +24,17 @@ public class KimiClient {
 
     private final KimiProperties kimiProperties;
     private final RestTemplate restTemplate = new RestTemplate();
+
+    /**
+     * 属性过滤器：过滤掉 Message 对象中为 null 的 name 字段
+     * Kimi API 要求 tool 消息不能包含 name 字段
+     */
+    private static final PropertyFilter MESSAGE_NAME_FILTER = (object, name, value) -> {
+        if (object instanceof Message && "name".equals(name) && value == null) {
+            return false; // 跳过 null 的 name 字段
+        }
+        return true;
+    };
 
     /**
      * 对话完成
@@ -49,10 +61,19 @@ public class KimiClient {
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setBearerAuth(kimiProperties.getApiKey());
 
-        HttpEntity<ChatRequest> entity = new HttpEntity<>(request, headers);
+        // 调试：打印API Key前10个字符（隐藏敏感信息）
+        String apiKey = kimiProperties.getApiKey();
+        String maskedKey = apiKey != null && apiKey.length() > 10
+                ? apiKey.substring(0, 10) + "..."
+                : "null or empty";
+        log.debug("调用Kimi API，API Key: {}, 消息数: {}, 工具数: {}",
+                maskedKey, messages.size(), tools != null ? tools.size() : 0);
 
-        log.debug("调用Kimi API，消息数: {}, 工具数: {}",
-                messages.size(), tools != null ? tools.size() : 0);
+        // 序列化请求体（保留null值字段，但过滤掉Message中为null的name字段）
+        String requestBody = JSON.toJSONString(request, MESSAGE_NAME_FILTER, com.alibaba.fastjson2.JSONWriter.Feature.WriteMapNullValue);
+        log.debug("Kimi API请求体: {}", requestBody);
+
+        HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
 
         try {
             // 发送请求

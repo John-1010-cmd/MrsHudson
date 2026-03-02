@@ -50,11 +50,7 @@ public class AuthController {
      */
     @GetMapping("/me")
     public Result<LoginResponse> getCurrentUser() {
-        try {
-            User user = authService.getCurrentUser();
-            return Result.success(LoginResponse.fromUser(user));
-        } catch (RuntimeException e) {
-            return Result.error(401, e.getMessage());
-        }
+        User user = authService.getCurrentUser();
+        return Result.success(LoginResponse.fromUser(user));
     }
 }

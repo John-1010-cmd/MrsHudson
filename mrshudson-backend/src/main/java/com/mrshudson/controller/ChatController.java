@@ -32,14 +32,9 @@ public class ChatController {
      */
     @PostMapping("/send")
     public Result<SendMessageResponse> sendMessage(@Valid @RequestBody SendMessageRequest request) {
-        try {
-            Long userId = authService.getCurrentUser().getId();
-            SendMessageResponse response = chatService.sendMessage(userId, request);
-            return Result.success(response);
-        } catch (RuntimeException e) {
-            log.warn("发送消息失败: {}", e.getMessage());
-            return Result.error(e.getMessage());
-        }
+        Long userId = authService.getCurrentUser().getId();
+        SendMessageResponse response = chatService.sendMessage(userId, request);
+        return Result.success(response);
     }
 
     /**
@@ -48,14 +43,61 @@ public class ChatController {
     @GetMapping("/history")
     public Result<ChatHistoryResponse> getHistory(
             @RequestParam(defaultValue = "20") int limit) {
-        try {
-            Long userId = authService.getCurrentUser().getId();
-            ChatHistoryResponse response = chatService.getChatHistory(userId, limit);
-            return Result.success(response);
-        } catch (RuntimeException e) {
-            log.warn("获取历史失败: {}", e.getMessage());
-            return Result.error(e.getMessage());
-        }
+        Long userId = authService.getCurrentUser().getId();
+        ChatHistoryResponse response = chatService.getChatHistory(userId, limit);
+        return Result.success(response);
+    }
+
+    /**
+     * 获取指定会话的对话历史
+     */
+    @GetMapping("/history/{conversationId}")
+    public Result<ChatHistoryResponse> getHistoryByConversation(
+            @PathVariable Long conversationId,
+            @RequestParam(defaultValue = "50") int limit) {
+        Long userId = authService.getCurrentUser().getId();
+        ChatHistoryResponse response = chatService.getChatHistoryByConversation(userId, conversationId, limit);
+        return Result.success(response);
+    }
+
+    /**
+     * 创建新会话
+     */
+    @PostMapping("/conversation")
+    public Result<ConversationDTO> createConversation(@RequestBody CreateConversationRequest request) {
+        Long userId = authService.getCurrentUser().getId();
+        ConversationDTO response = chatService.createConversation(userId, request);
+        return Result.success(response);
+    }
+
+    /**
+     * 获取会话列表
+     */
+    @GetMapping("/conversations")
+    public Result<ConversationListResponse> getConversationList(
+            @RequestParam(defaultValue = "20") int limit) {
+        Long userId = authService.getCurrentUser().getId();
+        ConversationListResponse response = chatService.getConversationList(userId, limit);
+        return Result.success(response);
+    }
+
+    /**
+     * 删除会话
+     */
+    @DeleteMapping("/conversation/{conversationId}")
+    public Result<Void> deleteConversation(@PathVariable Long conversationId) {
+        Long userId = authService.getCurrentUser().getId();
+        chatService.deleteConversation(userId, conversationId);
+        return Result.success();
+    }
+
+    /**
+     * 获取AI提供者信息
+     */
+    @GetMapping("/providers")
+    public Result<AIProviderResponse> getAIProviders() {
+        AIProviderResponse response = chatService.getAIProviders();
+        return Result.success(response);
     }
 
     /**
@@ -66,51 +108,44 @@ public class ChatController {
             @RequestParam("audio") MultipartFile audioFile,
             @RequestParam(value = "format", defaultValue = "wav") String format,
             @RequestParam(value = "sampleRate", defaultValue = "16000") Integer sampleRate,
-            @RequestParam(value = "sessionId", required = false) String sessionId) {
-        try {
-            Long userId = authService.getCurrentUser().getId();
+            @RequestParam(value = "sessionId", required = false) String sessionId,
+            @RequestParam(value = "conversationId", required = false) Long conversationId) {
+        Long userId = authService.getCurrentUser().getId();
 
-            // 1. 语音识别
-            log.info("收到语音消息，用户ID: {}, 文件大小: {} bytes", userId, audioFile.getSize());
-            String recognizedText = voiceService.speechToText(audioFile, format, sampleRate);
-            log.info("语音识别结果: {}", recognizedText);
+        // 1. 语音识别
+        log.info("收到语音消息，用户ID: {}, 文件大小: {} bytes", userId, audioFile.getSize());
+        String recognizedText = voiceService.speechToText(audioFile, format, sampleRate);
+        log.info("语音识别结果: {}", recognizedText);
 
-            // 2. 构造消息请求
-            SendMessageRequest request = new SendMessageRequest();
-            request.setMessage(recognizedText);
-            request.setSessionId(sessionId);
+        // 2. 构造消息请求
+        SendMessageRequest request = new SendMessageRequest();
+        request.setMessage(recognizedText);
+        request.setSessionId(sessionId);
+        request.setConversationId(conversationId);
 
-            // 3. 调用对话服务
-            SendMessageResponse chatResponse = chatService.sendMessage(userId, request);
+        // 3. 调用对话服务
+        SendMessageResponse chatResponse = chatService.sendMessage(userId, request);
 
-            // 4. 构造语音消息响应
-            VoiceMessageResponse response = new VoiceMessageResponse();
-            response.setMessageId(chatResponse.getMessageId());
-            response.setRecognizedText(recognizedText);
-            response.setContent(chatResponse.getContent());
-            response.setCreatedAt(chatResponse.getCreatedAt().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+        // 4. 构造语音消息响应
+        VoiceMessageResponse response = new VoiceMessageResponse();
+        response.setMessageId(chatResponse.getMessageId());
+        response.setRecognizedText(recognizedText);
+        response.setContent(chatResponse.getContent());
+        response.setCreatedAt(chatResponse.getCreatedAt().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
 
-            // 转换函数调用信息
-            if (chatResponse.getFunctionCalls() != null && !chatResponse.getFunctionCalls().isEmpty()) {
-                java.util.List<VoiceMessageResponse.ToolCallInfo> toolCalls = new ArrayList<>();
-                for (var func : chatResponse.getFunctionCalls()) {
-                    VoiceMessageResponse.ToolCallInfo toolCall = new VoiceMessageResponse.ToolCallInfo();
-                    toolCall.setName(func.getName());
-                    toolCall.setArguments(func.getArguments());
-                    toolCall.setResult(func.getResult());
-                    toolCalls.add(toolCall);
-                }
-                response.setFunctionCalls(toolCalls);
+        // 转换函数调用信息
+        if (chatResponse.getFunctionCalls() != null && !chatResponse.getFunctionCalls().isEmpty()) {
+            java.util.List<VoiceMessageResponse.ToolCallInfo> toolCalls = new ArrayList<>();
+            for (var func : chatResponse.getFunctionCalls()) {
+                VoiceMessageResponse.ToolCallInfo toolCall = new VoiceMessageResponse.ToolCallInfo();
+                toolCall.setName(func.getName());
+                toolCall.setArguments(func.getArguments());
+                toolCall.setResult(func.getResult());
+                toolCalls.add(toolCall);
             }
-
-            return Result.success(response);
-
-        } catch (RuntimeException e) {
-            log.warn("语音消息处理失败: {}", e.getMessage());
-            return Result.error(e.getMessage());
-        } catch (Exception e) {
-            log.error("语音消息处理异常", e);
-            return Result.error("语音处理失败: " + e.getMessage());
+            response.setFunctionCalls(toolCalls);
         }
+
+        return Result.success(response);
     }
 }

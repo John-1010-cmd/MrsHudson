@@ -25,6 +25,7 @@ public class Message {
     /**
      * 内容
      */
+    @JSONField(serializeFeatures = com.alibaba.fastjson2.JSONWriter.Feature.WriteMapNullValue)
     private String content;
 
     /**
@@ -40,7 +41,7 @@ public class Message {
     private String toolCallId;
 
     /**
-     * 名称（tool消息中）
+     * 名称（function角色消息中使用，tool消息中不应出现）
      */
     private String name;
 

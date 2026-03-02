@@ -19,4 +19,9 @@ public class SendMessageRequest {
      * 会话ID（可选，用于多轮对话）
      */
     private String sessionId;
+
+    /**
+     * 对话会话ID（可选，用于关联会话）
+     */
+    private Long conversationId;
 }

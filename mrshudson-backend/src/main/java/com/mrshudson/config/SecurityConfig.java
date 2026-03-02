@@ -23,10 +23,8 @@ public class SecurityConfig {
             .csrf(AbstractHttpConfigurer::disable)
             // 配置授权规则
             .authorizeHttpRequests(auth -> auth
-                // 登录接口放行
-                .requestMatchers("/api/auth/**").permitAll()
-                // 其他接口需要认证
-                .anyRequest().authenticated()
+                // 所有请求放行，由Controller层进行登录校验
+                .anyRequest().permitAll()
             )
             // 配置session管理
             .sessionManagement(session -> session

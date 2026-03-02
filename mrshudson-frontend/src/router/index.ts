@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { useUserStore } from '../stores/user'
 
 const router = createRouter({
-  history: createWebHistory(import.meta.env.BASE_URL),
+  history: createWebHistory(),
   routes: [
     {
       path: '/',
@@ -28,6 +28,11 @@ const router = createRouter({
           path: 'todo',
           name: 'todo',
           component: () => import('../views/TodoView.vue')
+        },
+        {
+          path: 'weather',
+          name: 'weather',
+          component: () => import('../views/WeatherView.vue')
         }
       ]
     },
@@ -41,7 +46,7 @@ const router = createRouter({
 })
 
 // 路由守卫
-router.beforeEach(async (to, from, next) => {
+router.beforeEach(async (to, _from, next) => {
   const userStore = useUserStore()
 
   // 检查登录状态
