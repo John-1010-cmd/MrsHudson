@@ -2,27 +2,35 @@
   <div class="chat-room">
     <!-- 消息列表 -->
     <div class="message-list" ref="messageListRef">
-      <div
-        v-for="msg in messages"
-        :key="msg.id"
-        :class="['message', msg.role === 'user' ? 'user-message' : 'ai-message']"
-      >
-        <div class="message-avatar">
-          <el-avatar v-if="msg.role === 'assistant'" :size="40" :style="{ background: '#409eff' }">
-            🤖
-          </el-avatar>
-          <el-avatar v-else :size="40" :icon="UserFilled" />
-        </div>
-        <div class="message-content">
-          <div class="message-bubble" v-html="formatMessage(msg.content)"></div>
-          <!-- 工具调用显示 -->
-          <div v-if="msg.toolCalls && msg.toolCalls.length > 0" class="tool-calls">
-            <div v-for="(tool, index) in msg.toolCalls" :key="index" class="tool-call">
-              <el-tag size="small" type="info">🔧 {{ tool.name }}</el-tag>
-            </div>
+      <!-- 消息列表内容 -->
+      <template v-if="messages.length > 0">
+        <div
+          v-for="msg in messages"
+          :key="msg.id"
+          :class="['message', msg.role === 'user' ? 'user-message' : 'ai-message']"
+        >
+          <div class="message-avatar">
+            <el-avatar v-if="msg.role === 'assistant'" :size="40" :style="{ background: '#409eff' }">
+              🤖
+            </el-avatar>
+            <el-avatar v-else :size="40" :icon="UserFilled" />
           </div>
-          <div class="message-time">{{ formatTime(msg.createdAt) }}</div>
+          <div class="message-content">
+            <div class="message-bubble" v-html="formatMessage(msg.content)"></div>
+            <!-- 工具调用显示 -->
+            <div v-if="msg.toolCalls && msg.toolCalls.length > 0" class="tool-calls">
+              <div v-for="(tool, index) in msg.toolCalls" :key="index" class="tool-call">
+                <el-tag size="small" type="info">🔧 {{ tool.name }}</el-tag>
+              </div>
+            </div>
+            <div class="message-time">{{ formatTime(msg.createdAt) }}</div>
+          </div>
         </div>
+      </template>
+
+      <!-- 空状态 -->
+      <div v-else-if="messages.length === 0 && !loading" class="empty-state">
+        <el-empty description="暂无消息，开始对话吧" />
       </div>
 
       <!-- 加载状态 -->
@@ -81,7 +89,13 @@ import * as chatApi from '../api/chat'
 import VoiceInputButton from '../components/VoiceInputButton.vue'
 
 // 从父组件注入
-const conversationId = inject<Ref<string | null>>('currentConversationId', ref(null))
+const injectedId = inject('currentConversationId')
+const conversationId = injectedId as Ref<string | null> | undefined
+
+// 确保有值，否则报错
+if (!conversationId) {
+  console.error('ChatRoom: 无法注入 currentConversationId')
+}
 
 interface Message {
   id: string
@@ -97,9 +111,10 @@ const loading = ref(false)
 const messageListRef = ref<HTMLElement>()
 
 // 监听会话ID变化，加载对应会话的消息
-watch(() => conversationId.value, (newId) => {
+watch(() => conversationId?.value, async (newId, oldId) => {
+  console.log('ChatRoom: conversationId 变化:', newId, '旧值:', oldId)
   if (newId) {
-    loadConversationMessages(newId)
+    await loadConversationMessages(newId)
   } else {
     messages.value = [{
       id: 'welcome',
@@ -112,8 +127,18 @@ watch(() => conversationId.value, (newId) => {
 
 // 加载指定会话的消息
 const loadConversationMessages = async (conversationId: string) => {
+  if (!conversationId) {
+    console.warn('ChatRoom: conversationId 为空，跳过加载')
+    return
+  }
+
+  console.log('ChatRoom: 开始加载会话消息:', conversationId)
+  loading.value = true
+
   try {
     const res = await chatApi.getChatHistoryByConversation(conversationId, 50)
+    console.log('ChatRoom: API 响应:', res.code, res.data?.messages?.length)
+
     if (res.code === 200) {
       if (res.data.messages.length > 0) {
         messages.value = res.data.messages.map(msg => ({
@@ -122,6 +147,7 @@ const loadConversationMessages = async (conversationId: string) => {
           content: msg.content,
           createdAt: msg.createdAt
         }))
+        console.log('ChatRoom: 加载消息成功，数量:', messages.value.length)
       } else {
         messages.value = [{
           id: 'welcome-' + conversationId,
@@ -129,12 +155,18 @@ const loadConversationMessages = async (conversationId: string) => {
           content: '新对话已开始！有什么我可以帮您的吗？',
           createdAt: new Date().toISOString()
         }]
+        console.log('ChatRoom: 会话无历史消息，显示欢迎语')
       }
       scrollToBottom()
+    } else {
+      console.error('ChatRoom: API 返回错误:', res.message)
+      ElMessage.error(res.message || '加载消息失败')
     }
   } catch (error) {
-    console.error('加载会话消息失败:', error)
-    ElMessage.error('加载消息失败')
+    console.error('ChatRoom: 加载会话消息失败:', error)
+    ElMessage.error('加载消息失败，请检查网络连接')
+  } finally {
+    loading.value = false
   }
 }
 
@@ -146,10 +178,14 @@ const formatMessage = (content: string) => {
 }
 
 const formatTime = (time: string) => {
-  return new Date(time).toLocaleTimeString('zh-CN', {
-    hour: '2-digit',
-    minute: '2-digit'
-  })
+  const date = new Date(time)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hour = String(date.getHours()).padStart(2, '0')
+  const minute = String(date.getMinutes()).padStart(2, '0')
+
+  return `${year}-${month}-${day} ${hour}:${minute}`
 }
 
 const scrollToBottom = () => {
@@ -296,6 +332,13 @@ const handleVoiceError = (message: string) => {
 }
 
 onMounted(() => {
+  console.log('ChatRoom: onMounted, conversationId:', conversationId?.value)
+  // 确保当前会话消息已加载
+  if (conversationId?.value) {
+    loadConversationMessages(conversationId.value)
+  } else {
+    console.warn('ChatRoom: 没有可用的 conversationId')
+  }
   scrollToBottom()
 })
 </script>
@@ -387,6 +430,15 @@ onMounted(() => {
   justify-content: flex-end;
   align-items: center;
   gap: 12px;
+}
+
+/* 空状态 */
+.empty-state {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  padding: 40px;
 }
 
 /* 打字动画 */

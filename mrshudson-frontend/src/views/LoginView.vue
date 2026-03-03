@@ -78,12 +78,12 @@ const handleLogin = async () => {
   const valid = await formRef.value?.validate().catch(() => false)
   if (!valid) return
 
-  const success = await userStore.login(form.username, form.password)
-  if (success) {
+  const result = await userStore.login(form.username, form.password)
+  if (result.success) {
     ElMessage.success('登录成功')
     router.push('/')
   } else {
-    ElMessage.error('用户名或密码错误')
+    ElMessage.error(result.message || '用户名或密码错误')
   }
 }
 </script>

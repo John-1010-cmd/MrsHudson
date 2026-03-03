@@ -83,3 +83,16 @@ voice:
 weather:
   api-key: ${WEATHER_API_KEY:}
   base-url: https://restapi.amap.com/v3
+
+# JWT Configuration
+jwt:
+  # 密钥（建议使用至少256位的随机字符串）
+  secret: ${JWT_SECRET:mrshudson-jwt-secret-key-change-in-production}
+  # Access Token 过期时间（毫秒）
+  access-token-expiration: 3600000  # 1小时
+  # Refresh Token 过期时间（毫秒）
+  refresh-token-expiration: 604800000  # 7天
+  # Token 前缀
+  token-prefix: Bearer
+  # Token 请求头名称
+  header-name: Authorization

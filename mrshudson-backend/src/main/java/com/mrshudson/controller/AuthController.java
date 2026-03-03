@@ -28,10 +28,25 @@ public class AuthController {
     public Result<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
         log.info("登录请求: {}", request.getUsername());
         try {
-            User user = authService.login(request);
-            return Result.success(LoginResponse.fromUser(user));
+            LoginResponse response = authService.login(request);
+            return Result.success(response);
         } catch (RuntimeException e) {
             log.warn("登录失败: {}", e.getMessage());
+            return Result.error(401, e.getMessage());
+        }
+    }
+
+    /**
+     * 刷新 Token
+     */
+    @PostMapping("/refresh")
+    public Result<LoginResponse> refreshToken(@RequestHeader("X-Refresh-Token") String refreshToken) {
+        log.info("Token 刷新请求");
+        try {
+            LoginResponse response = authService.refreshToken(refreshToken);
+            return Result.success(response);
+        } catch (RuntimeException e) {
+            log.warn("Token 刷新失败: {}", e.getMessage());
             return Result.error(401, e.getMessage());
         }
     }

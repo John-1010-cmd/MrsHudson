@@ -49,8 +49,8 @@ const router = createRouter({
 router.beforeEach(async (to, _from, next) => {
   const userStore = useUserStore()
 
-  // 检查登录状态
-  if (!userStore.isLoggedIn) {
+  // 检查登录状态（排除登录页，避免不必要的请求）
+  if (!userStore.isLoggedIn && to.path !== '/login') {
     await userStore.fetchCurrentUser()
   }
 

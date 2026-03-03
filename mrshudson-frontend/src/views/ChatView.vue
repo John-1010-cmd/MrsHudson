@@ -69,7 +69,7 @@
 
     <!-- 主内容区 -->
     <main class="chat-main">
-      <RouterView />
+      <RouterView :key="route.fullPath" />
     </main>
   </div>
 </template>
@@ -77,6 +77,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, provide, readonly } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { RouterView } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ChatDotRound,
@@ -138,6 +139,11 @@ const createNewConversation = async () => {
 // 切换会话
 const switchConversation = (id: string) => {
   currentConversationId.value = id
+
+  // 如果当前不在对话页面，导航到对话页面
+  if (!route.path.startsWith('/chat') && route.path !== '/') {
+    router.push('/chat')
+  }
 }
 
 // 删除会话
@@ -172,9 +178,9 @@ const handleLogout = async () => {
   router.push('/login')
 }
 
-// 提供给子组件
-provide('currentConversationId', readonly(currentConversationId))
-provide('conversations', readonly(conversations))
+// 提供给子组件 - 不使用 readonly，直接提供 ref，让子组件可以响应式监听
+provide('currentConversationId', currentConversationId)
+provide('conversations', conversations)
 provide('switchConversation', switchConversation)
 provide('createNewConversation', createNewConversation)
 

@@ -1,0 +1,107 @@
+# Docker Compose - 向量数据库扩展配置
+# 使用方法:
+# 1. 仅基础服务: docker-compose up -d
+# 2. 包含Chroma: docker-compose -f docker-compose.yml -f docker-compose.vector.yml up -d
+# 3. 仅启动Chroma: docker-compose -f docker-compose.vector.yml up -d chroma
+
+version: '3.8'
+
+services:
+  # Chroma 向量数据库（轻量级，推荐用于开发和中小规模生产）
+  chroma:
+    image: chromadb/chroma:0.4.22
+    container_name: mrshudson-chroma
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=/chroma/chroma
+      - ANONYMIZED_TELEMETRY=FALSE
+    networks:
+      - mrshudson-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Milvus 向量数据库（高性能，用于大规模生产）
+  # 取消注释以下服务以使用Milvus
+  # etcd:
+  #   container_name: milvus-etcd
+  #   image: quay.io/coreos/etcd:v3.5.5
+  #   environment:
+  #     - ETCD_AUTO_COMPACTION_MODE=revision
+  #     - ETCD_AUTO_COMPACTION_RETENTION=1000
+  #     - ETCD_QUOTA_BACKEND_BYTES=4294967296
+  #     - ETCD_SNAPSHOT_COUNT=50000
+  #   volumes:
+  #     - etcd_data:/etcd
+  #   command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+  #   networks:
+  #     - mrshudson-network
+
+  # minio:
+  #   container_name: milvus-minio
+  #   image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+  #   environment:
+  #     MINIO_ACCESS_KEY: minioadmin
+  #     MINIO_SECRET_KEY: minioadmin
+  #   ports:
+  #     - "9001:9001"
+  #     - "9000:9000"
+  #   volumes:
+  #     - minio_data:/minio_data
+  #   command: minio server /minio_data --console-address ":9001"
+  #   networks:
+  #     - mrshudson-network
+
+  # milvus:
+  #   container_name: milvus-standalone
+  #   image: milvusdb/milvus:v2.3.3
+  #   command: ["milvus", "run", "standalone"]
+  #   environment:
+  #     ETCD_ENDPOINTS: etcd:2379
+  #     MINIO_ADDRESS: minio:9000
+  #   ports:
+  #     - "19530:19530"
+  #     - "9091:9091"
+  #   volumes:
+  #     - milvus_data:/var/lib/milvus
+  #   depends_on:
+  #     - etcd
+  #     - minio
+  #   networks:
+  #     - mrshudson-network
+
+  # 更新后端服务配置，添加向量数据库连接
+  backend:
+    environment:
+      # 向量存储配置
+      VECTOR_STORE_TYPE: ${VECTOR_STORE_TYPE:-redis}
+      CHROMA_HOST: ${CHROMA_HOST:-chroma}
+      CHROMA_PORT: ${CHROMA_PORT:-8000}
+      # Milvus配置（如使用）
+      # MILVUS_HOST: ${MILVUS_HOST:-milvus}
+      # MILVUS_PORT: ${MILVUS_PORT:-19530}
+    depends_on:
+      - chroma
+      # - milvus  # 如使用Milvus则取消注释
+
+volumes:
+  chroma_data:
+    driver: local
+  # etcd_data:
+  #   driver: local
+  # minio_data:
+  #   driver: local
+  # milvus_data:
+  #   driver: local
+
+# 使用现有网络
+networks:
+  mrshudson-network:
+    external: true

@@ -29,6 +29,9 @@ public class WeatherService {
     private final WeatherProperties weatherProperties;
     private final RestTemplate restTemplate = new RestTemplate();
 
+    // 模拟模式开关（当API不可用时启用）
+    private boolean mockMode = false;
+
     /**
      * 获取实时天气DTO（供API使用）
      *
@@ -36,6 +39,12 @@ public class WeatherService {
      * @return 天气DTO
      */
     public WeatherDTO getCurrentWeatherDTO(String city) {
+        // 检查API密钥
+        if (weatherProperties.getApiKey() == null || weatherProperties.getApiKey().isEmpty()) {
+            log.warn("天气API密钥未配置，返回模拟数据");
+            return generateMockWeatherDTO(city);
+        }
+
         try {
             // 1. 获取城市编码
             String cityCode = getCityCode(city);
@@ -57,8 +66,15 @@ public class WeatherService {
             JSONObject data = JSON.parseObject(response.getBody());
 
             if (!"1".equals(data.getString("status"))) {
-                log.error("查询天气失败: {}", data.getString("info"));
-                throw new RuntimeException("查询天气失败：" + data.getString("info"));
+                String errorInfo = data.getString("info");
+                log.error("查询天气失败: {}", errorInfo);
+
+                // 检查是否是密钥问题
+                if (errorInfo != null && (errorInfo.contains("USERKEY") || errorInfo.contains("KEY"))) {
+                    return generateMockWeatherDTO(city, "API密钥无效");
+                }
+
+                throw new RuntimeException("查询天气失败：" + errorInfo);
             }
 
             JSONArray lives = data.getJSONArray("lives");
@@ -78,10 +94,32 @@ public class WeatherService {
 
             return dto;
 
+        } catch (org.springframework.web.client.ResourceAccessException e) {
+            log.error("无法连接到天气API服务器", e);
+            return generateMockWeatherDTO(city, "网络连接失败");
         } catch (Exception e) {
             log.error("获取天气失败", e);
-            throw new RuntimeException("获取天气信息失败: " + e.getMessage());
+            return generateMockWeatherDTO(city, e.getMessage());
         }
+    }
+
+    /**
+     * 生成模拟天气DTO
+     */
+    private WeatherDTO generateMockWeatherDTO(String city) {
+        return generateMockWeatherDTO(city, "未配置API密钥");
+    }
+
+    private WeatherDTO generateMockWeatherDTO(String city, String reason) {
+        WeatherDTO dto = new WeatherDTO();
+        dto.setCity(city);
+        dto.setWeather("晴（模拟数据 - " + reason + "）");
+        dto.setTemperature("25");
+        dto.setHumidity("60");
+        dto.setWindDirection("东南");
+        dto.setWindPower("微风");
+        dto.setReportTime(java.time.LocalDateTime.now().toString());
+        return dto;
     }
 
     /**
@@ -156,6 +194,12 @@ public class WeatherService {
      * @return 天气信息字符串
      */
     public String getCurrentWeather(String city) {
+        // 检查API密钥
+        if (weatherProperties.getApiKey() == null || weatherProperties.getApiKey().isEmpty()) {
+            log.warn("天气API密钥未配置，返回模拟数据");
+            return generateMockWeather(city);
+        }
+
         try {
             // 1. 获取城市编码
             String cityCode = getCityCode(city);
@@ -177,8 +221,21 @@ public class WeatherService {
             JSONObject data = JSON.parseObject(response.getBody());
 
             if (!"1".equals(data.getString("status"))) {
-                log.error("查询天气失败: {}", data.getString("info"));
-                return "查询天气失败：" + data.getString("info");
+                String errorInfo = data.getString("info");
+                log.error("查询天气失败: {}", errorInfo);
+
+                // 检查是否是密钥问题
+                if (errorInfo != null && (errorInfo.contains("USERKEY") || errorInfo.contains("KEY"))) {
+                    return String.format("天气API密钥无效或未启用。%s当前天气模拟数据：\n" +
+                                    "☀️ 天气：晴\n" +
+                                    "🌡️ 温度：25°C\n" +
+                                    "💧 湿度：60%%\n" +
+                                    "🌬️ 风向：东南风 微风\n" +
+                                    "\n💡 提示：请在 https://lbs.amap.com 申请天气API密钥并在.env中配置",
+                            city);
+                }
+
+                return "查询天气失败：" + errorInfo;
             }
 
             JSONArray lives = data.getJSONArray("lives");
@@ -204,10 +261,38 @@ public class WeatherService {
                     weather.getString("windpower"),
                     weather.getString("reporttime"));
 
+        } catch (org.springframework.web.client.ResourceAccessException e) {
+            log.error("无法连接到天气API服务器", e);
+            return String.format("⚠️ 无法连接到天气服务器（网络限制）。%s当前天气模拟数据：\n" +
+                            "☀️ 天气：晴\n" +
+                            "🌡️ 温度：25°C\n" +
+                            "💧 湿度：60%%\n" +
+                            "🌬️ 风向：东南风 微风\n" +
+                            "\n💡 提示：天气API需要在有外网访问权限的环境中使用",
+                    city);
         } catch (Exception e) {
             log.error("获取天气失败", e);
-            return "获取天气信息失败: " + e.getMessage();
+            return String.format("获取天气信息失败: %s。%s当前天气模拟数据：\n" +
+                            "☀️ 天气：晴\n" +
+                            "🌡️ 温度：25°C\n" +
+                            "💧 湿度：60%%\n" +
+                            "🌬️ 风向：东南风 微风",
+                    e.getMessage(), city);
         }
+    }
+
+    /**
+     * 生成模拟天气数据
+     */
+    private String generateMockWeather(String city) {
+        return String.format("%s当前天气（模拟数据）：\n" +
+                        "☀️ 天气：晴\n" +
+                        "🌡️ 温度：25°C\n" +
+                        "💧 湿度：60%%\n" +
+                        "🌬️ 风向：东南风 微风\n" +
+                        "\n💡 提示：请在.env文件中配置 WEATHER_API_KEY 以获取真实天气数据\n" +
+                        "获取地址：https://lbs.amap.com/api/webservice/guide/api/weatherinfo",
+                city);
     }
 
     /**

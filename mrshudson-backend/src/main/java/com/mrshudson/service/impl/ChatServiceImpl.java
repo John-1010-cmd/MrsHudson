@@ -16,6 +16,7 @@ import com.mrshudson.mcp.kimi.dto.ToolCall;
 import com.mrshudson.service.ChatService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -60,7 +61,10 @@ public class ChatServiceImpl implements ChatService {
               * 查看待办列表（使用list_todos工具）
               * 完成待办（使用complete_todo工具）
               * 删除待办（使用delete_todo工具）
-            - 规划出行路线
+            - 规划出行路线：
+              * 查询路线（使用plan_route工具）：支持步行、驾车、公交三种方式
+              * 需要提供起点和终点地址
+              * 例如：从国贸到天安门怎么走、从我家到机场驾车路线
 
             当用户询问日程、会议、安排、计划等时，主动使用日历工具。
             当用户询问待办、任务、提醒、清单等时，主动使用待办工具。
@@ -165,6 +169,9 @@ public class ChatServiceImpl implements ChatService {
         // 6. 更新会话最后消息时间（如果有会话ID）
         if (conversationId != null) {
             updateConversationLastMessageTime(conversationId);
+
+            // 7. 检查是否是第一条消息，如果是则异步生成标题
+            checkAndGenerateTitle(conversationId, userContent);
         }
 
         log.info("AI回复: {}", aiContent);
@@ -298,6 +305,61 @@ public class ChatServiceImpl implements ChatService {
         Conversation conversation = new Conversation();
         conversation.setId(conversationId);
         conversationMapper.updateById(conversation);
+    }
+
+    /**
+     * 检查并生成会话标题（如果是第一条用户消息）
+     */
+    private void checkAndGenerateTitle(Long conversationId, String firstMessage) {
+        // 查询该会话的消息数量
+        LambdaQueryWrapper<ChatMessage> wrapper = new LambdaQueryWrapper<ChatMessage>()
+                .eq(ChatMessage::getConversationId, conversationId)
+                .eq(ChatMessage::getRole, ChatMessage.Role.USER.name());
+
+        long userMessageCount = chatMessageMapper.selectCount(wrapper);
+
+        // 如果是第一条用户消息，异步生成标题
+        if (userMessageCount == 1) {
+            generateConversationTitle(conversationId, firstMessage);
+        }
+    }
+
+    /**
+     * 异步生成会话标题
+     */
+    @Async("taskExecutor")
+    public void generateConversationTitle(Long conversationId, String firstMessage) {
+        try {
+            log.info("开始为会话 {} 生成标题", conversationId);
+
+            // 构建标题生成提示词
+            String prompt = "请用10-15字概括以下对话的主题，要求简洁明了：\n" + firstMessage;
+
+            // 调用AI服务生成标题
+            AIService aiService = aiServiceFactory.getService();
+            AIService.ChatResult result = aiService.chatCompletionWithTools(
+                    List.of(Message.system("你是一个对话标题生成助手，请用简洁的语言概括对话主题。"),
+                            Message.user(prompt)),
+                    null
+            );
+
+            String title = result.getContent();
+            if (title != null && !title.isEmpty()) {
+                // 清理标题（去除引号、换行等）
+                title = title.replaceAll("[\"'\\n\\r]", "").trim();
+
+                // 限制长度
+                if (title.length() > 20) {
+                    title = title.substring(0, 20);
+                }
+
+                // 更新会话标题
+                conversationMapper.updateTitle(conversationId, title);
+                log.info("会话 {} 标题已更新为: {}", conversationId, title);
+            }
+        } catch (Exception e) {
+            log.error("生成会话标题失败: {}", conversationId, e);
+        }
     }
 
     /**
