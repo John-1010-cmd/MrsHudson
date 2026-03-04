@@ -97,10 +97,10 @@ public class RouteService {
             return result;
 
         } catch (org.springframework.web.client.ResourceAccessException e) {
-            log.error("无法连接到高德API服务器", e);
+            log.error("无法连接到高德API服务器, origin={}, destination={}, mode={}", origin, destination, mode, e);
             return generateMockRoute(origin, destination, mode, "网络连接失败");
         } catch (Exception e) {
-            log.error("规划路线失败", e);
+            log.error("规划路线失败, origin={}, destination={}, mode={}", origin, destination, mode, e);
             return generateMockRoute(origin, destination, mode, e.getMessage());
         }
     }
@@ -133,7 +133,9 @@ public class RouteService {
 
             if (!"1".equals(data.getString("status"))) {
                 String errorInfo = data.getString("info");
-                log.error("路线规划失败: {}", errorInfo);
+                String responseBody = data.toJSONString();
+                log.error("路线规划失败: errorInfo={}, origin={}, destination={}, mode={}, response={}",
+                        errorInfo, originName, destName, mode.name(), responseBody);
 
                 if (errorInfo != null && (errorInfo.contains("USERKEY") || errorInfo.contains("KEY"))) {
                     return generateMockRoute(originName, destName, mode.name(), "API密钥无效");
@@ -146,7 +148,7 @@ public class RouteService {
             return parseRouteResult(data, mode, originName, destName);
 
         } catch (Exception e) {
-            log.error("调用路线规划API失败", e);
+            log.error("调用路线规划API失败, origin={}, destination={}, mode={}", origin, destination, mode.name(), e);
             return generateMockRoute(originName, destName, mode.name(), e.getMessage());
         }
     }
@@ -186,20 +188,17 @@ public class RouteService {
         result.append(String.format("📏 总距离：%s\n", formatDistance(distance)));
         result.append(String.format("⏱️ 预计时间：%s\n\n", formatDuration(duration)));
 
-        // 详细步骤
+        // 详细步骤 - 展示全部
         JSONArray steps = path.getJSONArray("steps");
         if (steps != null && !steps.isEmpty()) {
             result.append("📝 详细路线：\n");
-            for (int i = 0; i < Math.min(steps.size(), 10); i++) {
+            for (int i = 0; i < steps.size(); i++) {
                 JSONObject step = steps.getJSONObject(i);
                 String instruction = step.getString("instruction");
                 // 去除HTML标签
                 instruction = instruction.replaceAll("<[^>]+>", "");
                 String stepDistance = formatDistance(step.getString("distance"));
                 result.append(String.format("%d. %s (%s)\n", i + 1, instruction, stepDistance));
-            }
-            if (steps.size() > 10) {
-                result.append("...（更多步骤省略）\n");
             }
         }
 
@@ -247,17 +246,33 @@ public class RouteService {
         if (segments != null && !segments.isEmpty()) {
             result.append("📝 换乘方案：\n");
             int stepNum = 1;
-            for (int i = 0; i < segments.size(); i++) {
+            int segmentCount = segments.size();
+
+            for (int i = 0; i < segmentCount; i++) {
                 JSONObject segment = segments.getJSONObject(i);
 
                 // 步行段
                 JSONObject walking = segment.getJSONObject("walking");
                 if (walking != null) {
-                    String walkDest = walking.getString("destination");
                     String walkDist = walking.getString("distance");
-                    if (walkDest != null && !walkDest.isEmpty()) {
+                    String walkDest = walking.getString("destination");
+
+                    // 判断步行目的地描述
+                    String walkDestDesc;
+                    if (i == 0) {
+                        // 第一段步行：从起点到第一个站点
+                        walkDestDesc = "起点附近站点";
+                    } else if (i == segmentCount - 1 && walkDest != null && !walkDest.isEmpty()) {
+                        // 最后一段步行：到终点
+                        walkDestDesc = "目的地";
+                    } else {
+                        // 中间段步行：换乘
+                        walkDestDesc = "换乘站点";
+                    }
+
+                    if (walkDist != null && !walkDist.isEmpty()) {
                         result.append(String.format("%d. 🚶 步行至%s（%s）\n",
-                                stepNum++, walkDest, formatDistance(walkDist)));
+                                stepNum++, walkDestDesc, formatDistance(walkDist)));
                     }
                 }
 
@@ -268,9 +283,11 @@ public class RouteService {
                     if (buslines != null && !buslines.isEmpty()) {
                         JSONObject busline = buslines.getJSONObject(0);
                         String busName = busline.getString("name");
-                        String busStart = busline.getString("departure_stop");
-                        String busEnd = busline.getString("arrival_stop");
                         String busCount = busline.getString("via_num");
+
+                        // 解析站点信息（可能是JSON对象或字符串）
+                        String busStart = parseStopName(busline.getString("departure_stop"));
+                        String busEnd = parseStopName(busline.getString("arrival_stop"));
 
                         // 判断是地铁还是公交
                         String icon = busName.contains("地铁") ? "🚇" : "🚌";
@@ -299,16 +316,18 @@ public class RouteService {
             URI uri = UriComponentsBuilder
                     .fromHttpUrl(weatherProperties.getBaseUrl() + "/geocode/geo")
                     .queryParam("key", weatherProperties.getApiKey())
-                    .queryParam("address", URLEncoder.encode(address, StandardCharsets.UTF_8))
+                    .queryParam("address", address)
                     .queryParam("output", "JSON")
                     .build()
                     .toUri();
 
             ResponseEntity<String> response = restTemplate.getForEntity(uri, String.class);
-            JSONObject data = JSON.parseObject(response.getBody());
+            String responseBody = response.getBody();
+            JSONObject data = JSON.parseObject(responseBody);
 
             if (!"1".equals(data.getString("status"))) {
-                log.warn("地理编码失败: {}", data.getString("info"));
+                log.warn("地理编码失败: info={}, address={}, response={}",
+                        data.getString("info"), address, responseBody);
                 return null;
             }
 
@@ -440,5 +459,27 @@ public class RouteService {
 
     private String generateMockRoute(String origin, String destination, String mode) {
         return generateMockRoute(origin, destination, mode, "未配置API密钥");
+    }
+
+    /**
+     * 解析站点名称（处理JSON格式或字符串）
+     */
+    private String parseStopName(String stopInfo) {
+        if (stopInfo == null || stopInfo.isEmpty()) {
+            return "未知站点";
+        }
+        // 如果是JSON格式，提取name字段
+        if (stopInfo.startsWith("{")) {
+            try {
+                JSONObject stopJson = JSON.parseObject(stopInfo);
+                String name = stopJson.getString("name");
+                if (name != null && !name.isEmpty()) {
+                    return name;
+                }
+            } catch (Exception e) {
+                log.debug("解析站点信息失败: {}", stopInfo);
+            }
+        }
+        return stopInfo;
     }
 }

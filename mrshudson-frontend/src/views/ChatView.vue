@@ -59,6 +59,13 @@
             <el-icon><PartlyCloudy /></el-icon>
             <span>天气</span>
           </router-link>
+          <router-link
+            to="/route"
+            :class="['nav-item', { active: currentRoute === '/route' }]"
+          >
+            <el-icon><MapLocation /></el-icon>
+            <span>路线</span>
+          </router-link>
         </nav>
         <div class="user-info">
           <span>{{ userStore.user?.username }}</span>
@@ -75,7 +82,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, provide, readonly } from 'vue'
+import { ref, onMounted, computed, provide, readonly, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { RouterView } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -84,6 +91,7 @@ import {
   Calendar,
   List,
   PartlyCloudy,
+  MapLocation,
   Plus,
   Delete
 } from '@element-plus/icons-vue'
@@ -183,6 +191,16 @@ provide('currentConversationId', currentConversationId)
 provide('conversations', conversations)
 provide('switchConversation', switchConversation)
 provide('createNewConversation', createNewConversation)
+
+// 监听路由变化，当离开对话页面时清除当前会话选中状态
+watch(
+  () => route.path,
+  (newPath) => {
+    if (!newPath.startsWith('/chat') && newPath !== '/') {
+      currentConversationId.value = null
+    }
+  }
+)
 
 onMounted(() => {
   loadConversations()

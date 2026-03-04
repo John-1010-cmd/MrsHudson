@@ -65,12 +65,16 @@ public class RouteTool implements BaseTool {
 
     @Override
     public String execute(String arguments) {
+        // 提前解析参数用于日志记录
+        String origin = null;
+        String destination = null;
+        String mode = null;
         try {
             // 解析参数
             com.alibaba.fastjson2.JSONObject params = com.alibaba.fastjson2.JSON.parseObject(arguments);
-            String origin = params.getString("origin");
-            String destination = params.getString("destination");
-            String mode = params.getString("mode");
+            origin = params.getString("origin");
+            destination = params.getString("destination");
+            mode = params.getString("mode");
 
             if (origin == null || origin.isEmpty()) {
                 return "错误：起点地址不能为空";
@@ -85,7 +89,7 @@ public class RouteTool implements BaseTool {
             return routeService.planRoute(origin, destination, mode);
 
         } catch (Exception e) {
-            log.error("路线规划工具执行失败", e);
+            log.error("路线规划工具执行失败: origin={}, destination={}, mode={}", origin, destination, mode, e);
             return "路线规划失败: " + e.getMessage();
         }
     }

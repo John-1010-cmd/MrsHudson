@@ -67,7 +67,7 @@ public class WeatherService {
 
             if (!"1".equals(data.getString("status"))) {
                 String errorInfo = data.getString("info");
-                log.error("查询天气失败: {}", errorInfo);
+                log.error("查询天气失败: errorInfo={}, city={}, cityCode={}, response={}", errorInfo, city, cityCode, response.getBody());
 
                 // 检查是否是密钥问题
                 if (errorInfo != null && (errorInfo.contains("USERKEY") || errorInfo.contains("KEY"))) {
@@ -95,10 +95,10 @@ public class WeatherService {
             return dto;
 
         } catch (org.springframework.web.client.ResourceAccessException e) {
-            log.error("无法连接到天气API服务器", e);
+            log.error("无法连接到天气API服务器, city={}", city, e);
             return generateMockWeatherDTO(city, "网络连接失败");
         } catch (Exception e) {
-            log.error("获取天气失败", e);
+            log.error("获取天气失败, city={}", city, e);
             return generateMockWeatherDTO(city, e.getMessage());
         }
     }
@@ -130,15 +130,15 @@ public class WeatherService {
      * @return 天气DTO（包含预报）
      */
     public WeatherDTO getWeatherForecastDTO(String city, int days) {
-        try {
-            // 限制天数范围（高德免费版支持4天预报）
-            days = Math.max(1, Math.min(days, 4));
+        // 限制天数范围（高德免费版支持4天预报）
+        days = Math.max(1, Math.min(days, 4));
 
+        // 获取城市编码（提前获取用于错误日志）
+        String cityCode = getCityCode(city);
+
+        try {
             // 1. 获取当前天气
             WeatherDTO dto = getCurrentWeatherDTO(city);
-
-            // 2. 获取城市编码
-            String cityCode = getCityCode(city);
 
             // 3. 查询预报天气
             URI uri = UriComponentsBuilder
@@ -154,7 +154,9 @@ public class WeatherService {
             JSONObject data = JSON.parseObject(response.getBody());
 
             if (!"1".equals(data.getString("status"))) {
-                log.error("查询天气预报失败: {}", data.getString("info"));
+                String errorInfo = data.getString("info");
+                log.error("查询天气预报失败: errorInfo={}, city={}, cityCode={}, response={}",
+                        errorInfo, city, cityCode, response.getBody());
                 return dto;
             }
 
@@ -182,7 +184,7 @@ public class WeatherService {
             return dto;
 
         } catch (Exception e) {
-            log.error("获取天气预报失败", e);
+            log.error("获取天气预报失败, city={}, cityCode={}, days={}", city, cityCode, days, e);
             throw new RuntimeException("获取天气预报失败: " + e.getMessage());
         }
     }
@@ -222,7 +224,8 @@ public class WeatherService {
 
             if (!"1".equals(data.getString("status"))) {
                 String errorInfo = data.getString("info");
-                log.error("查询天气失败: {}", errorInfo);
+                log.error("查询天气失败: errorInfo={}, city={}, cityCode={}, response={}",
+                        errorInfo, city, cityCode, response.getBody());
 
                 // 检查是否是密钥问题
                 if (errorInfo != null && (errorInfo.contains("USERKEY") || errorInfo.contains("KEY"))) {
@@ -262,7 +265,7 @@ public class WeatherService {
                     weather.getString("reporttime"));
 
         } catch (org.springframework.web.client.ResourceAccessException e) {
-            log.error("无法连接到天气API服务器", e);
+            log.error("无法连接到天气API服务器, city={}", city, e);
             return String.format("⚠️ 无法连接到天气服务器（网络限制）。%s当前天气模拟数据：\n" +
                             "☀️ 天气：晴\n" +
                             "🌡️ 温度：25°C\n" +
@@ -271,7 +274,7 @@ public class WeatherService {
                             "\n💡 提示：天气API需要在有外网访问权限的环境中使用",
                     city);
         } catch (Exception e) {
-            log.error("获取天气失败", e);
+            log.error("获取天气失败, city={}", city, e);
             return String.format("获取天气信息失败: %s。%s当前天气模拟数据：\n" +
                             "☀️ 天气：晴\n" +
                             "🌡️ 温度：25°C\n" +
@@ -303,16 +306,16 @@ public class WeatherService {
      * @return 天气预报字符串
      */
     public String getWeatherForecast(String city, int days) {
+        // 限制天数范围（高德免费版支持4天预报）
+        days = Math.max(1, Math.min(days, 4));
+
+        // 1. 获取城市编码（提前获取用于错误日志）
+        String cityCode = getCityCode(city);
+        if (cityCode == null) {
+            return String.format("未找到城市：%s", city);
+        }
+
         try {
-            // 限制天数范围（高德免费版支持4天预报）
-            days = Math.max(1, Math.min(days, 4));
-
-            // 1. 获取城市编码
-            String cityCode = getCityCode(city);
-            if (cityCode == null) {
-                return String.format("未找到城市：%s", city);
-            }
-
             // 2. 查询预报天气
             URI uri = UriComponentsBuilder
                     .fromHttpUrl(weatherProperties.getBaseUrl() + "/weather/weatherInfo")
@@ -327,8 +330,10 @@ public class WeatherService {
             JSONObject data = JSON.parseObject(response.getBody());
 
             if (!"1".equals(data.getString("status"))) {
-                log.error("查询天气预报失败: {}", data.getString("info"));
-                return "查询天气预报失败：" + data.getString("info");
+                String errorInfo = data.getString("info");
+                log.error("查询天气预报失败: errorInfo={}, city={}, cityCode={}, response={}",
+                        errorInfo, city, cityCode, response.getBody());
+                return "查询天气预报失败：" + errorInfo;
             }
 
             JSONArray forecasts = data.getJSONArray("forecasts");
@@ -363,7 +368,7 @@ public class WeatherService {
             return sb.toString();
 
         } catch (Exception e) {
-            log.error("获取天气预报失败", e);
+            log.error("获取天气预报失败, city={}, cityCode={}, days={}", city, cityCode, days, e);
             return "获取天气预报失败: " + e.getMessage();
         }
     }
@@ -390,7 +395,9 @@ public class WeatherService {
             JSONObject data = JSON.parseObject(response.getBody());
 
             if (!"1".equals(data.getString("status"))) {
-                log.warn("地理编码失败: {}", data.getString("info"));
+                String errorInfo = data.getString("info");
+                String responseBody = data.toJSONString();
+                log.warn("地理编码失败: errorInfo={}, city={}, response={}", errorInfo, city, responseBody);
                 // 尝试用城市名直接查询（可能是直辖市或已知编码）
                 return getCityCodeByName(city);
             }
@@ -404,7 +411,7 @@ public class WeatherService {
             return geocodes.getJSONObject(0).getString("adcode");
 
         } catch (Exception e) {
-            log.error("获取城市编码失败", e);
+            log.error("获取城市编码失败, city={}", city, e);
             return getCityCodeByName(city);
         }
     }

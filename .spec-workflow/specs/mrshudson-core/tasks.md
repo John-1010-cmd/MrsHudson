@@ -1016,3 +1016,28 @@ Task 6.2 (Docker部署) ──────────┘
 16. Task 5.3 - 智能提醒
 17. Task 6.1 - 移动端适配
 18. Task 6.2 - Docker部署
+
+---
+
+## 阶段七：出行路线规划（US-006）
+
+### Task 7.1: 实现路线规划前端页面
+**状态**: [x]
+**优先级**: P2
+**关联需求**: US-006
+**文件**:
+- `mrshudson-frontend/src/views/RouteView.vue`
+- `mrshudson-frontend/src/api/route.ts`
+- `mrshudson-backend/src/main/java/com/mrshudson/controller/RouteController.java`
+
+**实现内容**:
+1. 创建 RouteController 后端 API（POST /api/route/plan）
+2. 创建 route.ts API 模块
+3. 创建 RouteView.vue 页面（起点/终点输入、出行方式选择、路线结果显示）
+4. 更新路由配置和导航菜单
+
+**实现说明**:
+- 支持三种出行方式：步行、驾车、公交
+- 调用高德地图路径规划 API
+- 后端返回文本格式的路线结果
+- 前端使用 pre-line 样式保留换行格式

@@ -4,6 +4,7 @@ import com.mrshudson.domain.entity.Reminder;
 import com.mrshudson.service.ReminderService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -18,6 +19,7 @@ import java.util.List;
 @Slf4j
 @Component
 @RequiredArgsConstructor
+@ConditionalOnProperty(prefix = "job.reminder", name = "enabled", havingValue = "true")
 public class ReminderJob {
 
     private final ReminderService reminderService;

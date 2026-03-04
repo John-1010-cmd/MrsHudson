@@ -63,9 +63,11 @@ public class WeatherTool implements BaseTool {
 
     @Override
     public String execute(String arguments) {
+        // 提前解析参数用于日志记录
+        com.alibaba.fastjson2.JSONObject params = null;
         try {
             // 解析参数
-            com.alibaba.fastjson2.JSONObject params = com.alibaba.fastjson2.JSON.parseObject(arguments);
+            params = com.alibaba.fastjson2.JSON.parseObject(arguments);
             String city = params.getString("city");
             String date = params.getString("date");
             Integer forecastDays = params.getInteger("forecast_days");
@@ -82,7 +84,9 @@ public class WeatherTool implements BaseTool {
             }
 
         } catch (Exception e) {
-            log.error("天气工具执行失败", e);
+            String city = params != null ? params.getString("city") : null;
+            Integer forecastDays = params != null ? params.getInteger("forecast_days") : null;
+            log.error("天气工具执行失败, city={}, forecastDays={}", city, forecastDays, e);
             return "查询天气失败: " + e.getMessage();
         }
     }

@@ -175,7 +175,9 @@ public class TodoTool implements BaseTool {
         } catch (IllegalArgumentException e) {
             return "创建待办事项失败: " + e.getMessage();
         } catch (Exception e) {
-            log.error("创建待办事项失败", e);
+            JSONObject params = JSON.parseObject(arguments);
+            log.error("创建待办事项失败: title={}, priority={}, dueDate={}",
+                    params.getString("title"), params.getString("priority"), params.getString("due_date"), e);
             return "创建待办事项失败: " + e.getMessage();
         }
     }
@@ -218,7 +220,9 @@ public class TodoTool implements BaseTool {
             return todoService.formatTodosToText(todos, title);
 
         } catch (Exception e) {
-            log.error("查询待办事项失败", e);
+            JSONObject params = JSON.parseObject(arguments);
+            log.error("查询待办事项失败: status={}, limit={}",
+                    params.getString("status"), params.getInteger("limit"), e);
             return "查询待办事项失败: " + e.getMessage();
         }
     }
@@ -247,7 +251,8 @@ public class TodoTool implements BaseTool {
             }
 
         } catch (Exception e) {
-            log.error("完成待办事项失败", e);
+            JSONObject params = JSON.parseObject(arguments);
+            log.error("完成待办事项失败: todoId={}", params.getLong("todo_id"), e);
             return "完成待办事项失败: " + e.getMessage();
         }
     }
@@ -276,7 +281,8 @@ public class TodoTool implements BaseTool {
             }
 
         } catch (Exception e) {
-            log.error("删除待办事项失败", e);
+            JSONObject params = JSON.parseObject(arguments);
+            log.error("删除待办事项失败: todoId={}", params.getLong("todo_id"), e);
             return "删除待办事项失败: " + e.getMessage();
         }
     }

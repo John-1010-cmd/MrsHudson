@@ -68,7 +68,8 @@ public class VoiceServiceImpl implements VoiceService {
             return recognizeByXfyun(audioFile, format, sampleRate);
 
         } catch (Exception e) {
-            log.error("语音识别失败", e);
+            log.error("语音识别失败, audioSize={}bytes, format={}, sampleRate={}",
+                    audioFile.getSize(), format, sampleRate, e);
             throw new RuntimeException("语音识别失败: " + e.getMessage());
         }
     }

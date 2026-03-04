@@ -358,7 +358,7 @@ public class ChatServiceImpl implements ChatService {
                 log.info("会话 {} 标题已更新为: {}", conversationId, title);
             }
         } catch (Exception e) {
-            log.error("生成会话标题失败: {}", conversationId, e);
+            log.error("生成会话标题失败: conversationId={}, error={}", conversationId, e.getMessage(), e);
         }
     }
 

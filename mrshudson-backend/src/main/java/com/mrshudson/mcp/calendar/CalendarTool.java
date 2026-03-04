@@ -185,7 +185,10 @@ public class CalendarTool implements BaseTool {
         } catch (IllegalArgumentException e) {
             return "创建事件失败: " + e.getMessage();
         } catch (Exception e) {
-            log.error("创建日历事件失败", e);
+            JSONObject params = JSON.parseObject(arguments);
+            log.error("创建日历事件失败: title={}, startTime={}, endTime={}, location={}",
+                    params.getString("title"), params.getString("start_time"),
+                    params.getString("end_time"), params.getString("location"), e);
             return "创建事件失败: " + e.getMessage();
         }
     }
@@ -226,7 +229,9 @@ public class CalendarTool implements BaseTool {
         } catch (DateTimeParseException e) {
             return "错误：日期格式不正确，请使用YYYY-MM-DD格式";
         } catch (Exception e) {
-            log.error("查询日历事件失败", e);
+            JSONObject params = JSON.parseObject(arguments);
+            log.error("查询日历事件失败: startDate={}, endDate={}, limit={}",
+                    params.getString("start_date"), params.getString("end_date"), params.getInteger("limit"), e);
             return "查询事件失败: " + e.getMessage();
         }
     }
@@ -255,7 +260,8 @@ public class CalendarTool implements BaseTool {
             }
 
         } catch (Exception e) {
-            log.error("删除日历事件失败", e);
+            JSONObject params = JSON.parseObject(arguments);
+            log.error("删除日历事件失败: eventId={}", params.getLong("event_id"), e);
             return "删除事件失败: " + e.getMessage();
         }
     }

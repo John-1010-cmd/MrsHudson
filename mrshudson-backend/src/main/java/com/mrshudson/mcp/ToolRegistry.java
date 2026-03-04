@@ -67,7 +67,7 @@ public class ToolRegistry {
             log.info("工具执行成功: {}", toolName);
             return result;
         } catch (Exception e) {
-            log.error("工具执行失败: {}", toolName, e);
+            log.error("工具执行失败: toolName={}, arguments={}", toolName, arguments, e);
             return "执行失败: " + e.getMessage();
         }
     }

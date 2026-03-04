@@ -84,6 +84,12 @@ weather:
   api-key: ${WEATHER_API_KEY:}
   base-url: https://restapi.amap.com/v3
 
+# Job Configuration
+job:
+  reminder:
+    # 提醒任务开关（开发期间可关闭）
+    enabled: false
+
 # JWT Configuration
 jwt:
   # 密钥（建议使用至少256位的随机字符串）
