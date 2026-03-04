@@ -16,11 +16,12 @@
 **以便** 快速体验MrsHudson功能。
 
 **验收标准**:
-- [ ] 预设admin/admin账号
-- [ ] 简单表单登录
-- [ ] Session保持登录状态
+- [x] 预设admin/admin账号
+- [x] 简单表单登录
+- [x] JWT Token认证（Access Token + Refresh Token）
+- [x] Token自动刷新机制
 - [ ] 暂不需要注册功能
-- [ ] 暂不需要密码加密（明文存储，仅Demo阶段）
+- [x] 密码BCrypt加密存储
 
 **注**: 完整用户系统将作为V2功能开发
 
@@ -116,11 +117,17 @@
 
 **验收标准**:
 - [ ] 支持语音输入（语音识别）
+  - Android: 使用 Android SpeechRecognizer API（Task 8.11）
+  - iOS: 使用 Speech 框架（Task 9.11）
 - [ ] 支持语音输出（语音合成）
 - [ ] 支持唤醒词激活（可选："嘿，哈德森夫人"）
 - [ ] 支持多种音色选择
 - [ ] 语音识别准确率 > 95%（中文普通话）
 - [ ] 支持语音打断和纠错
+
+**技术实现**:
+- Android: SpeechRecognizer API（系统内置，无需第三方SDK）
+- iOS: Speech 框架 + SFSpeechRecognizer
 
 ---
 
@@ -130,12 +137,22 @@
 **以便** 随时随地获得服务。
 
 **验收标准**:
-- [ ] Web端（桌面浏览器）
-- [ ] iOS原生应用
-- [ ] Android原生应用
-- [ ] 数据多端同步
-- [ ] 统一的用户认证体系
-- [ ] 消息推送（iOS APNs / Android FCM）
+- [x] Web端（桌面浏览器）- Vue 3 + Element Plus
+- [ ] Android原生应用 - Jetpack Compose（详见任务 8.1-8.12）
+  - [ ] Kotlin + Jetpack Compose 架构
+  - [ ] MVVM + Repository 设计模式
+  - [ ] Room 本地数据库离线支持
+  - [ ] FCM 推送通知集成
+  - [ ] 语音输入（Android SpeechRecognizer）
+- [ ] iOS原生应用 - SwiftUI（详见任务 9.1-9.12）
+  - [ ] Swift 5.9 + SwiftUI 架构
+  - [ ] MVVM + Combine 设计模式
+  - [ ] Core Data 本地数据库离线支持
+  - [ ] APNs 推送通知集成
+  - [ ] 语音输入（Speech 框架）
+- [x] 数据多端同步（后端已支持）
+- [x] 统一的用户认证体系（JWT）
+- [ ] 消息推送（Android FCM / iOS APNs）
 - [ ] 离线模式支持（查看缓存数据）
 
 **后续支持**（V2版本）:
@@ -172,5 +189,5 @@
 | 优先级 | 用户故事 |
 |--------|----------|
 | P0 | US-001, US-002, US-009（Web端） |
-| P1 | US-003, US-004, US-005, US-008, US-009（iOS/Android） |
-| P2 | US-006, US-007 |
+| P1 | US-003, US-004, US-005, US-008, US-009（Android） |
+| P2 | US-006, US-007, US-009（iOS） |

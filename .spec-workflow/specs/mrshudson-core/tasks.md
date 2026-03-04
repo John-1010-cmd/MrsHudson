@@ -1041,3 +1041,1548 @@ Task 6.2 (Docker部署) ──────────┘
 - 调用高德地图路径规划 API
 - 后端返回文本格式的路线结果
 - 前端使用 pre-line 样式保留换行格式
+
+---
+
+## 阶段八：Android 原生应用开发
+
+### Task 8.1: 初始化 Android 项目结构
+**状态**: [ ]
+**优先级**: P1
+**关联需求**: US-009 (Android原生应用)
+**文件**:
+- `mrshudson-android/build.gradle.kts` (Project)
+- `mrshudson-android/app/build.gradle.kts` (Module)
+- `mrshudson-android/gradle/libs.versions.toml` (版本目录)
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/MainActivity.kt`
+
+**实现内容**:
+1. 创建 Android Studio 项目（Kotlin DSL）
+2. 配置 Jetpack Compose 依赖
+3. 设置 MVVM + Repository 架构
+4. 配置 Hilt 依赖注入
+5. 配置 Retrofit + OkHttp 网络层
+6. 配置 Room 数据库
+
+**_Prompt**:
+```
+Implement the task for spec mrshudson-core:
+
+Role: Android Developer
+
+Task: 初始化 MrsHudson Android 项目
+
+Context:
+- 项目根目录: /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson
+- 需要创建 mrshudson-android 子项目
+- 技术栈: Kotlin + Jetpack Compose + MVVM
+
+Requirements:
+1. 创建 Android 项目结构：
+   - minSdk: 26 (Android 8.0)
+   - targetSdk: 34
+   - compileSdk: 34
+
+2. 配置核心依赖（libs.versions.toml）：
+   - compose-bom: 2024.02.00
+   - hilt: 2.50
+   - retrofit: 2.9.0
+   - room: 2.6.1
+   - datastore: 1.0.0
+   - navigation-compose: 2.7.7
+   - material3: 1.2.0
+
+3. 创建基础架构：
+   - MainActivity（Compose入口）
+   - MrsHudsonApplication（Application类）
+   - di/模块：NetworkModule, DatabaseModule, RepositoryModule
+   - data/包：repository, local, remote
+   - ui/包：theme, components, screens, viewmodel
+
+4. 配置网络层：
+   - Retrofit 配置（baseUrl: http://10.0.2.2:8080/api/）
+   - OkHttp 添加 JWT Token 拦截器
+   - 统一的 Result 封装类
+
+5. 配置本地存储：
+   - Room 数据库基础配置
+   - DataStore 用于 Token 存储
+
+Restrictions:
+- 使用 Kotlin DSL 而非 Groovy
+- 遵循 Clean Architecture 分层
+- 不要创建不必要的示例代码
+
+Success Criteria:
+- 项目能正常编译运行
+- 显示 Hello MrsHudson 首页
+- 依赖注入正常工作
+```
+
+---
+
+### Task 8.2: 实现用户认证模块
+**状态**: [ ]
+**优先级**: P1
+**关联需求**: US-001, US-009
+**文件**:
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/data/remote/AuthApi.kt`
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/data/repository/AuthRepository.kt`
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/ui/screens/login/LoginScreen.kt`
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/ui/screens/login/LoginViewModel.kt`
+
+**实现内容**:
+1. 创建认证相关 API 接口
+2. 实现 AuthRepository（登录、登出、Token 管理）
+3. 创建登录页面 UI
+4. 实现自动登录逻辑
+
+**_Prompt**:
+```
+Implement the task for spec mrshudson-core:
+
+Role: Android Developer
+
+Task: 实现 Android 端用户认证模块
+
+Context:
+- 后端已提供 JWT 认证 API
+- 需要存储 Token 实现自动登录
+- 使用后端相同的 API: POST /api/auth/login
+
+Requirements:
+1. 创建数据模型：
+   - LoginRequest(username, password)
+   - LoginResponse(accessToken, refreshToken)
+   - User(id, username)
+
+2. 创建 AuthApi 接口：
+   - @POST("auth/login") suspend fun login(...): Response<LoginResponse>
+   - @POST("auth/logout") suspend fun logout()
+   - @GET("auth/me") suspend fun getCurrentUser(): Response<User>
+
+3. 创建 TokenManager：
+   - 使用 DataStore 存储 accessToken 和 refreshToken
+   - 提供 saveTokens(), getAccessToken(), clearTokens()
+
+4. 创建 AuthRepository：
+   - login(username, password): Result<User>
+   - logout()
+   - isLoggedIn(): Boolean
+   - getCurrentUser(): Flow<User?>
+
+5. 创建登录页面：
+   - 用户名输入框（默认admin）
+   - 密码输入框（默认admin，隐藏显示）
+   - 登录按钮（带加载状态）
+   - 错误提示
+
+6. 创建 LoginViewModel：
+   - 处理登录逻辑
+   - 验证输入不为空
+   - 调用 Repository 登录
+   - 登录成功跳转到主页
+
+7. 添加 AuthInterceptor：
+   - 自动为请求添加 Authorization Header
+   - Token 过期时尝试刷新
+
+Success Criteria:
+- 输入 admin/admin 能成功登录
+- Token 正确保存到 DataStore
+- 重启 App 自动登录
+- 401 错误时跳转到登录页
+```
+
+---
+
+### Task 8.3: 实现主页面框架与底部导航
+**状态**: [ ]
+**优先级**: P1
+**关联需求**: US-009
+**文件**:
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/ui/screens/main/MainScreen.kt`
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/ui/navigation/BottomNavItem.kt`
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/ui/navigation/MainNavigation.kt`
+
+**实现内容**:
+1. 创建主页面框架
+2. 实现底部导航栏
+3. 配置各功能页面的导航
+
+**_Prompt**:
+```
+Implement the task for spec mrshudson-core:
+
+Role: Android Developer
+
+Task: 实现 Android 主页面框架与底部导航
+
+Requirements:
+1. 创建 BottomNavItem 枚举：
+   - CHAT("对话", Icons.Default.Chat)
+   - CALENDAR("日历", Icons.Default.CalendarToday)
+   - TODO("待办", Icons.Default.CheckCircle)
+   - WEATHER("天气", Icons.Default.WbSunny)
+   - ROUTE("路线", Icons.Default.Map)
+
+2. 创建 MainScreen：
+   - Scaffold 布局
+   - 底部 NavigationBar
+   - 中间内容区域（NavHost）
+
+3. 创建占位页面：
+   - ChatScreen（空白，后续实现）
+   - CalendarScreen（空白，后续实现）
+   - TodoScreen（空白，后续实现）
+   - WeatherScreen（空白，后续实现）
+   - RouteScreen（空白，后续实现）
+
+4. 实现导航状态保持：
+   - 切换底部导航时保持页面状态
+   - 使用 rememberSaveable 或 ViewModel
+
+5. 设计主题：
+   - 定义 MrsHudson 品牌色（暖色调）
+   - 配置 Material3 主题
+   - 支持亮色/暗色模式
+
+Success Criteria:
+- 底部导航有5个选项卡
+- 切换时显示对应页面标题
+- 界面美观，符合 Material3 规范
+```
+
+---
+
+### Task 8.4: 实现 AI 对话功能
+**状态**: [ ]
+**优先级**: P1
+**关联需求**: US-002
+**文件**:
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/data/remote/ChatApi.kt`
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/data/repository/ChatRepository.kt`
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/ui/screens/chat/ChatScreen.kt`
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/ui/screens/chat/ChatViewModel.kt`
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/ui/components/chat/MessageBubble.kt`
+
+**实现内容**:
+1. 创建对话相关的 API 和数据模型
+2. 实现对话 Repository
+3. 创建聊天界面（类似微信/WhatsApp）
+4. 实现消息发送和接收
+
+**_Prompt**:
+```
+Implement the task for spec mrshudson-core:
+
+Role: Android Developer
+
+Task: 实现 Android 端 AI 对话功能
+
+Context:
+- 后端 API: POST /api/chat/send, GET /api/chat/history
+- 消息包含 role: user/assistant/system
+- 需要支持流式响应（可选）
+
+Requirements:
+1. 创建数据模型：
+   - Message(id, role, content, createdAt)
+   - SendMessageRequest(message, conversationId)
+
+2. 创建 ChatApi：
+   - POST /api/chat/send
+   - GET /api/chat/history?limit=50
+
+3. 创建 ChatRepository：
+   - sendMessage(content): Result<Message>
+   - getHistory(): Flow<List<Message>>
+
+4. 创建 MessageBubble 组件：
+   - 用户消息：右对齐，蓝色背景
+   - AI 消息：左对齐，带 MrsHudson 头像
+   - 显示发送时间
+   - 支持 Markdown 文本渲染
+
+5. 创建 ChatScreen：
+   - 顶部：标题栏（显示"哈德森夫人"）
+   - 中部：消息列表（LazyColumn，倒序）
+   - 底部：输入框 + 发送按钮
+   - 下拉刷新加载历史
+
+6. 创建 ChatViewModel：
+   - 维护消息列表状态
+   - 发送消息逻辑
+   - 加载历史记录
+   - 加载状态管理
+
+7. 实现细节：
+   - 发送消息后自动滚动到底部
+   - 输入框支持多行
+   - 空消息时显示欢迎语
+
+Success Criteria:
+- 能发送消息并显示在列表中
+- AI 回复正确显示
+- 界面美观，体验流畅
+```
+
+---
+
+### Task 8.5: 实现日历功能
+**状态**: [ ]
+**优先级**: P1
+**关联需求**: US-004
+**文件**:
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/data/remote/CalendarApi.kt`
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/data/repository/CalendarRepository.kt`
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/ui/screens/calendar/CalendarScreen.kt`
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/ui/screens/calendar/CalendarViewModel.kt`
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/ui/components/calendar/MonthView.kt`
+
+**实现内容**:
+1. 创建日历相关的 API 和数据模型
+2. 实现日历 Repository
+3. 创建月视图日历界面
+4. 实现事件的增删改查
+
+**_Prompt**:
+```
+Implement the task for spec mrshudson-core:
+
+Role: Android Developer
+
+Task: 实现 Android 端日历功能
+
+Context:
+- 后端 API: /api/calendar/events
+- 需要支持日/周/月视图（先实现月视图）
+
+Requirements:
+1. 创建数据模型：
+   - CalendarEvent(id, title, description, startTime, endTime, location, category)
+   - CreateEventRequest, UpdateEventRequest
+
+2. 创建 CalendarApi：
+   - GET /api/calendar/events?start_date=&end_date=
+   - POST /api/calendar/events
+   - PUT /api/calendar/events/{id}
+   - DELETE /api/calendar/events/{id}
+
+3. 创建 CalendarRepository：
+   - getEvents(startDate, endDate): Flow<List<CalendarEvent>>
+   - createEvent(event): Result<CalendarEvent>
+   - updateEvent(id, event): Result<CalendarEvent>
+   - deleteEvent(id): Result<Unit>
+
+4. 创建 MonthView 组件：
+   - 显示月历网格
+   - 每天格子显示事件指示点
+   - 支持月份切换
+   - 点击日期选中
+
+5. 创建 CalendarScreen：
+   - 顶部：月份标题 + 左右切换按钮
+   - 中部：月视图
+   - 底部：选中日期的事件列表
+   - FAB 按钮添加事件
+
+6. 创建 EventDialog：
+   - 事件标题输入
+   - 开始/结束时间选择（DateTimePicker）
+   - 分类选择（工作/个人/家庭）
+   - 保存/删除按钮
+
+7. 创建 CalendarViewModel：
+   - 当前月份状态
+   - 选中日期状态
+   - 事件列表管理
+
+Success Criteria:
+- 日历正确显示当月日期
+- 事件在对应日期显示指示点
+- 可以创建、编辑、删除事件
+- 数据与后端同步
+```
+
+---
+
+### Task 8.6: 实现待办事项功能
+**状态**: [ ]
+**优先级**: P1
+**关联需求**: US-005
+**文件**:
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/data/remote/TodoApi.kt`
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/data/repository/TodoRepository.kt`
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/ui/screens/todo/TodoScreen.kt`
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/ui/screens/todo/TodoViewModel.kt`
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/ui/components/todo/TodoItemCard.kt`
+
+**实现内容**:
+1. 创建待办相关的 API 和数据模型
+2. 实现待办 Repository
+3. 创建待办列表界面
+4. 实现待办的增删改查和完成状态切换
+
+**_Prompt**:
+```
+Implement the task for spec mrshudson-core:
+
+Role: Android Developer
+
+Task: 实现 Android 端待办事项功能
+
+Requirements:
+1. 创建数据模型：
+   - TodoItem(id, title, description, priority, status, dueDate, completedAt)
+   - Priority: LOW, MEDIUM, HIGH
+   - Status: PENDING, COMPLETED
+
+2. 创建 TodoApi：
+   - GET /api/todos?status=&priority=
+   - POST /api/todos
+   - PUT /api/todos/{id}/complete
+   - DELETE /api/todos/{id}
+
+3. 创建 TodoRepository：
+   - getTodos(filter): Flow<List<TodoItem>>
+   - createTodo(todo): Result<TodoItem>
+   - completeTodo(id): Result<Unit>
+   - deleteTodo(id): Result<Unit>
+
+4. 创建 TodoItemCard 组件：
+   - 复选框标记完成
+   - 标题（完成的有删除线）
+   - 优先级标签（颜色区分）
+   - 截止日期显示
+   - 左滑删除
+
+5. 创建 TodoScreen：
+   - 顶部：筛选标签（全部/进行中/已完成）
+   - 中部：待办列表（LazyColumn）
+   - 底部：输入框快速添加
+   - FAB 按钮添加详细待办
+
+6. 创建 AddTodoDialog：
+   - 标题输入
+   - 描述输入（可选）
+   - 优先级选择
+   - 截止日期选择
+
+7. 创建 TodoViewModel：
+   - 待办列表管理
+   - 筛选状态管理
+   - 操作处理
+
+Success Criteria:
+- 可以添加、完成、删除待办
+- 筛选功能正常
+- 列表滑动流畅
+- 数据与后端同步
+```
+
+---
+
+### Task 8.7: 实现天气查询功能
+**状态**: [ ]
+**优先级**: P1
+**关联需求**: US-003
+**文件**:
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/data/remote/WeatherApi.kt`
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/data/repository/WeatherRepository.kt`
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/ui/screens/weather/WeatherScreen.kt`
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/ui/screens/weather/WeatherViewModel.kt`
+
+**实现内容**:
+1. 创建天气相关的 API 和数据模型
+2. 实现天气 Repository
+3. 创建天气展示界面
+4. 支持定位获取当前城市天气
+
+**_Prompt**:
+```
+Implement the task for spec mrshudson-core:
+
+Role: Android Developer
+
+Task: 实现 Android 端天气查询功能
+
+Context:
+- 天气数据通过后端 API 获取（后端调用高德天气 API）
+- 需要 Android 定位权限获取当前城市
+
+Requirements:
+1. 创建数据模型：
+   - WeatherInfo(city, temperature, weather, humidity, windDirection, windPower)
+   - WeatherForecast(date, dayWeather, nightWeather, dayTemp, nightTemp)
+
+2. 创建 WeatherApi：
+   - GET /api/weather/current?city=
+   - GET /api/weather/forecast?city=&days=
+
+3. 创建 WeatherRepository：
+   - getCurrentWeather(city): Result<WeatherInfo>
+   - getForecast(city, days): Result<List<WeatherForecast>>
+
+4. 创建 WeatherScreen：
+   - 顶部：当前城市（可搜索切换）
+   - 中部：当前天气大卡片
+     - 温度大字显示
+     - 天气图标
+     - 湿度、风向等信息
+   - 底部：未来7天预报列表
+
+5. 实现定位功能：
+   - 申请定位权限
+   - 使用 FusedLocationProviderClient
+   - 根据坐标反编码获取城市名
+   - 定位失败时默认显示北京
+
+6. 创建 WeatherViewModel：
+   - 当前城市状态
+   - 天气数据加载
+   - 刷新逻辑
+
+7. UI 细节：
+   - 根据天气显示不同背景色（晴天蓝色、雨天灰色等）
+   - 下拉刷新
+   - 加载动画
+
+Success Criteria:
+- 能获取当前位置并显示天气
+- 可以搜索其他城市
+- 显示7天预报
+- 界面美观直观
+```
+
+---
+
+### Task 8.8: 实现路线规划功能
+**状态**: [ ]
+**优先级**: P2
+**关联需求**: US-006
+**文件**:
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/data/remote/RouteApi.kt`
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/ui/screens/route/RouteScreen.kt`
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/ui/screens/route/RouteViewModel.kt`
+
+**实现内容**:
+1. 创建路线规划相关的 API
+2. 创建路线规划界面
+3. 实现起点/终点输入和路线显示
+
+**_Prompt**:
+```
+Implement the task for spec mrshudson-core:
+
+Role: Android Developer
+
+Task: 实现 Android 端路线规划功能
+
+Requirements:
+1. 创建数据模型：
+   - RouteRequest(origin, destination, mode)
+   - RouteInfo(distance, duration, toll, steps)
+   - TravelMode: WALK, DRIVE, BUS
+
+2. 创建 RouteApi：
+   - POST /api/route/plan
+
+3. 创建 RouteScreen：
+   - 起点输入框（支持当前位置）
+   - 终点输入框
+   - 出行方式选择（步行/驾车/公交）
+   - 查询按钮
+   - 路线结果显示区域
+
+4. 实现功能：
+   - 使用定位获取当前位置作为起点
+   - 调用后端 API 获取路线
+   - 显示距离、时间、费用
+   - 显示详细步骤列表
+
+5. 创建 RouteViewModel：
+   - 输入状态管理
+   - 路线查询逻辑
+   - 加载和错误状态
+
+Success Criteria:
+- 输入起点终点能查询路线
+- 显示路线详细信息
+- 支持三种出行方式
+```
+
+---
+
+### Task 8.9: 集成 Firebase Cloud Messaging 推送
+**状态**: [ ]
+**优先级**: P1
+**关联需求**: US-007, US-009
+**文件**:
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/service/FcmService.kt`
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/data/repository/PushRepository.kt`
+
+**实现内容**:
+1. 配置 Firebase 项目
+2. 集成 FCM SDK
+3. 实现消息接收服务
+4. 实现 Device Token 上报
+
+**_Prompt**:
+```
+Implement the task for spec mrshudson-core:
+
+Role: Android Developer
+
+Task: 集成 FCM 推送通知
+
+Context:
+- 后端需要 deviceToken 才能发送推送
+- 推送场景：日程提醒、待办提醒
+
+Requirements:
+1. Firebase 配置：
+   - 创建 Firebase 项目
+   - 下载 google-services.json
+   - 应用 build.gradle 添加 FCM 插件和依赖
+
+2. 创建 FcmService：
+   - 继承 FirebaseMessagingService
+   - onMessageReceived：处理接收到的消息
+   - onNewToken：Token 刷新时上报
+
+3. 创建通知显示：
+   - 创建 NotificationChannel（Android 8.0+）
+   - 显示通知标题和内容
+   - 点击通知打开 MainActivity
+
+4. 创建 PushRepository：
+   - 上报 Device Token 到后端
+   - POST /api/push/register {deviceToken, platform: "android"}
+
+5. Token 管理：
+   - 登录后上报 Token
+   - Token 刷新时重新上报
+   - 登出时注销 Token
+
+6. 权限配置：
+   - AndroidManifest.xml 添加服务声明
+   - 申请 POST_NOTIFICATIONS 权限（Android 13+）
+
+Success Criteria:
+- 应用能获取 FCM Token
+- Token 成功上报后端
+- 能接收并显示推送通知
+- 点击通知打开应用
+```
+
+---
+
+### Task 8.10: 实现离线模式与数据同步
+**状态**: [ ]
+**优先级**: P2
+**关联需求**: US-009
+**文件**:
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/data/local/dao/*.kt`
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/data/sync/SyncManager.kt`
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/worker/SyncWorker.kt`
+
+**实现内容**:
+1. 配置 Room 数据库表
+2. 实现本地数据缓存
+3. 实现网络状态监听
+4. 实现数据同步机制
+
+**_Prompt**:
+```
+Implement the task for spec mrshudson-core:
+
+Role: Android Developer
+
+Task: 实现离线模式与数据同步
+
+Context:
+- 用户希望离线时也能查看数据
+- 网络恢复时自动同步
+
+Requirements:
+1. Room 数据库设计：
+   - MessageEntity（缓存最近100条对话）
+   - EventEntity（缓存日历事件）
+   - TodoEntity（缓存待办事项）
+
+2. 创建 Dao 接口：
+   - MessageDao: insert, getAll, deleteAll
+   - EventDao: insert, getByDateRange, delete, getAll
+   - TodoDao: insert, getAll, update, delete
+
+3. 实现离线支持 Repository：
+   - 优先从本地数据库读取
+   - 网络可用时从后端刷新
+   - 新数据保存到本地
+
+4. 创建 SyncManager：
+   - 监听网络状态变化
+   - 网络恢复时触发同步
+   - 显示同步状态
+
+5. 创建 SyncWorker（WorkManager）：
+   - 定期后台同步（每6小时）
+   - 同步日历和待办数据
+
+6. UI 状态显示：
+   - 离线时显示提示条
+   - 同步中显示加载指示
+   - 显示最后同步时间
+
+Success Criteria:
+- 离线时能查看缓存数据
+- 网络恢复自动同步
+- 数据保持一致性
+- 同步状态可见
+```
+
+---
+
+### Task 8.11: 实现语音输入功能
+**状态**: [ ]
+**优先级**: P2
+**关联需求**: US-008
+**文件**:
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/ui/components/chat/VoiceInputButton.kt`
+- `mrshudson-android/app/src/main/java/com/mrshudson/android/utils/VoiceRecognizer.kt`
+
+**实现内容**:
+1. 集成 Android SpeechRecognizer
+2. 创建语音输入按钮组件
+3. 实现语音转文字并发送
+
+**_Prompt**:
+```
+Implement the task for spec mrshudson-core:
+
+Role: Android Developer
+
+Task: 实现 Android 端语音输入功能
+
+Requirements:
+1. 权限配置：
+   - AndroidManifest.xml 添加 RECORD_AUDIO 权限
+   - 动态申请麦克风权限
+
+2. 创建 VoiceRecognizer：
+   - 使用 Android SpeechRecognizer API
+   - 开始录音、停止录音
+   - 回调识别结果
+
+3. 创建 VoiceInputButton 组件：
+   - 麦克风图标按钮
+   - 按住录音，松开发送
+   - 录音时显示动画效果
+   - 显示录音时长
+
+4. 集成到 ChatScreen：
+   - 输入框旁边添加语音按钮
+   - 语音输入转成文字后发送
+   - 显示识别中的加载状态
+
+5. 错误处理：
+   - 权限被拒绝提示
+   - 识别失败重试
+   - 网络错误处理
+
+Restrictions:
+- 使用系统 SpeechRecognizer（无需第三方SDK）
+- 仅支持中文语音识别
+- 录音时长限制60秒
+
+Success Criteria:
+- 按住按钮可以录音
+   - 语音正确转为文字
+   - 文字自动发送给 AI
+```
+
+---
+
+### Task 8.12: Android 应用打包与发布配置
+**状态**: [ ]
+**优先级**: P2
+**关联需求**: US-009
+**文件**:
+- `mrshudson-android/app/build.gradle.kts`（签名配置）
+- `mrshudson-android/app/proguard-rules.pro`
+- Keystore 配置
+
+**实现内容**:
+1. 配置签名密钥
+2. 配置 ProGuard 混淆
+3. 配置多渠道打包
+4. 生成发布 APK/AAB
+
+**_Prompt**:
+```
+Implement the task for spec mrshudson-core:
+
+Role: Android Developer
+
+Task: 配置 Android 应用发布打包
+
+Requirements:
+1. 签名配置：
+   - 创建 release.keystore
+   - build.gradle.kts 配置 signingConfigs
+   - 本地属性文件管理密钥密码
+
+2. ProGuard 配置：
+   - 基础混淆规则
+   - Retrofit/OkHttp 保留规则
+   - Room 实体保留规则
+   - Compose 保留规则
+
+3. 构建配置：
+   - 开启 minifyEnabled（混淆）
+   - 开启 shrinkResources（资源压缩）
+   - 配置多架构支持（arm64-v8a, armeabi-v7a）
+
+4. 版本管理：
+   - 配置 versionCode 自动递增
+   - versionName 语义化版本
+
+5. 输出配置：
+   - APK 输出配置
+   - AAB (Android App Bundle) 配置
+
+6. 渠道配置（可选）：
+   - 友盟/极光等多渠道打包支持
+
+Success Criteria:
+- ./gradlew assembleRelease 成功
+- APK 已签名且能正常安装
+- 混淆后功能正常
+- 应用体积优化
+```
+
+---
+
+## Android 开发任务依赖图
+
+```
+Task 8.1 (项目初始化)
+    │
+    ├── Task 8.2 (用户认证)
+    │       │
+    │       └── Task 8.3 (主页面框架)
+    │               │
+    │               ├── Task 8.4 (AI对话)
+    │               ├── Task 8.5 (日历)
+    │               ├── Task 8.6 (待办)
+    │               ├── Task 8.7 (天气)
+    │               └── Task 8.8 (路线规划)
+    │
+    ├── Task 8.9 (FCM推送)
+    │       │
+    │       └── Task 8.3 (集成到主页面)
+    │
+    ├── Task 8.10 (离线模式)
+    │       │
+    │       └── Task 8.5, 8.6 (日历待办支持离线)
+    │
+    └── Task 8.11 (语音输入)
+            │
+            └── Task 8.4 (集成到对话)
+
+Task 8.12 (打包发布) - 依赖所有功能完成
+```
+
+---
+
+## Android 开发 Sprint 规划
+
+### Android Sprint 1（基础框架）
+1. Task 8.1 - 项目初始化
+2. Task 8.2 - 用户认证
+3. Task 8.3 - 主页面框架
+
+### Android Sprint 2（核心功能）
+4. Task 8.4 - AI对话
+5. Task 8.5 - 日历
+6. Task 8.6 - 待办
+
+### Android Sprint 3（功能完善）
+7. Task 8.7 - 天气
+8. Task 8.8 - 路线规划
+9. Task 8.9 - FCM推送
+
+### Android Sprint 4（进阶优化）
+10. Task 8.10 - 离线模式
+11. Task 8.11 - 语音输入
+12. Task 8.12 - 打包发布
+
+---
+
+## 阶段九：iOS 原生应用开发（优先级 P2）
+
+### Task 9.1: 初始化 iOS 项目结构
+**状态**: [ ]
+**优先级**: P2
+**关联需求**: US-009 (iOS原生应用)
+**文件**:
+- `mrshudson-ios/MrsHudson.xcodeproj`
+- `mrshudson-ios/MrsHudson/MrsHudsonApp.swift`
+- `mrshudson-ios/MrsHudson/Info.plist`
+
+**实现内容**:
+1. 创建 Xcode 项目（SwiftUI）
+2. 配置 MVVM 架构
+3. 配置依赖注入（EnvironmentObject）
+4. 配置网络层（URLSession + Codable）
+
+**_Prompt**:
+```
+Implement the task for spec mrshudson-core:
+
+Role: iOS Developer
+
+Task: 初始化 MrsHudson iOS 项目
+
+Context:
+- 项目根目录: /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson
+- 需要创建 mrshudson-ios 子项目
+- 技术栈: Swift + SwiftUI + Combine
+
+Requirements:
+1. 创建 iOS 项目结构：
+   - iOS Deployment Target: 16.0+
+   - Swift Language Version: 5.9
+   - SwiftUI 生命周期
+
+2. 配置项目组织：
+   - Models/（数据模型）
+   - Services/（网络、认证服务）
+   - ViewModels/（业务逻辑）
+   - Views/（SwiftUI 界面）
+   - Utils/（工具类）
+
+3. 创建基础文件：
+   - MrsHudsonApp.swift（应用入口）
+   - ContentView.swift（占位主界面）
+   - NetworkManager.swift（网络请求封装）
+
+4. 配置网络层：
+   - baseURL: http://localhost:8080/api/
+   - 支持 JWT Token 注入
+   - 统一的错误处理
+
+Success Criteria:
+- 项目在 Xcode 中能正常编译运行
+- 显示 Hello MrsHudson 首页
+- 网络层配置正确
+```
+
+---
+
+### Task 9.2: 实现 iOS 用户认证模块
+**状态**: [ ]
+**优先级**: P2
+**关联需求**: US-001, US-009
+**文件**:
+- `mrshudson-ios/MrsHudson/Services/AuthService.swift`
+- `mrshudson-ios/MrsHudson/ViewModels/AuthViewModel.swift`
+- `mrshudson-ios/MrsHudson/Views/Login/LoginView.swift`
+
+**实现内容**:
+1. 创建认证服务
+2. 实现 Token 管理（Keychain）
+3. 创建登录页面
+
+**_Prompt**:
+```
+Implement the task for spec mrshudson-core:
+
+Role: iOS Developer
+
+Task: 实现 iOS 端用户认证模块
+
+Context:
+- 后端已提供 JWT 认证 API
+- 需要安全存储 Token
+
+Requirements:
+1. 创建数据模型：
+   - LoginRequest/LoginResponse
+   - User
+
+2. 创建 AuthService：
+   - login(username, password) async throws -> User
+   - logout()
+   - isAuthenticated() -> Bool
+
+3. 创建 TokenStorage（Keychain）：
+   - saveTokens(accessToken, refreshToken)
+   - getAccessToken() -> String?
+   - clearTokens()
+
+4. 创建 LoginView：
+   - 居中登录卡片
+   - 用户名/密码输入框
+   - 登录按钮
+   - 错误提示
+
+5. 创建 AuthViewModel：
+   - 处理登录逻辑
+   - 管理认证状态
+
+Success Criteria:
+- 输入 admin/admin 能成功登录
+- Token 安全存储在 Keychain
+- 启动时自动检查登录状态
+```
+
+---
+
+### Task 9.3: 实现 iOS 主页面框架与 Tab 导航
+**状态**: [ ]
+**优先级**: P2
+**关联需求**: US-009
+**文件**:
+- `mrshudson-ios/MrsHudson/Views/Main/MainView.swift`
+- `mrshudson-ios/MrsHudson/Views/Main/TabItem.swift`
+
+**实现内容**:
+1. 创建主页面框架
+2. 实现 TabView 底部导航
+3. 配置各功能页面的导航
+
+**_Prompt**:
+```
+Implement the task for spec mrshudson-core:
+
+Role: iOS Developer
+
+Task: 实现 iOS 主页面框架与 Tab 导航
+
+Requirements:
+1. 创建 TabItem 枚举：
+   - chat, calendar, todo, weather, route
+   - 名称和图标配置
+
+2. 创建 MainView：
+   - TabView 底部导航
+   - 5 个选项卡
+   - 每个选项卡对应一个页面
+
+3. 创建占位页面：
+   - ChatView, CalendarView, TodoView
+   - WeatherView, RouteView
+
+4. 设计主题：
+   - 定义 MrsHudson 品牌色
+   - 配置 SwiftUI 主题
+   - 支持亮色/暗色模式
+
+Success Criteria:
+- TabView 有5个选项卡
+- 切换时显示对应页面
+- 界面美观，符合 iOS 设计规范
+```
+
+---
+
+### Task 9.4: 实现 iOS AI 对话功能
+**状态**: [ ]
+**优先级**: P2
+**关联需求**: US-002
+**文件**:
+- `mrshudson-ios/MrsHudson/Services/ChatService.swift`
+- `mrshudson-ios/MrsHudson/ViewModels/ChatViewModel.swift`
+- `mrshudson-ios/MrsHudson/Views/Chat/ChatView.swift`
+- `mrshudson-ios/MrsHudson/Views/Chat/MessageBubble.swift`
+
+**实现内容**:
+1. 创建对话服务
+2. 实现聊天界面
+3. 实现消息发送和接收
+
+**_Prompt**:
+```
+Implement the task for spec mrshudson-core:
+
+Role: iOS Developer
+
+Task: 实现 iOS 端 AI 对话功能
+
+Requirements:
+1. 创建数据模型：
+   - Message(id, role, content, createdAt)
+
+2. 创建 ChatService：
+   - sendMessage(content) async throws -> Message
+   - getHistory() async throws -> [Message]
+
+3. 创建 MessageBubble：
+   - 用户消息：右对齐，蓝色
+   - AI 消息：左对齐，带头像
+
+4. 创建 ChatView：
+   - 消息列表（List / ScrollView）
+   - 底部输入框 + 发送按钮
+   - 下拉刷新历史
+
+5. 创建 ChatViewModel：
+   - 消息列表管理
+   - 发送消息逻辑
+   - 加载状态
+
+Success Criteria:
+- 能发送消息并显示
+- AI 回复正确显示
+- 界面美观
+```
+
+---
+
+### Task 9.5: 实现 iOS 日历功能
+**状态**: [ ]
+**优先级**: P2
+**关联需求**: US-004
+**文件**:
+- `mrshudson-ios/MrsHudson/Services/CalendarService.swift`
+- `mrshudson-ios/MrsHudson/ViewModels/CalendarViewModel.swift`
+- `mrshudson-ios/MrsHudson/Views/Calendar/CalendarView.swift`
+
+**实现内容**:
+1. 创建日历服务
+2. 实现日历界面
+3. 实现事件的增删改查
+
+**_Prompt**:
+```
+Implement the task for spec mrshudson-core:
+
+Role: iOS Developer
+
+Task: 实现 iOS 端日历功能
+
+Requirements:
+1. 创建数据模型：
+   - CalendarEvent
+   - CreateEventRequest
+
+2. 创建 CalendarService：
+   - getEvents(startDate, endDate)
+   - createEvent(event)
+   - updateEvent(id, event)
+   - deleteEvent(id)
+
+3. 创建 CalendarView：
+   - UICalendarView（iOS 16+）或自定义月视图
+   - 事件列表显示
+   - 添加事件按钮
+
+4. 创建 EventEditor（Sheet）：
+   - 标题输入
+   - 时间选择
+   - 分类选择
+   - 保存/取消
+
+5. 创建 CalendarViewModel：
+   - 当前月份管理
+   - 事件列表管理
+
+Success Criteria:
+- 日历正确显示
+- 可以创建、编辑、删除事件
+- 数据与后端同步
+```
+
+---
+
+### Task 9.6: 实现 iOS 待办事项功能
+**状态**: [ ]
+**优先级**: P2
+**关联需求**: US-005
+**文件**:
+- `mrshudson-ios/MrsHudson/Services/TodoService.swift`
+- `mrshudson-ios/MrsHudson/ViewModels/TodoViewModel.swift`
+- `mrshudson-ios/MrsHudson/Views/Todo/TodoView.swift`
+- `mrshudson-ios/MrsHudson/Views/Todo/TodoItemRow.swift`
+
+**实现内容**:
+1. 创建待办服务
+2. 实现待办列表界面
+3. 实现待办的增删改查
+
+**_Prompt**:
+```
+Implement the task for spec mrshudson-core:
+
+Role: iOS Developer
+
+Task: 实现 iOS 端待办事项功能
+
+Requirements:
+1. 创建数据模型：
+   - TodoItem
+   - Priority: low, medium, high
+
+2. 创建 TodoService：
+   - getTodos(filter)
+   - createTodo(todo)
+   - completeTodo(id)
+   - deleteTodo(id)
+
+3. 创建 TodoItemRow：
+   - 复选框标记完成
+   - 标题（完成的有删除线）
+   - 优先级颜色
+   - 滑动删除
+
+4. 创建 TodoView：
+   - 筛选标签（Picker）
+   - 待办列表
+   - 添加待办按钮
+
+5. 创建 TodoViewModel：
+   - 待办列表管理
+   - 筛选状态
+
+Success Criteria:
+- 可以添加、完成、删除待办
+- 筛选功能正常
+- 界面美观
+```
+
+---
+
+### Task 9.7: 实现 iOS 天气查询功能
+**状态**: [ ]
+**优先级**: P2
+**关联需求**: US-003
+**文件**:
+- `mrshudson-ios/MrsHudson/Services/WeatherService.swift`
+- `mrshudson-ios/MrsHudson/ViewModels/WeatherViewModel.swift`
+- `mrshudson-ios/MrsHudson/Views/Weather/WeatherView.swift`
+
+**实现内容**:
+1. 创建天气服务
+2. 实现天气展示界面
+3. 支持定位获取当前城市天气
+
+**_Prompt**:
+```
+Implement the task for spec mrshudson-core:
+
+Role: iOS Developer
+
+Task: 实现 iOS 端天气查询功能
+
+Requirements:
+1. 创建数据模型：
+   - WeatherInfo
+   - WeatherForecast
+
+2. 创建 WeatherService：
+   - getCurrentWeather(city)
+   - getForecast(city, days)
+
+3. 创建 WeatherView：
+   - 当前天气大卡片
+   - 详细信息
+   - 7天预报列表
+   - 城市搜索
+
+4. 实现定位功能：
+   - Core Location 获取位置
+   - 地理编码获取城市名
+   - 定位失败默认北京
+
+5. 创建 WeatherViewModel：
+   - 天气数据管理
+   - 刷新逻辑
+
+Success Criteria:
+- 能获取当前位置并显示天气
+- 可以搜索其他城市
+- 显示7天预报
+```
+
+---
+
+### Task 9.8: 实现 iOS 路线规划功能
+**状态**: [ ]
+**优先级**: P2
+**关联需求**: US-006
+**文件**:
+- `mrshudson-ios/MrsHudson/Services/RouteService.swift`
+- `mrshudson-ios/MrsHudson/ViewModels/RouteViewModel.swift`
+- `mrshudson-ios/MrsHudson/Views/Route/RouteView.swift`
+
+**实现内容**:
+1. 创建路线规划服务
+2. 创建路线规划界面
+3. 实现起点/终点输入和路线显示
+
+**_Prompt**:
+```
+Implement the task for spec mrshudson-core:
+
+Role: iOS Developer
+
+Task: 实现 iOS 端路线规划功能
+
+Requirements:
+1. 创建数据模型：
+   - RouteRequest
+   - RouteInfo
+
+2. 创建 RouteService：
+   - planRoute(request)
+
+3. 创建 RouteView：
+   - 起点/终点输入
+   - 出行方式选择
+   - 路线结果显示
+
+4. 创建 RouteViewModel：
+   - 输入管理
+   - 路线查询
+
+Success Criteria:
+- 能查询路线
+- 显示路线详情
+```
+
+---
+
+### Task 9.9: 集成 iOS APNs 推送
+**状态**: [ ]
+**优先级**: P2
+**关联需求**: US-007, US-009
+**文件**:
+- `mrshudson-ios/MrsHudson/Services/PushNotificationService.swift`
+- `mrshudson-ios/MrsHudson/MrsHudson.entitlements`
+
+**实现内容**:
+1. 配置 APNs 证书
+2. 实现 Device Token 上报
+3. 实现推送接收处理
+
+**_Prompt**:
+```
+Implement the task for spec mrshudson-core:
+
+Role: iOS Developer
+
+Task: 集成 iOS APNs 推送通知
+
+Requirements:
+1. 配置 APNs：
+   - 开启 Push Notification Capability
+   - 配置 App ID
+   - 配置证书
+
+2. 创建 PushNotificationService：
+   - 请求推送权限
+   - 获取 Device Token
+   - 上报 Token 到后端
+
+3. 处理推送：
+   - 应用内显示通知
+   - 点击通知跳转对应页面
+
+Success Criteria:
+- 能获取 Device Token
+- Token 成功上报后端
+- 能接收推送通知
+```
+
+---
+
+### Task 9.10: 实现 iOS 离线模式与数据同步
+**状态**: [ ]
+**优先级**: P2
+**关联需求**: US-009
+**文件**:
+- `mrshudson-ios/MrsHudson/CoreData/*.xcdatamodeld`
+- `mrshudson-ios/MrsHudson/Services/SyncService.swift`
+
+**实现内容**:
+1. 配置 Core Data
+2. 实现本地数据缓存
+3. 实现网络状态监听和同步
+
+**_Prompt**:
+```
+Implement the task for spec mrshudson-core:
+
+Role: iOS Developer
+
+Task: 实现 iOS 端离线模式与数据同步
+
+Requirements:
+1. Core Data 配置：
+   - Message, Event, Todo 实体
+   - 数据模型版本管理
+
+2. 创建 SyncService：
+   - 监听网络状态（NWPathMonitor）
+   - 网络恢复时触发同步
+   - 定期后台同步
+
+3. 离线支持：
+   - 优先读取本地数据
+   - 网络可用时刷新
+   - 显示离线状态提示
+
+Success Criteria:
+- 离线能查看缓存数据
+- 网络恢复自动同步
+```
+
+---
+
+### Task 9.11: 实现 iOS 语音输入功能
+**状态**: [ ]
+**优先级**: P2
+**关联需求**: US-008
+**文件**:
+- `mrshudson-ios/MrsHudson/Views/Components/VoiceInputButton.swift`
+- `mrshudson-ios/MrsHudson/Utils/SpeechRecognizer.swift`
+
+**实现内容**:
+1. 集成 Speech 框架
+2. 创建语音输入按钮
+3. 实现语音转文字并发送
+
+**_Prompt**:
+```
+Implement the task for spec mrshudson-core:
+
+Role: iOS Developer
+
+Task: 实现 iOS 端语音输入功能
+
+Requirements:
+1. 权限配置：
+   - Info.plist 添加麦克风权限说明
+   - 请求语音识别权限
+
+2. 创建 SpeechRecognizer：
+   - 使用 Speech 框架
+   - 开始/停止录音
+   - 返回识别结果
+
+3. 创建 VoiceInputButton：
+   - 按住录音动画
+   - 录音时长显示
+
+4. 集成到 ChatView
+
+Success Criteria:
+- 按住按钮录音
+- 语音转为文字
+- 文字自动发送
+```
+
+---
+
+### Task 9.12: iOS 应用打包与发布配置
+**状态**: [ ]
+**优先级**: P2
+**关联需求**: US-009
+**文件**:
+- `mrshudson-ios/MrsHudson.xcodeproj/project.pbxproj`
+
+**实现内容**:
+1. 配置签名证书
+2. 配置 App Icon 和启动图
+3. 生成发布 IPA
+
+**_Prompt**:
+```
+Implement the task for spec mrshudson-core:
+
+Role: iOS Developer
+
+Task: 配置 iOS 应用发布打包
+
+Requirements:
+1. 签名配置：
+   - 配置 Development 证书
+   - 配置 Distribution 证书
+
+2. App 资源：
+   - App Icon（各尺寸）
+   - Launch Screen
+   - Info.plist 配置
+
+3. 构建设置：
+   - Release 配置优化
+   - 启用 Bitcode
+   - 代码混淆（可选）
+
+4. 归档导出：
+   - Archive 应用
+   - 导出 IPA
+
+Success Criteria:
+- 应用能正常 Archive
+- IPA 能正常安装
+- 准备上架 App Store
+```
+
+---
+
+## iOS 开发任务依赖图
+
+```
+Task 9.1 (项目初始化)
+    │
+    ├── Task 9.2 (用户认证)
+    │       │
+    │       └── Task 9.3 (主页面框架)
+    │               │
+    │               ├── Task 9.4 (AI对话)
+    │               ├── Task 9.5 (日历)
+    │               ├── Task 9.6 (待办)
+    │               ├── Task 9.7 (天气)
+    │               └── Task 9.8 (路线规划)
+    │
+    ├── Task 9.9 (APNs推送)
+    │       │
+    │       └── Task 9.3 (集成到主页面)
+    │
+    ├── Task 9.10 (离线模式)
+    │       │
+    │       └── Task 9.5, 9.6 (日历待办支持离线)
+    │
+    └── Task 9.11 (语音输入)
+            │
+            └── Task 9.4 (集成到对话)
+
+Task 9.12 (打包发布) - 依赖所有功能完成
+```
+
+---
+
+## iOS 开发 Sprint 规划
+
+### iOS Sprint 1（基础框架）
+1. Task 9.1 - 项目初始化
+2. Task 9.2 - 用户认证
+3. Task 9.3 - 主页面框架
+
+### iOS Sprint 2（核心功能）
+4. Task 9.4 - AI对话
+5. Task 9.5 - 日历
+6. Task 9.6 - 待办
+
+### iOS Sprint 3（功能完善）
+7. Task 9.7 - 天气
+8. Task 9.8 - 路线规划
+9. Task 9.9 - APNs推送
+
+### iOS Sprint 4（进阶优化）
+10. Task 9.10 - 离线模式
+11. Task 9.11 - 语音输入
+12. Task 9.12 - 打包发布

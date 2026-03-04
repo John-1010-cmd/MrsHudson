@@ -145,6 +145,52 @@ CREATE TABLE reminder (
 );
 ```
 
+### Android 本地数据模型 (Room)
+
+#### MessageEntity
+```kotlin
+@Entity(tableName = "messages")
+data class MessageEntity(
+    @PrimaryKey val id: String,
+    val userId: Long,
+    val role: String, // user, assistant, system
+    val content: String,
+    val createdAt: Long,
+    val synced: Boolean = false // 同步状态标记
+)
+```
+
+#### EventEntity
+```kotlin
+@Entity(tableName = "calendar_events")
+data class EventEntity(
+    @PrimaryKey val id: Long,
+    val userId: Long,
+    val title: String,
+    val description: String?,
+    val startTime: Long,
+    val endTime: Long,
+    val location: String?,
+    val category: String,
+    val synced: Boolean = false
+)
+```
+
+#### TodoEntity
+```kotlin
+@Entity(tableName = "todos")
+data class TodoEntity(
+    @PrimaryKey val id: Long,
+    val userId: Long,
+    val title: String,
+    val description: String?,
+    val priority: String, // LOW, MEDIUM, HIGH
+    val status: String, // PENDING, COMPLETED
+    val dueDate: Long?,
+    val synced: Boolean = false
+)
+```
+
 ---
 
 ## API设计
@@ -456,6 +502,162 @@ CREATE TABLE reminder (
 
 ---
 
+### 前端组件 (Android)
+
+Android 端采用 **Jetpack Compose** 构建声明式 UI，遵循 Material3 设计规范。
+
+#### 1. LoginScreen
+**职责**: 登录页面
+- 居中登录卡片（Material Card）
+- 用户名/密码输入框（OutlinedTextField）
+- 登录按钮（Loading 状态）
+- 错误提示（Snackbar）
+
+#### 2. MainScreen
+**职责**: 应用主框架
+```
+┌─────────────────────────────┐
+│      MrsHudson 标题栏       │
+├─────────────────────────────┤
+│                             │
+│      内容区域 (NavHost)     │
+│                             │
+├─────────────────────────────┤
+│  🗨️  📅  ✅  ☀️  🗺️        │
+│ 对话 日历 待办 天气 路线      │
+└─────────────────────────────┘
+```
+- Scaffold 布局
+- 底部 NavigationBar（5个选项卡）
+- NavHost 管理页面切换
+
+#### 3. ChatScreen / ChatViewModel
+**职责**: AI 对话界面
+- 消息列表（LazyColumn，倒序排列）
+- MessageBubble 组件（区分用户/AI）
+- 底部输入区域（TextField + 发送/语音按钮）
+- 加载动画（AI 思考中）
+- 下拉刷新历史消息
+
+#### 4. CalendarScreen / CalendarViewModel
+**职责**: 日历界面
+- MonthView 组件（月视图网格）
+- 日期选择器
+- 事件列表（BottomSheet 或下方区域）
+- FAB 按钮添加事件
+- EventDialog（创建/编辑事件）
+
+#### 5. TodoScreen / TodoViewModel
+**职责**: 待办列表界面
+- 筛选标签（TabRow：全部/进行中/已完成）
+- TodoItemCard 组件（滑动删除）
+- 底部快速输入框
+- FAB 添加详细待办
+- 优先级颜色标识
+
+#### 6. WeatherScreen / WeatherViewModel
+**职责**: 天气界面
+- 当前天气大卡片（温度、图标、描述）
+- 详细信息网格（湿度、风向、气压）
+- 未来7天预报列表
+- 城市搜索框
+- 定位按钮（获取当前位置）
+
+#### 7. RouteScreen / RouteViewModel
+**职责**: 路线规划界面
+- 起点/终点输入框
+- 出行方式选择（步行/驾车/公交）
+- 路线结果卡片（距离、时间、费用）
+- 详细步骤列表
+- 地图展示（可选，使用高德地图 SDK）
+
+#### 8. VoiceInputButton
+**职责**: 语音输入组件
+- 麦克风图标按钮
+- 按住录音动画（脉冲效果）
+- 录音时长显示
+- 权限请求处理
+
+---
+
+### 前端组件 (iOS)
+
+iOS 端采用 **SwiftUI** 构建声明式 UI，遵循 Apple Human Interface Guidelines。
+
+#### 1. LoginView
+**职责**: 登录页面
+- 居中登录卡片
+- 用户名/密码输入框（TextField / SecureField）
+- 登录按钮（Loading 状态）
+- 错误提示（Alert / Toast）
+
+#### 2. MainView
+**职责**: 应用主框架
+```
+┌─────────────────────────────┐
+│      MrsHudson 标题栏       │
+├─────────────────────────────┤
+│                             │
+│      内容区域 (TabView)     │
+│                             │
+├─────────────────────────────┤
+│  🗨️  📅  ✅  ☀️  🗺️        │
+│ 对话 日历 待办 天气 路线      │
+└─────────────────────────────┘
+```
+- TabView 底部导航
+- 5个选项卡（对话、日历、待办、天气、路线）
+- NavigationView 管理页面层级
+
+#### 3. ChatView / ChatViewModel
+**职责**: AI 对话界面
+- 消息列表（List / ScrollView）
+- MessageBubble 组件（区分用户/AI）
+- 底部输入区域（TextField + 发送/语音按钮）
+- 加载动画（ProgressView）
+- 下拉刷新历史消息（Refreshable）
+
+#### 4. CalendarView / CalendarViewModel
+**职责**: 日历界面
+- UICalendarView（iOS 16+）或自定义月视图
+- 日期选择器（DatePicker）
+- 事件列表（Sheet / 下方区域）
+- FAB 按钮添加事件
+- EventEditor（创建/编辑事件 Sheet）
+
+#### 5. TodoView / TodoViewModel
+**职责**: 待办列表界面
+- 筛选标签（Picker / SegmentedControl）
+- TodoItemRow 组件（滑动删除）
+- 底部快速输入框
+- 添加详细待办（Sheet）
+- 优先级颜色标识
+
+#### 6. WeatherView / WeatherViewModel
+**职责**: 天气界面
+- 当前天气大卡片（温度、图标、描述）
+- 详细信息网格（湿度、风向、气压）
+- 未来7天预报列表
+- 城市搜索框
+- 定位按钮（Core Location）
+
+#### 7. RouteView / RouteViewModel
+**职责**: 路线规划界面
+- 起点/终点输入框
+- 出行方式选择（Picker / SegmentedControl）
+- 路线结果卡片（距离、时间、费用）
+- 详细步骤列表
+- 地图展示（可选，使用 MapKit）
+
+#### 8. VoiceInputButton
+**职责**: 语音输入组件
+- 麦克风图标按钮
+- 按住录音动画（脉冲效果）
+- 录音时长显示
+- 权限请求处理（Info.plist）
+
+---
+
 ## 实现细节
 
 ### Kimi API集成
@@ -522,16 +724,60 @@ CREATE TABLE reminder (
 - 其他端通过WebSocket接收更新
 - 离线时缓存操作，联网后批量同步
 
+**Android 离线模式**:
+- Room 数据库存储：消息、日历事件、待办事项
+- DataStore 存储：用户 Token、应用配置
+- SyncManager 监听网络状态，自动触发同步
+- WorkManager 定期后台同步（每6小时）
+- 离线时显示提示条，数据来自本地缓存
+- 网络恢复后自动刷新数据
+
+**iOS 离线模式**:
+- Core Data 存储：消息、日历事件、待办事项
+- UserDefaults 存储：用户 Token、应用配置
+- NetworkMonitor 监听网络状态（NWPathMonitor）
+- BackgroundTasks 定期后台同步（每6小时）
+- 离线时显示提示条，数据来自本地缓存
+- 网络恢复后自动刷新数据
+
 ---
 
 ## 技术要求
 
+### 后端
 - Java 17+
 - Spring Boot 3.2+
-- Vue 3.4+
-- TypeScript 5.0+
 - MySQL 8.0+
 - Redis 7.0+
+
+### Web 前端
+- Vue 3.4+
+- TypeScript 5.0+
+- Element Plus 2.5+
+
+### Android 端
+- Kotlin 1.9+
+- Jetpack Compose 2024.02.00+
+- compileSdk 34, minSdk 26
+- Hilt 2.50+（依赖注入）
+- Retrofit 2.9+（网络请求）
+- Room 2.6+（本地数据库）
+- DataStore 1.0+（偏好存储）
+- Navigation Compose 2.7+（导航）
+- Firebase Messaging（推送）
+- WorkManager 2.9+（后台任务）
+
+### iOS 端
+- Swift 5.9+
+- SwiftUI (iOS 16+)
+- Combine / async-await（异步编程）
+- Core Data（本地数据库）
+- UserDefaults（偏好存储）
+- URLSession / Alamofire（网络请求）
+- APNs（推送通知）
+- BackgroundTasks（后台同步）
+- Speech 框架（语音识别）
+- Core Location（定位服务）
 
 ## 开发技能支持
 
