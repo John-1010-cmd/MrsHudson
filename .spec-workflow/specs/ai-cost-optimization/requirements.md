@@ -36,8 +36,9 @@ MrsHudson定位为"贴心的私人管家助手"，核心优势在于：
 1. WHEN 用户发送天气相关查询（包含"天气"、"温度"、"下雨"等关键词）THEN 系统 SHALL 直接调用天气API返回结果，零AI token消耗
 2. WHEN 用户发送日历相关查询（包含"日程"、"会议"、"今天有什么"等关键词）THEN 系统 SHALL 直接查询数据库返回结果，零AI token消耗
 3. WHEN 用户发送待办相关查询（包含"待办"、"任务"、"提醒"等关键词）THEN 系统 SHALL 直接查询数据库返回结果，零AI token消耗
-4. WHEN 用户发送简单问候（"你好"、"在吗"等）THEN 系统 SHALL 返回预定义的快捷回复，零AI token消耗
-5. IF 意图识别置信度低于0.7 THEN 系统 SHALL 降级到AI处理，确保不丢失复杂请求
+4. WHEN 用户发送路线规划查询（包含"怎么去"、"路线"、"导航"等关键词）THEN 系统 SHALL 直接调用路线规划API返回结果，零AI token消耗
+5. WHEN 用户发送简单问候（"你好"、"在吗"等）THEN 系统 SHALL 返回预定义的快捷回复，零AI token消耗
+6. IF 意图识别置信度低于0.7 THEN 系统 SHALL 降级到AI处理，确保不丢失复杂请求
 
 ### Requirement 3: 对话历史压缩
 

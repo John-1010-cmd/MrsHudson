@@ -4,10 +4,12 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.mrshudson.domain.entity.CalendarEvent;
 import com.mrshudson.domain.entity.CalendarEvent.Category;
 import com.mrshudson.mapper.CalendarEventMapper;
+import com.mrshudson.optim.cache.event.CalendarChangeEvent;
 import com.mrshudson.service.CalendarService;
 import com.mrshudson.service.ReminderService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,6 +30,7 @@ public class CalendarServiceImpl implements CalendarService {
 
     private final CalendarEventMapper calendarEventMapper;
     private final ReminderService reminderService;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional
@@ -66,6 +69,9 @@ public class CalendarServiceImpl implements CalendarService {
         } catch (Exception e) {
             log.warn("为日历事件创建提醒失败: eventId={}, error={}", event.getId(), e.getMessage());
         }
+
+        // 发布变更事件，触发缓存清除
+        eventPublisher.publishEvent(new CalendarChangeEvent(this, userId, event.getId(), CalendarChangeEvent.OperationType.CREATE));
 
         return event;
     }
@@ -113,6 +119,10 @@ public class CalendarServiceImpl implements CalendarService {
 
         calendarEventMapper.deleteById(eventId);
         log.info("用户{}删除了日历事件: {}", userId, eventId);
+
+        // 发布变更事件，触发缓存清除
+        eventPublisher.publishEvent(new CalendarChangeEvent(this, userId, eventId, CalendarChangeEvent.OperationType.DELETE));
+
         return true;
     }
 
@@ -158,6 +168,10 @@ public class CalendarServiceImpl implements CalendarService {
 
         calendarEventMapper.updateById(event);
         log.info("用户{}更新了日历事件: {}", userId, eventId);
+
+        // 发布变更事件，触发缓存清除
+        eventPublisher.publishEvent(new CalendarChangeEvent(this, userId, eventId, CalendarChangeEvent.OperationType.UPDATE));
+
         return event;
     }
 

@@ -5,6 +5,7 @@ import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.mrshudson.config.WeatherProperties;
 import com.mrshudson.domain.dto.WeatherDTO;
+import com.mrshudson.optim.cache.ToolCacheManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -27,10 +28,14 @@ import java.util.List;
 public class WeatherService {
 
     private final WeatherProperties weatherProperties;
+    private final ToolCacheManager toolCacheManager;
     private final RestTemplate restTemplate = new RestTemplate();
 
     // 模拟模式开关（当API不可用时启用）
     private boolean mockMode = false;
+
+    private static final String WEATHER_TOOL_NAME = "weather";
+    private static final int WEATHER_CACHE_TTL_MINUTES = 10;
 
     /**
      * 获取实时天气DTO（供API使用）
@@ -39,6 +44,14 @@ public class WeatherService {
      * @return 天气DTO
      */
     public WeatherDTO getCurrentWeatherDTO(String city) {
+        // 1. 先检查缓存
+        String cacheKey = buildWeatherCacheKey(city);
+        Object cachedResult = toolCacheManager.get(WEATHER_TOOL_NAME, cacheKey);
+        if (cachedResult instanceof WeatherDTO) {
+            log.debug("天气数据缓存命中: city={}", city);
+            return (WeatherDTO) cachedResult;
+        }
+
         // 检查API密钥
         if (weatherProperties.getApiKey() == null || weatherProperties.getApiKey().isEmpty()) {
             log.warn("天气API密钥未配置，返回模拟数据");
@@ -46,7 +59,7 @@ public class WeatherService {
         }
 
         try {
-            // 1. 获取城市编码
+            // 2. 获取城市编码
             String cityCode = getCityCode(city);
             if (cityCode == null) {
                 throw new RuntimeException("未找到城市：" + city);
@@ -91,6 +104,10 @@ public class WeatherService {
             dto.setWindDirection(weather.getString("winddirection"));
             dto.setWindPower(weather.getString("windpower"));
             dto.setReportTime(weather.getString("reporttime"));
+
+            // 3. 存入缓存（TTL=10分钟）
+            toolCacheManager.put(WEATHER_TOOL_NAME, cacheKey, dto, WEATHER_CACHE_TTL_MINUTES);
+            log.debug("天气数据已缓存: city={}, ttl={}分钟", city, WEATHER_CACHE_TTL_MINUTES);
 
             return dto;
 
@@ -196,6 +213,14 @@ public class WeatherService {
      * @return 天气信息字符串
      */
     public String getCurrentWeather(String city) {
+        // 1. 先检查缓存
+        String cacheKey = buildWeatherCacheKey(city);
+        Object cachedResult = toolCacheManager.get(WEATHER_TOOL_NAME, cacheKey);
+        if (cachedResult instanceof String) {
+            log.debug("天气数据缓存命中: city={}", city);
+            return (String) cachedResult;
+        }
+
         // 检查API密钥
         if (weatherProperties.getApiKey() == null || weatherProperties.getApiKey().isEmpty()) {
             log.warn("天气API密钥未配置，返回模拟数据");
@@ -203,7 +228,7 @@ public class WeatherService {
         }
 
         try {
-            // 1. 获取城市编码
+            // 2. 获取城市编码
             String cityCode = getCityCode(city);
             if (cityCode == null) {
                 return String.format("未找到城市：%s", city);
@@ -249,7 +274,7 @@ public class WeatherService {
             JSONObject weather = lives.getJSONObject(0);
             String weatherDesc = getWeatherEmoji(weather.getString("weather"));
 
-            return String.format("%s当前天气：\n" +
+            String result = String.format("%s当前天气：\n" +
                             "%s 天气：%s\n" +
                             "🌡️ 温度：%s°C\n" +
                             "💧 湿度：%s%%\n" +
@@ -263,6 +288,12 @@ public class WeatherService {
                     weather.getString("winddirection"),
                     weather.getString("windpower"),
                     weather.getString("reporttime"));
+
+            // 3. 存入缓存（TTL=10分钟）
+            toolCacheManager.put(WEATHER_TOOL_NAME, cacheKey, result, WEATHER_CACHE_TTL_MINUTES);
+            log.debug("天气数据已缓存: city={}, ttl={}分钟", city, WEATHER_CACHE_TTL_MINUTES);
+
+            return result;
 
         } catch (org.springframework.web.client.ResourceAccessException e) {
             log.error("无法连接到天气API服务器, city={}", city, e);
@@ -493,5 +524,16 @@ public class WeatherService {
         if (text.contains("雷") || text.contains("电")) return "⛈️";
         if (text.contains("沙") || text.contains("尘")) return "🌪️";
         return "🌤️";
+    }
+
+    /**
+     * 构建天气缓存key
+     * 使用城市名作为key
+     *
+     * @param city 城市名称
+     * @return 缓存key
+     */
+    private String buildWeatherCacheKey(String city) {
+        return city != null ? city.trim().toLowerCase() : "unknown";
     }
 }

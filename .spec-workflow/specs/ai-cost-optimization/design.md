@@ -58,12 +58,14 @@ graph TD
     D -->|天气查询| E[WeatherTool]
     D -->|日历查询| F[CalendarTool]
     D -->|待办查询| G[TodoTool]
+    D -->|路线规划| R[RouteTool]
     D -->|闲聊| H[SmallTalkHandler]
     D -->|复杂对话| I{历史压缩<br/>Summarizer}
 
     E --> J[ToolCacheManager]
     F --> J
     G --> J
+    R --> J
 
     I -->|超过10条| K[生成摘要]
     I -->|10条以内| L[保持原样]
@@ -337,6 +339,7 @@ public enum IntentType {
     WEATHER_QUERY,      // 天气查询
     CALENDAR_QUERY,     // 日历查询
     TODO_QUERY,         // 待办查询
+    ROUTE_QUERY,        // 路线规划
     CALENDAR_CREATE,    // 创建日历事件
     TODO_CREATE,        // 创建待办
     SMALL_TALK,         // 闲聊问候
@@ -365,6 +368,7 @@ public interface IntentHandler {
 - WeatherService（天气查询）
 - CalendarService（日历操作）
 - TodoService（待办操作）
+- RouteService（路线规划）
 
 **Reuses:**
 - 复用现有ToolRegistry机制
@@ -402,6 +406,8 @@ public class RuleBasedExtractor implements ParameterExtractor {
                 return extractCalendarParams(message);
             case TODO_QUERY:
                 return extractTodoParams(message);
+            case ROUTE_QUERY:
+                return extractRouteParams(message);
             default:
                 return ExtractionResult.failed();
         }
@@ -439,6 +445,8 @@ public class RuleBasedExtractor implements ParameterExtractor {
 | 城市（模糊） | `这里/当地/所在城市` | ❌ 失败，进入轻量AI |
 | 日期（直接） | 今天/明天/后天 | "明天天气" → 明天 |
 | 日期（相对） | 后天/大后天/下周 | "下周三天气" → 2024-03-10 |
+| 路线起点/终点 | `从(\S+)(?:到|去)(\S+)` | "从北京到上海" → 起点:北京,终点:上海 |
+| 路线方式 | 步行/驾车/公交 | "怎么去..." → 默认驾车 |
 
 **第2层：轻量AI提取（低成本，5%覆盖率）**
 
@@ -707,6 +715,7 @@ public class ToolCacheConfig {
     private long weatherTtl = 600;      // 天气缓存10分钟
     private long calendarTtl = 120;     // 日历缓存2分钟
     private long todoTtl = 120;         // 待办缓存2分钟
+    private long routeTtl = 300;        // 路线规划缓存5分钟
 }
 ```
 

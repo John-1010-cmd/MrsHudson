@@ -19,7 +19,7 @@
 
 ## 模块1: 基础设施与配置
 
-- [ ] 1.1 创建优化模块基础包结构和配置类
+- [x] 1.1 创建优化模块基础包结构和配置类
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/config/OptimProperties.java`
   - 创建配置属性类，包含各优化层的开关和参数
   - 参考现有`AIProperties`模式，支持application.yml配置
@@ -27,35 +27,35 @@
   - _Requirements: 所有优化模块的配置需求
   - _Prompt: 角色：Java配置专家 | 任务：创建OptimProperties配置类，支持语义缓存、意图路由、对话压缩、工具缓存、成本监控的开关和参数配置 | 限制：使用Lombok@Data，提供默认值，支持@ConfigurationProperties | 成功：配置类能被Spring正确加载，所有配置项有默认值
 
-- [ ] 1.2 创建优化层核心异常类
+- [x] 1.2 创建优化层核心异常类
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/exception/OptimException.java`
   - 创建优化层专用异常体系，支持降级处理
   - _Leverage: 现有全局异常处理`GlobalExceptionHandler`
   - _Requirements: 错误处理需求
   - _Prompt: 角色：Java异常处理专家 | 任务：创建OptimException及其子类（CacheException, IntentException等），支持异常降级标记 | 限制：继承RuntimeException，提供错误码机制 | 成功：异常类能被全局异常处理器捕获
 
-- [ ] 1.3 创建优化层工具类（相似度计算、Token估算）
+- [x] 1.3 创建优化层工具类（相似度计算、Token估算）
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/util/OptimUtils.java`
   - 实现余弦相似度计算、简单token估算（按字符数）
   - _Leverage: 无（纯数学计算）
   - _Requirements: 语义缓存、对话压缩需求
   - _Prompt: 角色：算法工程师 | 任务：实现向量相似度计算（余弦相似度）、简单token估算（中文2字符=1token，英文4字符=1token） | 限制：纯静态方法，无状态，线程安全 | 成功：单元测试通过，相似度计算精度正确
 
-- [ ] 1.4 创建向量存储通用接口
+- [x] 1.4 创建向量存储通用接口
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/cache/VectorStore.java`
   - 定义向量存储抽象接口，支持多种后端实现
   - _Leverage: CacheEntry, CacheMetadata
   - _Requirements: Requirement 1
   - _Prompt: 角色：Java接口设计专家 | 任务：创建VectorStore接口，定义store、search、delete、cleanup、getStats方法 | 限制：接口设计通用，支持Redis、Chroma、Milvus多种实现 | 成功：接口定义清晰，可扩展
 
-- [ ] 1.5 创建文本嵌入服务接口
+- [x] 1.5 创建文本嵌入服务接口
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/cache/EmbeddingService.java`
   - 定义文本向量化接口
   - _Leverage: 无
   - _Requirements: Requirement 1
   - _Prompt: 角色：Java接口设计专家 | 任务：创建EmbeddingService接口，定义embed和embedBatch方法 | 限制：支持同步和批量嵌入 | 成功：接口可支持多种嵌入实现（关键词/API/本地模型）
 
-- [ ] 1.6 创建向量数据库配置类
+- [x] 1.6 创建向量数据库配置类
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/config/VectorStoreConfig.java`
   - 配置不同向量存储类型的Bean创建
   - _Leverage: OptimProperties, VectorStore, EmbeddingService
@@ -66,7 +66,7 @@
 
 ## 模块2: 成本监控服务
 
-- [ ] 2.1 创建成本记录实体和Mapper
+- [x] 2.1 创建成本记录实体和Mapper
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/domain/entity/AiCostRecord.java`
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/mapper/AiCostRecordMapper.java`
   - 创建成本记录数据库表对应的实体类和MyBatis Plus Mapper
@@ -74,7 +74,7 @@
   - _Requirements: Requirement 7
   - _Prompt: 角色：MyBatis Plus开发者 | 任务：创建AiCostRecord实体（字段：id, userId, conversationId, inputTokens, outputTokens, cost, cacheHit, model, createdAt）和对应Mapper | 限制：使用@TableName注解，继承BaseMapper | 成功：实体类能被MyBatis Plus正确映射
 
-- [ ] 2.2 创建成本监控服务接口和实现
+- [x] 2.2 创建成本监控服务接口和实现
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/monitor/CostMonitorService.java`
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/monitor/impl/CostMonitorServiceImpl.java`
   - 实现AI调用记录、缓存命中记录、统计查询、告警检查
@@ -82,14 +82,14 @@
   - _Requirements: Requirement 7
   - _Prompt: 角色：Java服务开发者 | 任务：实现CostMonitorService，包含recordAiCall、recordCacheHit、getStatistics、checkAndAlert方法 | 限制：使用@Service，异步记录（@Async），告警阈值从配置读取 | 成功：所有方法正常可用，统计数据准确
 
-- [ ] 2.3 创建成本统计Controller
+- [x] 2.3 创建成本统计Controller
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/controller/CostStatsController.java`
   - 提供成本查询API接口（管理员权限）
   - _Leverage: `CostMonitorService`, `SecurityConfig`
   - _Requirements: Requirement 7
   - _Prompt: 角色：Spring Boot开发者 | 任务：创建CostStatsController，提供GET /api/admin/cost/stats和GET /api/admin/cost/user/{userId}接口 | 限制：需要管理员权限，返回统一Result包装 | 成功：接口能正确返回成本统计数据
 
-- [ ] 2.4 添加成本监控定时任务
+- [x] 2.4 添加成本监控定时任务
   - 文件: 修改`MrshudsonApplication.java`或新建`CostMonitorScheduler.java`
   - 每小时统计成本，每日检查告警阈值
   - _Leverage: `@Scheduled`, `CostMonitorService`
@@ -100,7 +100,7 @@
 
 ## 模块3: 工具结果缓存
 
-- [ ] 3.1 创建工具缓存管理器
+- [x] 3.1 创建工具缓存管理器
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/cache/ToolCacheManager.java`
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/cache/impl/ToolCacheManagerImpl.java`
   - 实现工具结果缓存的存取、过期、清除逻辑
@@ -108,21 +108,21 @@
   - _Requirements: Requirement 4
   - _Prompt: 角色：缓存开发专家 | 任务：实现ToolCacheManager，支持get/put/invalidate方法，key格式：tool:{name}:{paramsHash}，不同工具不同TTL | 限制：使用RedisTemplate，处理序列化异常，支持降级 | 成功：缓存能正常存取，过期自动清理
 
-- [ ] 3.2 修改天气服务添加缓存支持
+- [x] 3.2 修改天气服务添加缓存支持
   - 文件: 修改`mrshudson-backend/src/main/java/com/mrshudson/service/impl/WeatherServiceImpl.java`
   - 在查询天气前检查缓存，查询后存入缓存
   - _Leverage: `ToolCacheManager`, 现有`WeatherServiceImpl`
   - _Requirements: Requirement 4
   - _Prompt: 角色：Java服务优化专家 | 任务：修改WeatherServiceImpl，在getWeather方法中添加缓存逻辑，查询前检查缓存，查询后存入缓存（TTL=10分钟） | 限制：使用@Autowire注入ToolCacheManager，缓存key使用城市名 | 成功：重复查询同一城市命中缓存，不调用天气API
 
-- [ ] 3.3 创建数据变更监听和缓存清除
+- [x] 3.3 创建数据变更监听和缓存清除
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/cache/listener/DataChangeListener.java`
   - 监听日历、待办数据变更事件，清除相关缓存
   - _Leverage: `ApplicationEventPublisher`, `@EventListener`
   - _Requirements: Requirement 4
   - _Prompt: 角色：Spring事件驱动专家 | 任务：创建DataChangeListener，监听CalendarChangeEvent和TodoChangeEvent，事件触发时清除对应用户的缓存 | 限制：异步处理，异常不抛出 | 成功：数据变更后缓存被清除，下次查询重新加载
 
-- [ ] 3.4 在日历和待办服务中发布变更事件
+- [x] 3.4 在日历和待办服务中发布变更事件
   - 文件: 修改`CalendarServiceImpl.java`, `TodoServiceImpl.java`
   - 在增删改操作后发布数据变更事件
   - _Leverage: `ApplicationEventPublisher`
@@ -133,7 +133,7 @@
 
 ## 模块4: 意图识别路由
 
-- [ ] 4.1 创建意图类型枚举和路由结果类
+- [x] 4.1 创建意图类型枚举和路由结果类
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/intent/IntentType.java`
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/intent/RouteResult.java`
   - 定义意图类型枚举和路由结果数据结构
@@ -141,7 +141,7 @@
   - _Requirements: Requirement 2
   - _Prompt: 角色：Java开发者 | 任务：创建IntentType枚举（WEATHER_QUERY, CALENDAR_QUERY, TODO_QUERY, SMALL_TALK, GENERAL_CHAT）和RouteResult类 | 限制：使用Lombok，RouteResult包含handled, response, intentType, confidence字段 | 成功：枚举和类定义完整
 
-- [ ] 4.2 创建意图处理器接口和基础实现
+- [x] 4.2 创建意图处理器接口和基础实现
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/intent/IntentHandler.java`
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/intent/handler/AbstractIntentHandler.java`
   - 定义处理器接口，提供基础实现
@@ -149,35 +149,42 @@
   - _Requirements: Requirement 2
   - _Prompt: 角色：Java接口设计专家 | 任务：创建IntentHandler接口（handle方法）和AbstractIntentHandler抽象类（提供日志记录等通用功能） | 限制：接口简单清晰，抽象类实现通用逻辑 | 成功：处理器框架可扩展
 
-- [ ] 4.3 实现天气查询意图处理器
+- [x] 4.3 实现天气查询意图处理器
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/intent/handler/WeatherIntentHandler.java`
   - 识别天气相关查询，调用WeatherService
   - _Leverage: `WeatherService`, `AbstractIntentHandler`
   - _Requirements: Requirement 2
   - _Prompt: 角色：Java业务逻辑开发者 | 任务：实现WeatherIntentHandler，识别"天气"、"温度"、"下雨"等关键词，调用WeatherService查询并返回结果 | 限制：提取查询中的城市名，默认北京，置信度固定0.95 | 成功：天气查询被正确路由
 
-- [ ] 4.4 实现日历查询意图处理器
+- [x] 4.4 实现日历查询意图处理器
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/intent/handler/CalendarIntentHandler.java`
   - 识别日历相关查询，调用CalendarService
   - _Leverage: `CalendarService`, `AbstractIntentHandler`
   - _Requirements: Requirement 2
   - _Prompt: 角色：Java业务逻辑开发者 | 任务：实现CalendarIntentHandler，识别"日程"、"会议"、"今天有什么"等关键词，查询用户日历并返回格式化结果 | 限制：查询范围今天到未来7天，格式化输出 | 成功：日历查询被正确路由
 
-- [ ] 4.5 实现待办查询意图处理器
+- [x] 4.5 实现待办查询意图处理器
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/intent/handler/TodoIntentHandler.java`
   - 识别待办相关查询，调用TodoService
   - _Leverage: `TodoService`, `AbstractIntentHandler`
   - _Requirements: Requirement 2
   - _Prompt: 角色：Java业务逻辑开发者 | 任务：实现TodoIntentHandler，识别"待办"、"任务"、"提醒"等关键词，查询用户待办列表并返回 | 限制：只返回未完成的待办，按优先级排序 | 成功：待办查询被正确路由
 
-- [ ] 4.6 实现闲聊问候处理器
+- [x] 4.5b 实现路线规划意图处理器
+  - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/intent/handler/RouteIntentHandler.java`
+  - 识别路线规划相关查询，调用RouteService
+  - _Leverage: `RouteService`, `AbstractIntentHandler`
+  - _Requirements: Requirement 2 + mrshudson-core路线规划功能
+  - _Prompt: 角色：Java业务逻辑开发者 | 任务：实现RouteIntentHandler，识别"怎么去"、"路线"、"导航"等关键词，提取起点和终点，调用RouteService查询路线 | 限制：起点/终点提取支持"从X到Y"、"X到Y"、"X怎么走"等格式，默认出行方式为驾车 | 成功：路线查询被正确路由
+
+- [x] 4.6 实现闲聊问候处理器
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/intent/handler/SmallTalkHandler.java`
   - 识别简单问候，返回预设回复
   - _Leverage: `AbstractIntentHandler`
   - _Requirements: Requirement 2
   - _Prompt: 角色：Java开发者 | 任务：实现SmallTalkHandler，识别"你好"、"在吗"、"hello"等问候，从预设列表中随机返回友好回复 | 限制：零AI调用，纯本地处理 | 成功：问候消息被快速响应
 
-- [ ] 4.7 创建意图路由器实现
+- [x] 4.7 创建意图路由器实现
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/intent/IntentRouter.java`
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/intent/impl/IntentRouterImpl.java`
   - 实现意图分类和路由分发逻辑
@@ -185,7 +192,7 @@
   - _Requirements: Requirement 2
   - _Prompt: 角色：Java架构师 | 任务：实现IntentRouter，包含classify方法（关键词匹配）和route方法（分发到对应处理器），置信度低于0.7返回UNKNOWN | 限制：使用ConcurrentHashMap存储处理器，线程安全 | 成功：各种意图被正确分类和路由
 
-- [ ] 4.8 创建参数提取器接口和提取结果类
+- [x] 4.8 创建参数提取器接口和提取结果类
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/intent/extract/ParameterExtractor.java`
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/intent/extract/ExtractionResult.java`
   - 定义参数提取的标准接口和结果封装
@@ -193,28 +200,28 @@
   - _Requirements: Requirement 2
   - _Prompt: 角色：Java接口设计专家 | 任务：创建ParameterExtractor接口（extract方法）和ExtractionResult类（success/failed状态、参数Map、失败原因） | 限制：设计通用，支持规则、AI等多种实现 | 成功：接口清晰可扩展
 
-- [ ] 4.9 实现规则参数提取器（第1层）
+- [x] 4.9 实现规则参数提取器（第1层）
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/intent/extract/RuleBasedExtractor.java`
   - 实现基于正则和关键词的参数提取
   - _Leverage: ParameterExtractor, IntentType
   - _Requirements: Requirement 2
   - _Prompt: 角色：Java业务逻辑专家 | 任务：实现RuleBasedExtractor，为天气/日历/待办意图分别实现提取规则，支持城市名、日期、优先级等参数提取 | 限制：预定义常见城市列表，支持相对日期（今天/明天），失败时返回明确原因 | 成功：能提取80%以上常见表达
 
-- [ ] 4.10 实现轻量AI参数提取器（第2层）
+- [x] 4.10 实现轻量AI参数提取器（第2层）
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/intent/extract/LightweightAiExtractor.java`
   - 使用极简提示词调用AI仅提取参数
   - _Leverage: KimiClient, ParameterExtractor
   - _Requirements: Requirement 2
   - _Prompt: 角色：AI集成专家 | 任务：实现LightweightAiExtractor，构建极简提示词（只要求返回JSON参数），使用maxTokens=100限制输出，解析AI返回的JSON | 限制：只提取参数不生成回复，超时2秒，异常时返回失败 | 成功：能处理规则无法覆盖的模糊表达
 
-- [ ] 4.11 实现三层混合意图路由器
+- [x] 4.11 实现三层混合意图路由器
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/intent/impl/HybridIntentRouter.java`
   - 整合规则层、轻量AI层、完整AI层的降级流程
   - _Leverage: RuleBasedExtractor, LightweightAiExtractor, FullAiToolHandler
   - _Requirements: Requirement 2
   - _Prompt: 角色：系统架构师 | 任务：实现HybridIntentRouter，按顺序尝试规则提取->轻量AI提取->完整AI调用，每层失败进入下一层，记录每层的使用统计 | 限制：支持配置开关各层，每层超时保护，最终必须返回结果 | 成功：95%以上查询无需完整AI调用
 
-- [ ] 4.12 创建路由器工厂和配置
+- [x] 4.12 创建路由器工厂和配置
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/intent/IntentRouterFactory.java`
   - 根据配置创建不同的路由器实现（纯规则/混合/纯AI）
   - _Leverage: OptimProperties
@@ -225,7 +232,7 @@
 
 ## 模块5: 语义缓存系统
 
-- [ ] 5.1 创建缓存条目实体和数据结构
+- [x] 5.1 创建缓存条目实体和数据结构
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/cache/CacheEntry.java`
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/cache/CacheMetadata.java`
   - 定义语义缓存的数据结构
@@ -233,14 +240,14 @@
   - _Requirements: Requirement 1
   - _Prompt: 角色：Java数据建模专家 | 任务：创建CacheEntry（id, query, response, embedding, userId, timestamps）和CacheMetadata（tokens, cost等） | 限制：使用@Builder，字段完整 | 成功：数据结构满足缓存需求
 
-- [ ] 5.2 实现关键词嵌入服务（简化版）
+- [x] 5.2 实现关键词嵌入服务（简化版）
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/cache/impl/KeywordEmbeddingService.java`
   - 实现简化版文本嵌入（基于关键词的one-hot编码）
   - _Leverage: EmbeddingService接口
   - _Requirements: Requirement 1
   - _Prompt: 角色：NLP算法工程师 | 任务：实现KeywordEmbeddingService，将文本分词后生成one-hot向量（预定义100个关键词），用于相似度计算 | 限制：纯Java实现，无外部依赖，向量维度固定 | 成功：相似文本的向量相似度高
 
-- [ ] 5.3 实现Redis向量存储（简化版）
+- [x] 5.3 实现Redis向量存储（简化版）
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/cache/impl/RedisVectorStore.java`
   - 使用Redis Hash存储向量，遍历计算相似度
   - _Leverage: RedisTemplate, EmbeddingService, OptimUtils（余弦相似度）
@@ -262,7 +269,7 @@
   - _Requirements: Requirement 1
   - _Prompt: 角色：Java HTTP客户端开发 | 任务：创建ChromaClient，封装createCollection、addDocuments、query等方法，使用RestTemplate调用Chroma HTTP API | 限制：处理HTTP异常，支持连接池配置 | 成功：能正确调用Chroma服务进行向量操作
 
-- [ ] 5.6 创建语义缓存服务实现
+- [x] 5.6 创建语义缓存服务实现
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/cache/SemanticCacheService.java`
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/cache/impl/SemanticCacheServiceImpl.java`
   - 实现完整的语义缓存服务

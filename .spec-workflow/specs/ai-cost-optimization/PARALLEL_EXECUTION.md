@@ -79,6 +79,7 @@
 | B | 3.4 发布变更事件 | 修改 `CalendarServiceImpl.java`, `TodoServiceImpl.java` | 3.3 |
 | C | 4.4 CalendarHandler | `optim/intent/handler/CalendarIntentHandler.java` | 4.2 |
 | C | 4.5 TodoHandler | `optim/intent/handler/TodoIntentHandler.java` | 4.2 |
+| C | 4.5b RouteHandler | `optim/intent/handler/RouteIntentHandler.java` | 4.2 |
 | C | 4.8 ParameterExtractor | `optim/intent/extract/ParameterExtractor.java` | 4.1 |
 | D | 5.1 CacheEntry | `optim/cache/CacheEntry.java` | 无 |
 | D | 5.2 KeywordEmbedding | `optim/cache/impl/KeywordEmbeddingService.java` | 1.5 |
@@ -87,7 +88,7 @@
 - [ ] 成本统计API能返回数据
 - [ ] 天气缓存重复查询命中
 - [ ] 数据变更后缓存被清除
-- [ ] 日历/待办处理器能正确路由
+- [ ] 日历/待办/路线处理器能正确路由
 
 ---
 
@@ -97,7 +98,7 @@
 
 | 终端 | 任务 | 文件 | 依赖 |
 |-----|------|------|------|
-| A | 4.7 IntentRouter | `optim/intent/IntentRouter.java` | 4.1-4.6 |
+| A | 4.7 IntentRouter | `optim/intent/IntentRouter.java` | 4.1-4.6, 4.5b |
 | A | 4.9 RuleBasedExtractor | `optim/intent/extract/RuleBasedExtractor.java` | 4.8 |
 | A | 4.12 RouterFactory | `optim/intent/IntentRouterFactory.java` | 4.7 |
 | B | 4.10 LightweightAiExtractor | `optim/intent/extract/LightweightAiExtractor.java` | 4.8 |

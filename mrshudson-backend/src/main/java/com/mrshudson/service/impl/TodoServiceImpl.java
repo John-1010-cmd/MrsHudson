@@ -5,10 +5,12 @@ import com.mrshudson.domain.entity.TodoItem;
 import com.mrshudson.domain.entity.TodoItem.Priority;
 import com.mrshudson.domain.entity.TodoItem.Status;
 import com.mrshudson.mapper.TodoItemMapper;
+import com.mrshudson.optim.cache.event.TodoChangeEvent;
 import com.mrshudson.service.ReminderService;
 import com.mrshudson.service.TodoService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,6 +31,7 @@ public class TodoServiceImpl implements TodoService {
 
     private final TodoItemMapper todoItemMapper;
     private final ReminderService reminderService;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional
@@ -59,6 +62,9 @@ public class TodoServiceImpl implements TodoService {
                 log.warn("为待办事项创建提醒失败: todoId={}, error={}", todo.getId(), e.getMessage());
             }
         }
+
+        // 发布变更事件，触发缓存清除
+        eventPublisher.publishEvent(new TodoChangeEvent(this, userId, todo.getId(), TodoChangeEvent.OperationType.CREATE));
 
         return todo;
     }
@@ -105,6 +111,10 @@ public class TodoServiceImpl implements TodoService {
         todo.setCompletedAt(LocalDateTime.now());
         todoItemMapper.updateById(todo);
         log.info("用户{}完成了待办事项: {}", userId, todoId);
+
+        // 发布变更事件，触发缓存清除
+        eventPublisher.publishEvent(new TodoChangeEvent(this, userId, todoId, TodoChangeEvent.OperationType.COMPLETE));
+
         return true;
     }
 
@@ -124,6 +134,10 @@ public class TodoServiceImpl implements TodoService {
 
         todoItemMapper.deleteById(todoId);
         log.info("用户{}删除了待办事项: {}", userId, todoId);
+
+        // 发布变更事件，触发缓存清除
+        eventPublisher.publishEvent(new TodoChangeEvent(this, userId, todoId, TodoChangeEvent.OperationType.DELETE));
+
         return true;
     }
 
@@ -158,6 +172,10 @@ public class TodoServiceImpl implements TodoService {
 
         todoItemMapper.updateById(todo);
         log.info("用户{}更新了待办事项: {}", userId, todoId);
+
+        // 发布变更事件，触发缓存清除
+        eventPublisher.publishEvent(new TodoChangeEvent(this, userId, todoId, TodoChangeEvent.OperationType.UPDATE));
+
         return todo;
     }
 
