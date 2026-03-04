@@ -45,6 +45,9 @@ mrshudson-frontend/.env.*.local
 coverage/
 .nyc_output/
 
+# TypeScript
+*.tsbuildinfo
+
 # ============================================
 # 后端 (Spring Boot + Maven)
 # ============================================
@@ -63,6 +66,12 @@ mrshudson-backend/build/
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
 !**/src/test/**/build/
+
+# Spring Boot 特定
+*.pid
+hs_err_pid*
+attach_pid*
+spring-boot-*.pid
 
 # ============================================
 # IDE 和编辑器
@@ -90,6 +99,9 @@ out/
 *.njsproj
 *.sln
 *.sw?
+
+# Fleet
+.fleet/
 
 # ============================================
 # 日志文件
@@ -155,6 +167,7 @@ volumes/
 # ============================================
 spec-workflow/approvals/
 .spec-workflow/approvals/
+.spec-workflow/**/Implementation Logs/
 
 # ============================================
 # 其他
@@ -173,3 +186,20 @@ spec-workflow/approvals/
 local-*.sh
 local-*.bat
 local-*.ps1
+
+# ============================================
+# 测试相关
+# ============================================
+test-output/
+surefire-reports/
+failsafe-reports/
+*.test-result
+
+# ============================================
+# 部署相关
+# ============================================
+.env.production
+.env.staging
+kubernetes/secrets/
+helm/charts/
+.terraform/
