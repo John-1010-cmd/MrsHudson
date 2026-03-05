@@ -1,5 +1,6 @@
 package com.mrshudson.controller;
 
+import com.mrshudson.config.VoiceProperties;
 import com.mrshudson.domain.dto.*;
 import com.mrshudson.service.AuthService;
 import com.mrshudson.service.ChatService;
@@ -26,6 +27,7 @@ public class ChatController {
     private final ChatService chatService;
     private final AuthService authService;
     private final VoiceService voiceService;
+    private final VoiceProperties voiceProperties;
 
     /**
      * 发送消息
@@ -34,6 +36,17 @@ public class ChatController {
     public Result<SendMessageResponse> sendMessage(@Valid @RequestBody SendMessageRequest request) {
         Long userId = authService.getCurrentUser().getId();
         SendMessageResponse response = chatService.sendMessage(userId, request);
+
+        // 生成AI回复的语音（仅当启用TTS时）
+        log.info("TTS开关状态: enableTts={}, content长度={}", voiceProperties.isEnableTts(),
+                response.getContent() != null ? response.getContent().length() : 0);
+        if (voiceProperties.isEnableTts() && response.getContent() != null && !response.getContent().isEmpty()) {
+            log.info("开始生成语音...");
+            String audioUrl = voiceService.textToSpeech(response.getContent());
+            log.info("语音生成结果: audioUrl={}", audioUrl);
+            response.setAudioUrl(audioUrl);
+        }
+
         return Result.success(response);
     }
 
@@ -147,5 +160,42 @@ public class ChatController {
         }
 
         return Result.success(response);
+    }
+
+    /**
+     * 语音合成 - 将文本转为语音（独立接口）
+     */
+    @PostMapping("/tts")
+    public Result<TtsResponse> textToSpeech(@Valid @RequestBody TtsRequest request) {
+        log.info("收到TTS请求，文本长度: {} 字符", request.getText().length());
+
+        // 检查TTS是否启用
+        if (!voiceProperties.isEnableTts()) {
+            return Result.success(TtsResponse.builder()
+                    .success(false)
+                    .errorMessage("TTS功能未启用，请配置 voice.enable-tts: true")
+                    .build());
+        }
+
+        // 调用语音合成
+        String audioUrl = voiceService.textToSpeech(request.getText());
+
+        if (audioUrl != null) {
+            // 预估音频时长（大致估算：1个汉字约0.3秒）
+            int estimatedDuration = Math.max(1, (int) (request.getText().length() * 0.3));
+
+            return Result.success(TtsResponse.builder()
+                    .audioUrl(audioUrl)
+                    .text(request.getText())
+                    .duration(estimatedDuration)
+                    .engine("xfyun")
+                    .success(true)
+                    .build());
+        } else {
+            return Result.success(TtsResponse.builder()
+                    .success(false)
+                    .errorMessage("语音合成失败，请检查讯飞API配置")
+                    .build());
+        }
     }
 }

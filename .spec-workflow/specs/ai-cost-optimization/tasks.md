@@ -254,14 +254,14 @@
   - _Requirements: Requirement 1
   - _Prompt: 角色：Java缓存开发专家 | 任务：实现RedisVectorStore，使用Redis Hash存储向量数据，search方法遍历用户所有缓存计算余弦相似度，返回最匹配的条目 | 限制：key格式semantic_cache:{userId}:{id}，只搜索同一用户的缓存 | 成功：数据正确存取，相似度搜索准确
 
-- [ ] 5.4 实现Chroma向量存储（可选高级版）
+- [x] 5.4 实现Chroma向量存储（可选高级版）
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/cache/impl/ChromaVectorStore.java`
   - 集成Chroma向量数据库，使用HNSW索引
   - _Leverage: VectorStore接口, ChromaClient（需创建）
   - _Requirements: Requirement 1
   - _Prompt: 角色：向量数据库集成专家 | 任务：实现ChromaVectorStore，使用Chroma Java客户端进行向量存储和相似度搜索 | 限制：使用官方Chroma HTTP API，集合名为"semantic_cache"，自动创建索引 | 成功：高性能向量搜索，支持大规模数据
 
-- [ ] 5.5 创建Chroma Java客户端
+- [x] 5.5 创建Chroma Java客户端
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/cache/chroma/ChromaClient.java`
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/cache/chroma/ChromaConfig.java`
   - 封装Chroma REST API调用
@@ -277,7 +277,7 @@
   - _Requirements: Requirement 1
   - _Prompt: 角色：Java服务开发者 | 任务：实现SemanticCacheService，get方法查询相似缓存（阈值0.92），put方法存入新缓存，cleanup清理过期数据 | 限制：使用@Value注入相似度阈值，用户隔离（只查同一用户缓存） | 成功：语义相似的查询能命中缓存
 
-- [ ] 5.7 创建缓存清理定时任务
+- [x] 5.7 创建缓存清理定时任务
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/cache/scheduler/CacheCleanupScheduler.java`
   - 定期清理过期缓存数据
   - _Leverage: `@Scheduled`, `SemanticCacheService`
@@ -288,14 +288,14 @@
 
 ## 模块6: 对话历史压缩
 
-- [ ] 6.1 创建对话压缩配置类
+- [x] 6.1 创建对话压缩配置类
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/compress/CompressionConfig.java`
   - 定义压缩触发阈值、保留消息数等配置
   - _Leverage: 无
   - _Requirements: Requirement 3
   - _Prompt: 角色：Java配置专家 | 任务：创建CompressionConfig类，包含triggerThreshold=10, keepRecentMessages=4, summaryMaxLength=100 | 限制：使用@Component，支持配置覆盖 | 成功：配置类可被注入使用
 
-- [ ] 6.2 创建对话压缩器实现
+- [x] 6.2 创建对话压缩器实现
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/compress/ConversationSummarizer.java`
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/compress/impl/ConversationSummarizerImpl.java`
   - 实现对话历史压缩逻辑
@@ -303,7 +303,7 @@
   - _Requirements: Requirement 3
   - _Prompt: 角色：Java算法开发者 | 任务：实现ConversationSummarizer，needsCompression检查消息数，compress方法保留最近4条，压缩前面消息为摘要 | 限制：摘要生成使用轻量级提示词，直接调用KimiClient（后期可降级为规则摘要） | 成功：长对话被正确压缩，token数减少
 
-- [ ] 6.3 创建轻量级摘要生成提示词
+- [x] 6.3 创建轻量级摘要生成提示词
   - 文件: 在`ConversationSummarizerImpl`中添加私有方法
   - 设计简洁的摘要生成提示词
   - _Leverage: `KimiClient`
@@ -314,7 +314,7 @@
 
 ## 模块7: 优化层集成与AOP
 
-- [ ] 7.1 创建优化服务包装器
+- [x] 7.1 创建优化服务包装器
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/wrapper/OptimChatService.java`
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/wrapper/impl/OptimChatServiceImpl.java`
   - 包装原始ChatService，插入优化逻辑
@@ -322,42 +322,43 @@
   - _Requirements: 所有Requirements
   - _Prompt: 角色：Java架构师 | 任务：实现OptimChatService，包装原始ChatService.sendMessage，按顺序执行：查语义缓存->意图路由->对话压缩->调用AI->更新缓存 | 限制：保持与原接口兼容，支持配置开关各优化层 | 成功：所有优化层按顺序执行
 
-- [ ] 7.2 修改AIServiceFactory返回优化后的服务
+- [x] 7.2 修改AIServiceFactory返回优化后的服务
   - 文件: 修改`mrshudson-backend/src/main/java/com/mrshudson/ai/AIServiceFactory.java`
   - 替换原始服务为优化后的服务
   - _Leverage: `OptimChatService`, `ChatServiceImpl`
   - _Requirements: 所有Requirements
   - _Prompt: 角色：Java依赖注入专家 | 任务：修改AIServiceFactory.getService方法，返回OptimChatService（包装原始ChatServiceImpl） | 限制：保持原有接口不变，对Controller透明 | 成功：Controller无感知使用优化后的服务
+  - _Note: OptimChatServiceImpl 使用 @Primary 注解自动替换原始 ChatServiceImpl，Controller 无感知使用优化后的服务
 
-- [ ] 7.3 创建系统提示词优化（精简版本）
+- [x] 7.3 创建系统提示词优化（精简版本）
   - 文件: 修改`ChatServiceImpl`中的`buildSystemPrompt`方法
   - 精简系统提示词，删除冗余说明
   - _Leverage: 现有`buildSystemPrompt`
   - _Requirements: Requirement 5
   - _Prompt: 角色：提示词优化专家 | 任务：精简buildSystemPrompt，保留核心身份定义和工具说明，删除示例和冗余描述，控制在500字以内 | 限制：保留必要信息，不降低AI理解 | 成功：提示词精简，token数减少30%以上
 
-- [ ] 7.4 修改KimiClient参数配置
+- [x] 7.4 修改KimiClient参数配置
   - 文件: 修改`mrshudson-backend/src/main/java/com/mrshudson/mcp/kimi/KimiClient.java`
   - 调整temperature和maxTokens参数
   - _Leverage: `AIProperties`
   - _Requirements: Requirement 5
   - _Prompt: 角色：Java配置开发者 | 任务：修改KimiClient.chatCompletion，设置temperature=0.3，maxTokens=800，从配置读取 | 限制：使用配置值，提供默认值 | 成功：AI参数优化，回复更简洁
 
-- [ ] 7.5 优化会话标题生成逻辑
+- [x] 7.5 优化会话标题生成逻辑
   - 文件: 修改`mrshudson-backend/src/main/java/com/mrshudson/service/impl/ChatServiceImpl.java`
   - 简化标题生成，对简单查询使用模板
   - _Leverage: 现有`generateConversationTitle`
   - _Requirements: Requirement 6
   - _Prompt: 角色：Java业务优化专家 | 任务：修改generateConversationTitle，如果是问候/工具查询，使用预设标题（"关于天气的咨询"/"新对话"），只有复杂对话才调用AI | 限制：异步执行，不影响主流程 | 成功：简单查询零AI调用生成标题
 
-- [ ] 7.6 创建缓存管理Controller（管理员接口）
+- [x] 7.6 创建缓存管理Controller（管理员接口）
   - 文件: `mrshudson-backend/src/main/java/com/mrshudson/controller/CacheManageController.java`
   - 提供手动清理缓存接口
   - _Leverage: `SemanticCacheService`, `ToolCacheManager`
   - _Requirements: Requirement 1, 4
   - _Prompt: 角色：Java API开发者 | 任务：创建CacheManageController，提供POST /api/admin/cache/clear/{type}接口，支持清除语义缓存/工具缓存 | 限制：需要管理员权限，记录操作日志 | 成功：管理员能手动清理缓存
 
-- [ ] 7.7 编写优化层集成测试
+- [x] 7.7 编写优化层集成测试
   - 文件: `mrshudson-backend/src/test/java/com/mrshudson/optim/OptimIntegrationTest.java`
   - 验证各优化层协同工作
   - _Leverage: Spring Boot Test, `@SpringBootTest`

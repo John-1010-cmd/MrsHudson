@@ -34,6 +34,11 @@ public class SendMessageResponse {
     private LocalDateTime createdAt;
 
     /**
+     * 语音URL（TTS生成的音频文件地址）
+     */
+    private String audioUrl;
+
+    /**
      * 工具调用信息
      */
     @Data

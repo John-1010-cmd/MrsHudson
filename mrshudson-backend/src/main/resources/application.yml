@@ -65,18 +65,27 @@ ai:
     temperature: 0.7
     max-tokens: 4096
 
-# Voice Recognition Configuration (讯飞语音)
+# Voice Configuration (讯飞语音)
 voice:
   # 模拟模式（开发测试时使用，不调用真实API）
-  mock-mode: true
+  mock-mode: false
   # 模拟返回文本
   mock-text: "你好，请帮我查询一下今天的天气"
+  # 是否启用语音合成TTS（开发环境建议关闭，生产环境开启）
+  enable-tts: true
+  # TTS音频文件存储路径（相对路径，基于应用启动目录）
+  tts-storage-path: uploads/tts/
   # 讯飞配置（mock-mode为false时需要配置）
   # 获取地址: https://www.xfyun.cn/
   xfyun-app-id: ${XFYUN_APP_ID:}
   xfyun-api-secret: ${XFYUN_API_SECRET:}
   xfyun-api-key: ${XFYUN_API_KEY:}
+  # 语音识别ASR
   xfyun-asr-url: http://iat-api.xfyun.cn/v2/iat
+  # 语音合成TTS
+  xfyun-tts-url: https://tts-api.xfyun.cn/v2/tts
+  # 发音人: x4_xiaoyan(讯飞小燕)、x4_yezi(讯飞小露)、aisjiuxu(讯飞许久)、aisjinger(讯飞小婧)、aisbabyxu(讯飞许小宝)
+  xfyun-tts-voice: x4_xiaoyan
 
 # Weather API Configuration (高德地图)
 # 从 https://lbs.amap.com/ 获取API Key

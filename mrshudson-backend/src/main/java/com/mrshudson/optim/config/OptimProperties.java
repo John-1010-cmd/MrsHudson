@@ -43,6 +43,19 @@ public class OptimProperties {
      */
     private VectorStoreConfig vectorStore = new VectorStoreConfig();
 
+    /**
+     * Kimi API 参数配置
+     */
+    private KimiParamsConfig kimiParams = new KimiParamsConfig();
+
+    @Data
+    public static class KimiParamsConfig {
+        /** 温度参数 (0-2)，默认0.3 */
+        private double temperature = 0.3;
+        /** 最大token数，默认800 */
+        private int maxTokens = 800;
+    }
+
     @Data
     public static class SemanticCacheConfig {
         /** 是否启用语义缓存 */

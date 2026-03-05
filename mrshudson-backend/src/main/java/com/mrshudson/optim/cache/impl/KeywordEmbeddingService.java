@@ -2,6 +2,7 @@ package com.mrshudson.optim.cache.impl;
 
 import com.mrshudson.optim.cache.EmbeddingService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -14,6 +15,7 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
+@ConditionalOnProperty(prefix = "optim.semantic-cache", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class KeywordEmbeddingService implements EmbeddingService {
 
     /**

@@ -17,6 +17,7 @@ export interface SendMessageResponse {
   content: string
   functionCalls?: ToolCallInfo[]
   createdAt: string
+  audioUrl?: string
 }
 
 export interface MessageInfo {
@@ -24,6 +25,7 @@ export interface MessageInfo {
   role: 'user' | 'assistant' | 'system'
   content: string
   createdAt: string
+  functionCall?: string
 }
 
 export interface ChatHistoryResponse {

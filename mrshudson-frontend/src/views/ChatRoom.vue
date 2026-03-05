@@ -23,6 +23,39 @@
                 <el-tag size="small" type="info">🔧 {{ tool.name }}</el-tag>
               </div>
             </div>
+            <!-- AI语音播放按钮 -->
+            <div v-if="msg.role === 'assistant' && msg.audioUrl" class="audio-player">
+              <!-- 主按钮：从头播放 -->
+              <el-button
+                type="info"
+                size="small"
+                circle
+                :title="msg.isPlaying ? '暂停' : '从头播放'"
+                @click="toggleAudio(msg)"
+              >
+                <el-icon v-if="!msg.isPlaying"><VideoPlay /></el-icon>
+                <el-icon v-else><VideoPause /></el-icon>
+              </el-button>
+              <!-- 继续播放按钮：暂停后显示 -->
+              <el-button
+                v-if="msg.hasPaused && !msg.isPlaying"
+                type="primary"
+                size="small"
+                class="resume-btn"
+                @click="resumeAudio(msg)"
+              >
+                <el-icon><VideoPlay /></el-icon>
+                继续
+              </el-button>
+              <audio
+                :id="'audio-' + msg.id"
+                :src="msg.audioUrl"
+                crossorigin="anonymous"
+                preload="none"
+                @ended="onAudioEnded(msg)"
+                @error="onAudioError(msg)"
+              />
+            </div>
             <div class="message-time">{{ formatTime(msg.createdAt) }}</div>
           </div>
         </div>
@@ -84,7 +117,7 @@
 <script setup lang="ts">
 import { ref, onMounted, nextTick, watch, inject, type Ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { UserFilled, Promotion } from '@element-plus/icons-vue'
+import { UserFilled, Promotion, VideoPlay, VideoPause } from '@element-plus/icons-vue'
 import * as chatApi from '../api/chat'
 import VoiceInputButton from '../components/VoiceInputButton.vue'
 
@@ -103,6 +136,10 @@ interface Message {
   content: string
   createdAt: string
   toolCalls?: chatApi.ToolCallInfo[]
+  audioUrl?: string
+  isPlaying?: boolean
+  pausedAt?: number  // 暂停位置（秒）
+  hasPaused?: boolean  // 是否曾暂停过
 }
 
 const messages = ref<Message[]>([])
@@ -141,12 +178,29 @@ const loadConversationMessages = async (conversationId: string) => {
 
     if (res.code === 200) {
       if (res.data.messages.length > 0) {
-        messages.value = res.data.messages.map(msg => ({
-          id: msg.id,
-          role: msg.role as 'user' | 'assistant' | 'system',
-          content: msg.content,
-          createdAt: msg.createdAt
-        }))
+        messages.value = res.data.messages.map(msg => {
+          // 解析工具调用信息
+          let toolCalls: chatApi.ToolCallInfo[] | undefined = undefined
+          if (msg.functionCall) {
+            try {
+              const parsed = JSON.parse(msg.functionCall)
+              toolCalls = Array.isArray(parsed) ? parsed : [parsed]
+            } catch (e) {
+              console.warn('解析工具调用信息失败:', msg.functionCall)
+            }
+          }
+          return {
+            id: msg.id,
+            role: msg.role as 'user' | 'assistant' | 'system',
+            content: msg.content,
+            createdAt: msg.createdAt,
+            toolCalls,
+            audioUrl: undefined, // 历史消息不保留音频URL
+            isPlaying: false,
+            pausedAt: 0,
+            hasPaused: false
+          }
+        })
         console.log('ChatRoom: 加载消息成功，数量:', messages.value.length)
       } else {
         messages.value = [{
@@ -225,12 +279,18 @@ const sendMessage = async () => {
       conversationId: conversationId.value
     })
     if (res.code === 200) {
+      console.log('AI回复:', res.data)
+      console.log('audioUrl:', res.data.audioUrl)
       const aiMsg: Message = {
         id: res.data.messageId,
         role: 'assistant',
         content: res.data.content,
         createdAt: res.data.createdAt,
-        toolCalls: res.data.functionCalls
+        toolCalls: res.data.functionCalls,
+        audioUrl: res.data.audioUrl,
+        isPlaying: false,
+        pausedAt: 0,
+        hasPaused: false
       }
       messages.value.push(aiMsg)
     } else {
@@ -297,7 +357,11 @@ const handleVoiceRecord = async (audioBlob: Blob, duration: number) => {
         role: 'assistant',
         content: res.data.content,
         createdAt: res.data.createdAt,
-        toolCalls: res.data.functionCalls
+        toolCalls: res.data.functionCalls,
+        audioUrl: res.data.audioUrl,
+        isPlaying: false,
+        pausedAt: 0,
+        hasPaused: false
       }
       messages.value.push(aiMsg)
 
@@ -329,6 +393,103 @@ const handleVoiceRecord = async (audioBlob: Blob, duration: number) => {
 // 处理语音错误
 const handleVoiceError = (message: string) => {
   ElMessage.error(message)
+}
+
+// 播放/暂停音频（主按钮：从头播放）
+const toggleAudio = (msg: Message) => {
+  const audioElement = document.getElementById('audio-' + msg.id) as HTMLAudioElement
+  if (!audioElement) return
+
+  if (msg.isPlaying) {
+    // 暂停并记录位置
+    msg.pausedAt = audioElement.currentTime
+    msg.hasPaused = true
+    audioElement.pause()
+    msg.isPlaying = false
+  } else {
+    // 先停止其他正在播放的音频
+    messages.value.forEach(m => {
+      if (m.role === 'assistant' && m.isPlaying) {
+        const otherAudio = document.getElementById('audio-' + m.id) as HTMLAudioElement
+        if (otherAudio) {
+          otherAudio.pause()
+          otherAudio.currentTime = 0
+        }
+        m.isPlaying = false
+        m.pausedAt = 0
+      }
+    })
+
+    // 从头播放
+    audioElement.currentTime = 0
+    audioElement.play().then(() => {
+      msg.isPlaying = true
+    }).catch((error) => {
+      console.error('音频播放失败:', error)
+      ElMessage.error('音频播放失败')
+    })
+  }
+}
+
+// 继续播放（从暂停位置）
+const resumeAudio = (msg: Message) => {
+  const audioElement = document.getElementById('audio-' + msg.id) as HTMLAudioElement
+  if (!audioElement) return
+
+  // 先停止其他正在播放的音频
+  messages.value.forEach(m => {
+    if (m.role === 'assistant' && m.isPlaying) {
+      const otherAudio = document.getElementById('audio-' + m.id) as HTMLAudioElement
+      if (otherAudio) {
+        otherAudio.pause()
+        otherAudio.currentTime = 0
+      }
+      m.isPlaying = false
+    }
+  })
+
+  // 从暂停位置继续播放
+  if (msg.pausedAt && msg.pausedAt > 0) {
+    audioElement.currentTime = msg.pausedAt
+  }
+  audioElement.play().then(() => {
+    msg.isPlaying = true
+  }).catch((error) => {
+    console.error('音频播放失败:', error)
+    ElMessage.error('音频播放失败')
+  })
+}
+
+// 音频播放结束
+const onAudioEnded = (msg: Message) => {
+  msg.isPlaying = false
+  msg.pausedAt = 0
+  msg.hasPaused = false
+}
+
+// 音频播放错误
+const onAudioError = (msg: Message, event?: Event) => {
+  msg.isPlaying = false
+  const audioElement = document.getElementById('audio-' + msg.id) as HTMLAudioElement
+  if (audioElement) {
+    console.error('音频错误详情:', {
+      url: audioElement.src,
+      error: audioElement.error,
+      networkState: audioElement.networkState,
+      readyState: audioElement.readyState
+    })
+    if (audioElement.error) {
+      const errorMap: Record<number, string> = {
+        1: '下载中止 (MEDIA_ERR_ABORTED)',
+        2: '网络错误 (MEDIA_ERR_NETWORK)',
+        3: '解码错误 (MEDIA_ERR_DECODE)',
+        4: '格式不支持 (MEDIA_ERR_SRC_NOT_SUPPORTED)'
+      }
+      ElMessage.error(`音频播放失败: ${errorMap[audioElement.error.code] || '未知错误'}`)
+      return
+    }
+  }
+  ElMessage.error('音频加载失败')
 }
 
 onMounted(() => {
@@ -411,6 +572,34 @@ onMounted(() => {
 .tool-call {
   display: flex;
   align-items: center;
+}
+
+.audio-player {
+  display: flex;
+  align-items: center;
+  margin-top: 8px;
+  gap: 8px;
+}
+
+.audio-player .resume-btn {
+  animation: fadeIn 0.3s ease;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.audio-player .resume-btn .el-icon {
+  margin-right: 2px;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 .input-area {

@@ -797,9 +797,10 @@ Success Criteria:
 - `mrshudson-frontend/src/components/ChatMessage.vue`（语音播放）
 
 **实现内容**:
-1. 后端集成语音合成（阿里云/讯飞）
-2. AI回复时生成语音
-3. 前端播放语音
+1. 后端集成讯飞语音合成SDK
+2. AI回复时自动生成语音（可配置开关）
+3. 提供独立TTS接口支持单独语音合成
+4. 前端语音播放器支持从头播放/暂停/继续
 
 **_Prompt**:
 ```
@@ -811,23 +812,34 @@ Task: 实现语音输出（文字转语音）功能
 
 Requirements:
 1. 后端：
-   - VoiceService添加textToSpeech(String text)：
-     - 调用TTS API生成音频
-     - 保存音频文件到static目录
-     - 返回音频URL
-   - ChatService处理消息时：
-     - 调用TTS生成语音
+   - 添加讯飞语音SDK依赖 (websdk-java-speech 2.0.3)
+   - VoiceService.textToSpeech(String text)：
+     - 使用TtsClient调用讯飞语音合成API
+     - 保存音频文件到uploads/tts/目录
+     - 返回完整音频URL (http://localhost:8080/uploads/tts/xxx.mp3)
+   - 创建独立TTS接口 POST /api/chat/tts
+   - ChatController.sendMessage()：
+     - 根据voice.enable-tts配置决定是否生成语音
      - 将audioUrl加入返回结果
+   - VoiceProperties配置：
+     - enable-tts: 是否启用TTS（默认false）
+     - tts-base-url: 音频文件访问基础URL
+     - xfyun-tts-voice: 发音人（默认xiaoyan）
 
 2. 前端：
-   - ChatMessage组件添加播放按钮
-   - 点击播放AI回复的语音
+   - ChatRoom.vue添加语音播放按钮组：
+     - 主按钮（圆形）：点击从头播放，播放时显示暂停图标
+     - 继续按钮（椭圆形）：暂停后浮现，点击从暂停位置继续
    - 使用HTML5 Audio API
+   - 支持暂停位置记录和恢复
+   - 添加音频错误处理和提示
 
 Success Criteria:
-- AI回复包含audioUrl
+- AI回复包含audioUrl（当enable-tts=true时）
+- 独立TTS接口 /api/chat/tts 可单独使用
 - 点击播放按钮能听到语音
-- 支持暂停/继续播放
+- 支持暂停后继续播放（不从头开始）
+- 支持点击主按钮从头重新播放
 ```
 
 ---

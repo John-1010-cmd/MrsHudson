@@ -6,6 +6,7 @@ import com.mrshudson.mcp.kimi.dto.ChatRequest;
 import com.mrshudson.mcp.kimi.dto.ChatResponse;
 import com.mrshudson.mcp.kimi.dto.Message;
 import com.mrshudson.mcp.kimi.dto.Tool;
+import com.mrshudson.optim.config.OptimProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.*;
@@ -23,6 +24,7 @@ import java.util.List;
 public class KimiClient {
 
     private final KimiProperties kimiProperties;
+    private final OptimProperties optimProperties;
     private final RestTemplate restTemplate = new RestTemplate();
 
     /**
@@ -46,13 +48,21 @@ public class KimiClient {
     public ChatResponse chatCompletion(List<Message> messages, List<Tool> tools) {
         String url = kimiProperties.getBaseUrl() + "/chat/completions";
 
+        // 从配置读取参数，使用 OptimProperties 覆盖 KimiProperties
+        double temperature = optimProperties.getKimiParams() != null
+                ? optimProperties.getKimiParams().getTemperature()
+                : kimiProperties.getTemperature();
+        int maxTokens = optimProperties.getKimiParams() != null
+                ? optimProperties.getKimiParams().getMaxTokens()
+                : kimiProperties.getMaxTokens();
+
         // 构建请求
         ChatRequest request = ChatRequest.builder()
                 .model(kimiProperties.getModel())
                 .messages(messages)
                 .tools(tools)
-                .temperature(kimiProperties.getTemperature())
-                .maxTokens(kimiProperties.getMaxTokens())
+                .temperature(temperature)
+                .maxTokens(maxTokens)
                 .stream(false)
                 .build();
 

@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -42,34 +43,21 @@ public class ChatServiceImpl implements ChatService {
     private final ToolRegistry toolRegistry;
 
     /**
-     * 构建系统提示词（包含当前日期）
+     * 构建系统提示词（精简版，控制在500字以内）
      */
     private String buildSystemPrompt() {
         String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy年MM月dd日"));
         return """
-            你是MrsHudson（哈德森夫人），一位贴心的私人管家助手。
-            今天是%s。
+            你是MrsHudson（哈德森夫人），一位贴心的私人管家助手。今天是%s。
 
-            你可以帮助用户：
-            - 查询天气并提供穿衣建议（使用get_weather工具）
-            - 管理日程安排：
-              * 创建事件（使用create_calendar_event工具）
-              * 查看日程（使用get_calendar_events工具）
-              * 删除事件（使用delete_calendar_event工具）
-            - 管理待办事项：
-              * 创建待办（使用create_todo工具）
-              * 查看待办列表（使用list_todos工具）
-              * 完成待办（使用complete_todo工具）
-              * 删除待办（使用delete_todo工具）
-            - 规划出行路线：
-              * 查询路线（使用plan_route工具）：支持步行、驾车、公交三种方式
-              * 需要提供起点和终点地址
-              * 例如：从国贸到天安门怎么走、从我家到机场驾车路线
+            可用工具：
+            - get_weather: 查询天气
+            - create_calendar_event/get_calendar_events/delete_calendar_event: 管理日程
+            - create_todo/list_todos/complete_todo/delete_todo: 管理待办
+            - plan_route: 路线规划（步行/驾车/公交）
 
-            当用户询问日程、会议、安排、计划等时，主动使用日历工具。
-            当用户询问待办、任务、提醒、清单等时，主动使用待办工具。
-            请用友好、专业的语气回复，适当使用表情符号。
-            如果用户的问题超出你的能力范围，礼貌地说明。
+            规则：询问日程/会议时主动使用日历工具；询问待办/任务时主动使用待办工具。
+            语气友好专业，适当使用表情符号。
             """.formatted(today);
     }
 
@@ -200,6 +188,7 @@ public class ChatServiceImpl implements ChatService {
                         .role(msg.getRole().toLowerCase())
                         .content(msg.getContent())
                         .createdAt(msg.getCreatedAt())
+                        .functionCall(msg.getFunctionCall())
                         .build())
                 .collect(Collectors.toList());
 
@@ -224,6 +213,7 @@ public class ChatServiceImpl implements ChatService {
                         .role(msg.getRole().toLowerCase())
                         .content(msg.getContent())
                         .createdAt(msg.getCreatedAt())
+                        .functionCall(msg.getFunctionCall())
                         .build())
                 .collect(Collectors.toList());
 
@@ -304,6 +294,7 @@ public class ChatServiceImpl implements ChatService {
     private void updateConversationLastMessageTime(Long conversationId) {
         Conversation conversation = new Conversation();
         conversation.setId(conversationId);
+        conversation.setLastMessageAt(LocalDateTime.now());
         conversationMapper.updateById(conversation);
     }
 
@@ -326,16 +317,24 @@ public class ChatServiceImpl implements ChatService {
 
     /**
      * 异步生成会话标题
+     * 优化：简单查询使用预设标题，复杂对话才调用AI生成
      */
     @Async("taskExecutor")
     public void generateConversationTitle(Long conversationId, String firstMessage) {
         try {
             log.info("开始为会话 {} 生成标题", conversationId);
 
-            // 构建标题生成提示词
+            // 1. 尝试使用预设标题（规则匹配）
+            String presetTitle = getPresetTitle(firstMessage);
+            if (presetTitle != null) {
+                conversationMapper.updateTitle(conversationId, presetTitle);
+                log.info("会话 {} 使用预设标题: {}", conversationId, presetTitle);
+                return;
+            }
+
+            // 2. 复杂对话调用AI生成标题
             String prompt = "请用10-15字概括以下对话的主题，要求简洁明了：\n" + firstMessage;
 
-            // 调用AI服务生成标题
             AIService aiService = aiServiceFactory.getService();
             AIService.ChatResult result = aiService.chatCompletionWithTools(
                     List.of(Message.system("你是一个对话标题生成助手，请用简洁的语言概括对话主题。"),
@@ -360,6 +359,74 @@ public class ChatServiceImpl implements ChatService {
         } catch (Exception e) {
             log.error("生成会话标题失败: conversationId={}, error={}", conversationId, e.getMessage(), e);
         }
+    }
+
+    /**
+     * 根据消息内容获取预设标题
+     * 返回null表示没有匹配的预设标题，需要AI生成
+     */
+    private String getPresetTitle(String message) {
+        if (message == null || message.trim().isEmpty()) {
+            return "新对话";
+        }
+
+        String lowerMsg = message.toLowerCase();
+
+        // 问候语
+        if (isGreeting(lowerMsg)) {
+            return "新对话";
+        }
+
+        // 天气查询
+        if (containsAny(lowerMsg, "天气", "温度", "下雨", "下雪", "刮风", "晴", "阴", "多云")) {
+            return "关于天气的咨询";
+        }
+
+        // 日历/日程查询
+        if (containsAny(lowerMsg, "日程", "会议", "安排", "日历", "今天", "明天", "下周", "这周")) {
+            return "关于日程的咨询";
+        }
+
+        // 待办查询
+        if (containsAny(lowerMsg, "待办", "任务", "todo", "提醒", "未完成", "要做")) {
+            return "关于待办的咨询";
+        }
+
+        // 路线规划
+        if (containsAny(lowerMsg, "路线", "怎么去", "怎么走", "导航", "从", "到", "距离")) {
+            return "关于路线的咨询";
+        }
+
+        // 没有匹配的预设标题
+        return null;
+    }
+
+    /**
+     * 检查是否是问候语
+     */
+    private boolean isGreeting(String message) {
+        String[] greetings = {"你好", "您好", "在吗", "hello", "hi", "hey", "早上好", "下午好", "晚上好", "再见", "拜拜"};
+        for (String greeting : greetings) {
+            if (message.contains(greeting)) {
+                // 确保问候语占消息的大部分
+                if (message.length() <= greeting.length() + 5) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 检查消息是否包含任意关键词
+     */
+    private boolean containsAny(String message, String... keywords) {
+        for (String keyword : keywords) {
+            if (message.contains(keyword)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

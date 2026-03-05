@@ -5,6 +5,7 @@ import com.mrshudson.optim.util.OptimUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
@@ -18,6 +19,7 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Component
+@ConditionalOnProperty(prefix = "optim.vector-store", name = "type", havingValue = "redis", matchIfMissing = true)
 public class RedisVectorStore implements VectorStore {
 
     private static final String KEY_PREFIX = "semantic_cache:";

@@ -24,4 +24,12 @@ public interface VoiceService {
      * @return 识别出的文本
      */
     String speechToText(MultipartFile audioFile, String format, Integer sampleRate);
+
+    /**
+     * 语音合成 - 将文本转换为音频文件
+     *
+     * @param text 要合成的文本
+     * @return 音频文件的访问URL，合成失败返回null
+     */
+    String textToSpeech(String text);
 }

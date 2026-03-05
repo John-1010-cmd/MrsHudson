@@ -43,5 +43,10 @@ public class ChatHistoryResponse {
          * 创建时间
          */
         private LocalDateTime createdAt;
+
+        /**
+         * 工具调用信息（AI回复时可能有）
+         */
+        private String functionCall;
     }
 }

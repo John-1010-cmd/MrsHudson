@@ -21,7 +21,7 @@ import java.util.concurrent.TimeUnit;
 @RequiredArgsConstructor
 public class ToolCacheManagerImpl implements ToolCacheManager {
 
-    private final RedisTemplate<String, Object> redisTemplate;
+    private final RedisTemplate<String, String> redisTemplate;
     private final ObjectMapper objectMapper;
     private final OptimProperties optimProperties;
 
@@ -42,13 +42,15 @@ public class ToolCacheManagerImpl implements ToolCacheManager {
         String cacheKey = buildCacheKey(toolName, paramsHash);
 
         try {
-            Object cachedValue = redisTemplate.opsForValue().get(cacheKey);
-            if (cachedValue != null) {
+            String cachedJson = redisTemplate.opsForValue().get(cacheKey);
+            if (cachedJson != null) {
                 log.debug("缓存命中: tool={}, paramsHash={}", toolName, paramsHash);
+                // 将JSON字符串反序列化为对象
+                return objectMapper.readValue(cachedJson, Object.class);
             } else {
                 log.debug("缓存未命中: tool={}, paramsHash={}", toolName, paramsHash);
+                return null;
             }
-            return cachedValue;
         } catch (Exception e) {
             log.error("获取缓存时发生异常: key={}, error={}", cacheKey, e.getMessage());
             // 降级处理：返回null，让调用方重新查询
@@ -71,13 +73,10 @@ public class ToolCacheManagerImpl implements ToolCacheManager {
         String cacheKey = buildCacheKey(toolName, paramsHash);
 
         try {
-            // 验证对象是否可序列化
-            if (!isSerializable(result)) {
-                log.warn("结果对象不可序列化，跳过缓存: tool={}", toolName);
-                return;
-            }
+            // 将对象序列化为JSON字符串
+            String jsonResult = objectMapper.writeValueAsString(result);
 
-            redisTemplate.opsForValue().set(cacheKey, result, ttlMinutes, TimeUnit.MINUTES);
+            redisTemplate.opsForValue().set(cacheKey, jsonResult, ttlMinutes, TimeUnit.MINUTES);
             log.debug("缓存已存储: tool={}, paramsHash={}, ttl={}分钟", toolName, paramsHash, ttlMinutes);
         } catch (Exception e) {
             log.error("存储缓存时发生异常: key={}, error={}", cacheKey, e.getMessage());
