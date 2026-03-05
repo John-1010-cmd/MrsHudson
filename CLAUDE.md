@@ -8,6 +8,7 @@ MrsHudson（哈德森夫人）是一个AI管家助手应用，采用前后端分
 - **前端**: Vue 3 + TypeScript + Vite + Element Plus (Port 3000)
 - **后端**: Spring Boot 3.2 + MyBatis Plus + MySQL 8.0 + Redis (Port 8080)
 - **AI**: 集成 Kimi API (月之暗面) 提供对话能力，通过 MCP 工具模式调用业务功能
+- **Android**: Kotlin + Jetpack Compose + Hilt + Room (API 26+)
 
 ## 常用命令
 
@@ -62,6 +63,32 @@ cp .env.example .env
 
 # 使用 Docker Compose 启动所有服务
 docker-compose up -d
+```
+
+### Android 开发 (mrshudson-android/)
+```bash
+cd mrshudson-android
+
+# 编译调试版本
+./gradlew assembleDebug
+
+# 编译发布版本
+./gradlew assembleRelease
+
+# 安装到连接的设备
+./gradlew installDebug
+
+# 运行单元测试
+./gradlew test
+
+# 运行仪器测试
+./gradlew connectedAndroidTest
+
+# 清理构建
+./gradlew clean
+
+# 同步项目（用于更新依赖）
+./gradlew sync
 ```
 
 ## 架构设计
@@ -328,6 +355,48 @@ interface SendMessageRequest {
 }
 ```
 
+### Android 应用架构
+
+Android 应用采用 MVVM + Clean Architecture + Jetpack Compose 架构：
+
+```
+UI Layer (Compose Screens)
+├── LoginScreen, MainScreen, ChatScreen, CalendarScreen, TodoScreen, WeatherScreen, RouteScreen
+└── ViewModels (LoginViewModel, MainViewModel)
+
+Domain Layer
+├── User (domain/model/)
+└── Repository Interfaces
+
+Data Layer
+├── Remote: AuthApi, BaseApi (Retrofit + Gson)
+├── Local: MrsHudsonDatabase (Room), TokenDataStore (DataStore)
+└── Repository Implementations (AuthRepository)
+
+DI: Hilt Modules (NetworkModule, DatabaseModule, RepositoryModule, DataStoreModule)
+```
+
+**技术栈**：
+- **UI**: Jetpack Compose + Material3 + Navigation Compose
+- **依赖注入**: Hilt
+- **网络**: Retrofit + OkHttp + Gson
+- **本地存储**: Room (数据库) + DataStore (偏好设置)
+- **异步**: Kotlin Coroutines + Flow
+
+**关键文件**：
+- `MainActivity.kt`: 应用入口，设置 Compose Theme
+- `MrsHudsonNavHost.kt`: 导航图定义（登录/主界面路由）
+- `BottomNavItem.kt`: 底部导航栏配置（对话/日历/待办/天气/路线）
+- `TokenDataStore.kt`: JWT Token 本地存储管理
+- `AuthInterceptor.kt`: 自动附加 Authorization Header
+- `ApiResult.kt`: 封装 API 响应结果（Success/Error/Loading）
+
+**添加新 Screen 步骤**：
+1. 在 `ui/screens/` 下创建新目录和 Screen 文件
+2. 如需 ViewModel，在同目录创建并注入 Repository
+3. 在 `MrsHudsonNavHost.kt` 中添加导航路由
+4. 如需底部导航，在 `BottomNavItem.kt` 中添加配置
+
 ## 配置文件
 
 | 文件 | 用途 |
@@ -335,6 +404,9 @@ interface SendMessageRequest {
 | `.env` | Docker 环境变量，需配置 `KIMI_API_KEY` |
 | `mrshudson-backend/src/main/resources/application.yml` | 后端应用配置 |
 | `mrshudson-frontend/vite.config.ts` | Vite 构建配置 |
+| `mrshudson-android/gradle/libs.versions.toml` | Android 依赖版本管理 |
+| `mrshudson-android/app/build.gradle.kts` | Android 应用构建配置 |
+| `mrshudson-android/local.properties` | Android SDK 路径（自动生成）|
 
 ## 环境变量
 
@@ -359,6 +431,19 @@ interface SendMessageRequest {
 | MySQL | 3306 | 数据库 |
 | Redis | 6379 | 缓存 |
 
+## Android 开发要求
+
+- **JDK**: 17 或更高版本
+- **minSdk**: 26 (Android 8.0)
+- **targetSdk**: 34 (Android 14)
+- **开发工具**: Android Studio Hedgehog 或更新版本
+
+**首次导入项目**：
+1. 使用 Android Studio 打开 `mrshudson-android` 目录
+2. 等待 Gradle Sync 完成
+3. 配置 Android SDK（如果未配置）
+4. 运行 `app` 配置到模拟器或真机
+
 ## Demo 账号
 
 - 用户名: `admin`
@@ -366,9 +451,10 @@ interface SendMessageRequest {
 
 ---
 
-**文档最后更新**: 2026-03-03
+**文档最后更新**: 2026-03-05
 
 ### 最近变更摘要
+- ✅ 初始化 Android 项目（Wave 1）：Jetpack Compose + Hilt + Room 架构
 - ✅ 实现 JWT 认证（替换 Session）
 - ✅ 实现出行路线规划功能
 - ✅ 编译错误修复（添加缺失的 import）

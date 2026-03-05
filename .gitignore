@@ -113,7 +113,10 @@ mrshudson-backend/*.ear
 # Gradle（如果使用）
 mrshudson-backend/.gradle/
 mrshudson-backend/build/
-!gradle/wrapper/gradle-wrapper.jar
+
+# Gradle Wrapper (应该提交)
+!mrshudson-android/gradle/wrapper/gradle-wrapper.jar
+!mrshudson-backend/gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
 !**/src/test/**/build/
 

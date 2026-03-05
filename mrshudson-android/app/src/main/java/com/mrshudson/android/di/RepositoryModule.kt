@@ -1,5 +1,7 @@
 package com.mrshudson.android.di
 
+import com.mrshudson.android.data.repository.AuthRepository
+import com.mrshudson.android.data.repository.AuthRepositoryImpl
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -14,13 +16,15 @@ import dagger.hilt.components.SingletonComponent
 @InstallIn(SingletonComponent::class)
 abstract class RepositoryModule {
 
-    // Repository 绑定将在创建 Repository 接口和实现类后添加
-    // 示例：
-    // @Binds
-    // abstract fun bindUserRepository(
-    //     userRepositoryImpl: UserRepositoryImpl
-    // ): UserRepository
-    //
+    /**
+     * 绑定认证仓库
+     */
+    @Binds
+    abstract fun bindAuthRepository(
+        authRepositoryImpl: AuthRepositoryImpl
+    ): AuthRepository
+
+    // TODO: 后续添加其他 Repository 绑定
     // @Binds
     // abstract fun bindConversationRepository(
     //     conversationRepositoryImpl: ConversationRepositoryImpl
@@ -40,9 +44,4 @@ abstract class RepositoryModule {
     // abstract fun bindTodoRepository(
     //     todoRepositoryImpl: TodoRepositoryImpl
     // ): TodoRepository
-    //
-    // @Binds
-    // abstract fun bindAuthRepository(
-    //     authRepositoryImpl: AuthRepositoryImpl
-    // ): AuthRepository
 }

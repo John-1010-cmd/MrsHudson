@@ -7,10 +7,19 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.navigation.compose.rememberNavController
+import com.mrshudson.android.ui.navigation.MrsHudsonNavHost
+import com.mrshudson.android.ui.navigation.NavRoutes
+import com.mrshudson.android.ui.screens.login.LoginViewModel
 import com.mrshudson.android.ui.theme.MrsHudsonTheme
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -25,25 +34,42 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    Greeting("Mrs Hudson")
+                    MrsHudsonApp()
                 }
             }
         }
     }
 }
 
+/**
+ * MrsHudson 应用主入口
+ * 处理自动登录逻辑和导航
+ */
 @Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "Hello $name!",
-        modifier = modifier
-    )
-}
+fun MrsHudsonApp(
+    viewModel: LoginViewModel = hiltViewModel()
+) {
+    val navController = rememberNavController()
+    val isLoggedIn by viewModel.isLoggedIn.collectAsState(initial = false)
+    var isCheckingAuth by remember { mutableStateOf(true) }
 
-@Preview(showBackground = true)
-@Composable
-fun GreetingPreview() {
-    MrsHudsonTheme {
-        Greeting("Mrs Hudson")
+    // 检查登录状态，确定起始页面
+    LaunchedEffect(isLoggedIn) {
+        if (isCheckingAuth) {
+            isCheckingAuth = false
+        }
+    }
+
+    if (!isCheckingAuth) {
+        val startDestination = if (isLoggedIn) {
+            NavRoutes.MAIN
+        } else {
+            NavRoutes.LOGIN
+        }
+
+        MrsHudsonNavHost(
+            navController = navController,
+            startDestination = startDestination
+        )
     }
 }
