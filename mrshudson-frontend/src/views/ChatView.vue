@@ -66,6 +66,13 @@
             <el-icon><MapLocation /></el-icon>
             <span>路线</span>
           </router-link>
+          <router-link
+            to="/metrics"
+            :class="['nav-item', { active: currentRoute === '/metrics' }]"
+          >
+            <el-icon><DataLine /></el-icon>
+            <span>优化统计</span>
+          </router-link>
         </nav>
         <div class="user-info">
           <span>{{ userStore.user?.username }}</span>
@@ -92,6 +99,7 @@ import {
   List,
   PartlyCloudy,
   MapLocation,
+  DataLine,
   Plus,
   Delete
 } from '@element-plus/icons-vue'
@@ -343,6 +351,6 @@ onMounted(() => {
 .chat-main {
   flex: 1;
   background: #f5f7fa;
-  overflow: hidden;
+  overflow: auto;
 }
 </style>

@@ -303,6 +303,60 @@ chroma:
 2. **阈值调优**: 根据实际数据调整语义缓存相似度阈值
 3. **性能监控**: 关注平均响应时间、系统负载
 
+---
+
+## 📈 实际数据监控系统（新增）
+
+### 实现时间
+**完成日期**: 2026-03-05
+
+### 新增组件
+
+| 组件 | 文件路径 | 功能说明 |
+|------|----------|----------|
+| MetricsService | `optim/monitor/MetricsService.java` | 实时收集语义缓存、意图路由、工具缓存指标 |
+| MetricsController | `controller/MetricsController.java` | 提供REST API获取统计数据 |
+| 前端仪表板 | `realtime-metrics.html` | 可视化展示实际运行数据 |
+
+### 集成点
+
+- `OptimChatService.sendMessage()` → 记录语义缓存命中/未命中
+- `HybridIntentRouter.route()` → 记录各层路由使用情况
+
+### API端点
+
+- `GET /api/admin/metrics/current` - 当前指标快照
+- `GET /api/admin/metrics/trend?days=7` - 趋势数据
+- `GET /api/admin/metrics/comparison` - 对比数据
+- `POST /api/admin/metrics/reset` - 重置统计
+
+### 监控指标
+
+| 指标类型 | 具体指标 | 目标值 |
+|----------|----------|--------|
+| 语义缓存 | 命中率 | >70% |
+| 意图路由 | 规则层占比 | >60% |
+| 工具缓存 | 命中率 | >80% |
+| 响应时间 | 缓存命中 | <10ms |
+
+### 前端集成
+
+实际数据展示页面已集成到前端项目中：
+
+| 文件 | 路径 | 说明 |
+|------|------|------|
+| MetricsView | `mrshudson-frontend/src/views/MetricsView.vue` | 优化效果统计页面（Vue 3 + Element Plus + ECharts） |
+| metrics API | `mrshudson-frontend/src/api/metrics.ts` | 指标数据 API 封装 |
+| 路由 | `/metrics` | 导航菜单「优化统计」入口 |
+
+访问方式：登录后点击左侧导航菜单「优化统计」
+
+页面功能：
+- 实时显示语义缓存、意图路由、工具缓存统计数据
+- 意图路由层分布饼图
+- 缓存效果对比柱状图
+- 每30秒自动刷新
+
 ### 中期优化（1-3个月）
 1. **Embedding升级**: 从关键词方案升级到BGE/M3E模型
 2. **向量数据库**: 如数据量增长，迁移到Chroma或Milvus
@@ -323,10 +377,12 @@ chroma:
 | v1.1 | 2026-03-04 | 完成Wave 3-4 |
 | v1.2 | 2026-03-04 | 完成Wave 5 |
 | v2.0 | 2026-03-05 | 完成Wave 6，全部43个任务完成，系统正式上线 |
+| v2.1 | 2026-03-05 | 新增实际数据监控系统（MetricsService + MetricsController + 实时仪表板） |
+| v2.2 | 2026-03-05 | 前端集成优化统计页面，dashboard.html → markdown 文档 |
 
 ---
 
-**文档版本**: v2.0
+**文档版本**: v2.2
 **最后更新**: 2026-03-05
 **作者**: Claude Code
 **实施状态**: ✅ 全部完成

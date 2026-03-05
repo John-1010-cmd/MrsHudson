@@ -8,6 +8,7 @@ import com.mrshudson.optim.intent.IntentType;
 import com.mrshudson.optim.intent.RouteResult;
 import com.mrshudson.optim.intent.impl.HybridIntentRouter;
 import com.mrshudson.optim.monitor.CostMonitorService;
+import com.mrshudson.optim.monitor.MetricsService;
 import com.mrshudson.optim.wrapper.OptimChatService;
 import com.mrshudson.service.ChatService;
 import lombok.RequiredArgsConstructor;
@@ -43,6 +44,7 @@ public class OptimChatServiceImpl implements OptimChatService {
     private final HybridIntentRouter hybridIntentRouter;
     private final ConversationSummarizer conversationSummarizer;
     private final CostMonitorService costMonitorService;
+    private final MetricsService metricsService;
     private final OptimProperties optimProperties;
 
     // 运行时配置开关（可动态调整）
@@ -73,6 +75,7 @@ public class OptimChatServiceImpl implements OptimChatService {
             if (cachedResponse.isPresent()) {
                 log.info("语义缓存命中，用户ID: {}", userId);
                 cacheHits.incrementAndGet();
+                metricsService.recordSemanticCacheHit(); // 记录实际指标
 
                 // 记录缓存命中成本
                 if (isCostMonitorEnabled()) {
@@ -83,6 +86,7 @@ public class OptimChatServiceImpl implements OptimChatService {
                 return buildCachedResponse(cachedResponse.get());
             }
             cacheMisses.incrementAndGet();
+            metricsService.recordSemanticCacheMiss(); // 记录实际指标
             log.debug("语义缓存未命中，用户ID: {}", userId);
         }
 

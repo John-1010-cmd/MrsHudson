@@ -778,3 +778,80 @@ Week 4: 全量发布
 *最后更新: 2026-03-05*
 *作者: Claude Code*
 *实施状态: ✅ 全部完成 (43/43任务)*
+
+---
+
+## 📊 优化效果可视化
+
+### 理论效果仪表板
+
+查看优化效果文档：[optimization-effect-dashboard.md](./optimization-effect-dashboard.md)
+
+文档包含：
+- 核心节省指标展示（75%+ AI调用减少）
+- 四层优化架构拦截率说明
+- 优化前后对比数据
+- 典型场景优化效果对比表
+
+### 实际数据统计
+
+查看实时实际数据统计页面：前端访问 `/metrics` 路由
+
+前端页面：`mrshudson-frontend/src/views/MetricsView.vue`
+
+该页面已集成到前端项目中，通过导航菜单"优化统计"访问。
+
+#### 实际数据采集系统
+
+**实现组件：**
+
+| 组件 | 文件路径 | 功能 |
+|------|----------|------|
+| 指标服务 | `optim/monitor/MetricsService.java` | 收集语义缓存、意图路由、工具缓存的实时数据 |
+| 指标控制器 | `controller/MetricsController.java` | 提供 `/api/admin/metrics/*` REST API |
+| 前端仪表板 | `realtime-metrics.html` | 可视化展示实际运行数据 |
+
+**数据采集点：**
+
+```
+OptimChatService.sendMessage()
+    ├─ 语义缓存命中 → MetricsService.recordSemanticCacheHit()
+    ├─ 语义缓存未命中 → MetricsService.recordSemanticCacheMiss()
+    └─ 意图路由结果 → HybridIntentRouter.recordIntentLayerUsage()
+
+HybridIntentRouter.route()
+    ├─ 规则层处理 → recordIntentLayerUsage("rule-layer")
+    ├─ 轻量AI层处理 → recordIntentLayerUsage("lightweight-ai-layer")
+    └─ 完整AI层处理 → recordIntentLayerUsage("full-ai-layer")
+```
+
+**API端点：**
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/admin/metrics/current` | GET | 获取当前指标快照 |
+| `/api/admin/metrics/trend?days=7` | GET | 获取最近N天趋势 |
+| `/api/admin/metrics/daily/{date}` | GET | 获取指定日期统计 |
+| `/api/admin/metrics/comparison` | GET | 优化前后对比数据 |
+| `/api/admin/metrics/reset` | POST | 重置统计数据 |
+
+**展示指标：**
+
+1. **语义缓存统计**
+   - 命中率（目标：>70%）
+   - 命中/未命中次数
+   - Redis缓存条目数
+
+2. **意图路由统计**
+   - 总路由次数
+   - 各层分布占比（规则层/轻量AI层/完整AI层）
+   - 分流率计算
+
+3. **工具缓存统计**
+   - 命中率
+   - 命中/未命中次数
+
+4. **响应性能**
+   - 缓存命中响应时间（<10ms）
+   - 规则层响应时间（<50ms）
+   - AI调用响应时间（1-3s）

@@ -8,6 +8,7 @@ import com.mrshudson.optim.intent.RouteResult;
 import com.mrshudson.optim.intent.extract.ExtractionResult;
 import com.mrshudson.optim.intent.extract.LightweightAiExtractor;
 import com.mrshudson.optim.intent.extract.RuleBasedExtractor;
+import com.mrshudson.optim.monitor.MetricsService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -31,6 +32,7 @@ public class HybridIntentRouter {
     private final KimiClient kimiClient;
     private final OptimProperties optimProperties;
     private final List<IntentHandler> handlers;
+    private final MetricsService metricsService;
 
     // 统计信息
     private final AtomicLong ruleLayerCalls = new AtomicLong(0);
@@ -100,6 +102,9 @@ public class HybridIntentRouter {
         }
 
         ruleLayerCalls.incrementAndGet();
+        if (metricsService != null) {
+            metricsService.recordIntentLayerUsage("rule-layer");
+        }
 
         try {
             // 识别意图类型
@@ -160,6 +165,9 @@ public class HybridIntentRouter {
         }
 
         lightweightAiCalls.incrementAndGet();
+        if (metricsService != null) {
+            metricsService.recordIntentLayerUsage("lightweight-ai-layer");
+        }
 
         try {
             // 使用轻量AI提取参数
@@ -211,6 +219,9 @@ public class HybridIntentRouter {
         }
 
         fullAiCalls.incrementAndGet();
+        if (metricsService != null) {
+            metricsService.recordIntentLayerUsage("full-ai-layer");
+        }
 
         try {
             // 完整AI层直接返回需要AI处理的结果
