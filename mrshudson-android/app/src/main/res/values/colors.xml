@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 品牌主色 -->
+    <color name="primary">#FF6750A4</color>
+    <color name="primary_container">#FFEADDFF</color>
+    <color name="on_primary">#FFFFFFFF</color>
+    <color name="on_primary_container">#FF21005D</color>
+
+    <!-- 品牌次色 -->
+    <color name="secondary">#FF625B71</color>
+    <color name="secondary_container">#FFE8DEF8</color>
+    <color name="on_secondary">#FFFFFFFF</color>
+    <color name="on_secondary_container">#FF1D192B</color>
+
+    <!-- 第三色 -->
+    <color name="tertiary">#FF7D5260</color>
+    <color name="tertiary_container">#FFFFD8E4</color>
+    <color name="on_tertiary">#FFFFFFFF</color>
+    <color name="on_tertiary_container">#FF31111D</color>
+
+    <!-- 错误色 -->
+    <color name="error">#FFB3261E</color>
+    <color name="error_container">#FFF9DEDC</color>
+    <color name="on_error">#FFFFFFFF</color>
+    <color name="on_error_container">#FF410E0B</color>
+
+    <!-- 表面色 -->
+    <color name="surface">#FFFFFBFE</color>
+    <color name="surface_variant">#FFE7E0EC</color>
+    <color name="on_surface">#FF1C1B1F</color>
+    <color name="on_surface_variant">#FF49454F</color>
+
+    <!-- 背景色 -->
+    <color name="background">#FFFFFBFE</color>
+    <color name="on_background">#FF1C1B1F</color>
+
+    <!-- 轮廓色 -->
+    <color name="outline">#FF79747E</color>
+    <color name="outline_variant">#FFCAC4D0</color>
+
+    <!-- 反色 -->
+    <color name="inverse_surface">#FF313033</color>
+    <color name="inverse_on_surface">#FFF4EFF4</color>
+    <color name="inverse_primary">#FFD0BCFF</color>
+
+    <!-- 表面容器色 -->
+    <color name="surface_container_highest">#FFE6E0E9</color>
+    <color name="surface_container_high">#FFECE6F0</color>
+    <color name="surface_container">#FFF3EDF7</color>
+    <color name="surface_container_low">#FFF7F2FA</color>
+    <color name="surface_container_lowest">#FFFFFFFF</color>
+
+    <!-- 表面色调色 -->
+    <color name="surface_bright">#FFFDF8FD</color>
+    <color name="surface_dim">#FFDED8E1</color>
+
+    <!-- 图标颜色 -->
+    <color name="ic_launcher_background">#FF6750A4</color>
+    <color name="ic_launcher_foreground">#FFFFFFFF</color>
+</resources>

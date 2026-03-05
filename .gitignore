@@ -59,6 +59,46 @@ coverage/
 *.tsbuildinfo
 
 # ============================================
+# Android 项目
+# ============================================
+# Gradle 文件
+mrshudson-android/.gradle/
+mrshudson-android/build/
+mrshudson-android/app/build/
+mrshudson-android/buildSrc/build/
+
+# 本地配置文件
+mrshudson-android/local.properties
+mrshudson-android/*.properties
+!mrshudson-android/gradle.properties
+
+# Android Studio
+mrshudson-android/.idea/
+mrshudson-android/*.iml
+mrshudson-android/.navigation/
+mrshudson-android/captures/
+mrshudson-android/.externalNativeBuild/
+mrshudson-android/.cxx/
+
+# Android 生成的文件
+mrshudson-android/*.apk
+mrshudson-android/*.ap_
+mrshudson-android/*.aab
+mrshudson-android/output.json
+
+# 签名文件（绝对不能提交！）
+mrshudson-android/*.jks
+mrshudson-android/*.keystore
+mrshudson-android/release.keystore
+mrshudson-android/debug.keystore
+
+# lint 报告
+mrshudson-android/lint/intermediates/
+mrshudson-android/lint/generated/
+mrshudson-android/lint/outputs/
+mrshudson-android/lint/tmp/
+
+# ============================================
 # 后端 (Spring Boot + Maven)
 # ============================================
 # Maven 构建输出

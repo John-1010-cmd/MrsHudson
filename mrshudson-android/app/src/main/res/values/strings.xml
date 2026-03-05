@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MrsHudson</string>
+    <string name="app_name_dev">MrsHudson Dev</string>
+
+    <!-- 底部导航 -->
+    <string name="nav_chat">对话</string>
+    <string name="nav_calendar">日历</string>
+    <string name="nav_todo">待办</string>
+    <string name="nav_weather">天气</string>
+    <string name="nav_route">路线</string>
+
+    <!-- 登录 -->
+    <string name="login_title">欢迎回来</string>
+    <string name="login_subtitle">登录您的 MrsHudson 账户</string>
+    <string name="username">用户名</string>
+    <string name="password">密码</string>
+    <string name="login">登录</string>
+    <string name="logging_in">登录中...</string>
+
+    <!-- 通用 -->
+    <string name="confirm">确定</string>
+    <string name="cancel">取消</string>
+    <string name="save">保存</string>
+    <string name="delete">删除</string>
+    <string name="edit">编辑</string>
+    <string name="loading">加载中...</string>
+    <string name="error">出错了</string>
+    <string name="retry">重试</string>
+    <string name="empty">暂无数据</string>
+</resources>
