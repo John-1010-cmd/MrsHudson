@@ -2,14 +2,19 @@ package com.mrshudson.ai;
 
 /**
  * AI提供者枚举
- * 当前支持: Kimi
+ * 当前支持: Kimi, MiniMax
  * 备选: 智谱GLM4, 通义千问 - 暂未实现
  */
 public enum AIProvider {
     /**
      * 月之暗面Kimi
      */
-    KIMI("kimi", "Kimi");
+    KIMI("kimi", "Kimi"),
+
+    /**
+     * MiniMax
+     */
+    MINI_MAX("minimax", "MiniMax");
 
     private final String code;
     private final String name;

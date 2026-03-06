@@ -66,20 +66,22 @@ class AuthRepositoryImpl @Inject constructor(
             val response = authApi.login(request)
             val result = handleResultResponse(response)
 
-            result.onSuccess { loginResponse ->
-                // 保存 Token
-                tokenDataStore.saveTokens(
-                    loginResponse.accessToken,
-                    loginResponse.refreshToken
-                )
-            }
-
-            // 登录成功后获取用户信息
-            if (result.isSuccess()) {
-                val userResult = fetchCurrentUser()
-                emit(userResult)
-            } else if (result is ApiResult.Error) {
-                emit(ApiResult.Error(result.code, result.message))
+            when (result) {
+                is ApiResult.Success -> {
+                    // 保存 Token
+                    val loginResponse = result.data
+                    tokenDataStore.saveTokens(
+                        loginResponse.accessToken,
+                        loginResponse.refreshToken
+                    )
+                    // 登录成功后获取用户信息
+                    val userResult = fetchCurrentUser()
+                    emit(userResult)
+                }
+                is ApiResult.Error -> {
+                    emit(ApiResult.Error(result.code, result.message))
+                }
+                is ApiResult.Loading -> { /* ignore */ }
             }
         } catch (e: Exception) {
             emit(ApiResult.Error(-1, e.message ?: "登录失败，请检查网络连接"))
@@ -113,7 +115,11 @@ class AuthRepositoryImpl @Inject constructor(
             isLoggedIn.collect { loggedIn ->
                 if (loggedIn) {
                     val result = fetchCurrentUser()
-                    emit(result.getOrNull())
+                    when (result) {
+                        is ApiResult.Success -> emit(result.data)
+                        is ApiResult.Error -> emit(null)
+                        is ApiResult.Loading -> { /* ignore */ }
+                    }
                 } else {
                     emit(null)
                 }
@@ -132,8 +138,13 @@ class AuthRepositoryImpl @Inject constructor(
         return try {
             val response = authApi.getCurrentUser()
             val result = handleResultResponse(response)
-            result.map { userDto ->
-                userDto.toDomainModel()
+            when (result) {
+                is ApiResult.Success -> {
+                    val user = result.data.toDomainModel()
+                    ApiResult.Success(user)
+                }
+                is ApiResult.Error -> result
+                is ApiResult.Loading -> ApiResult.Loading
             }
         } catch (e: Exception) {
             ApiResult.Error(-1, e.message ?: "获取用户信息失败")

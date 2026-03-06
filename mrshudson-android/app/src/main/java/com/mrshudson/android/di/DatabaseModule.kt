@@ -2,6 +2,10 @@ package com.mrshudson.android.di
 
 import android.content.Context
 import androidx.room.Room
+import com.mrshudson.android.data.local.dao.EventDao
+import com.mrshudson.android.data.local.dao.MessageDao
+import com.mrshudson.android.data.local.dao.TodoDao
+import com.mrshudson.android.data.local.dao.UserDao
 import com.mrshudson.android.data.local.database.MrsHudsonDatabase
 import dagger.Module
 import dagger.Provides
@@ -41,35 +45,39 @@ object DatabaseModule {
             .build()
     }
 
-    // DAO 提供方法将在添加实体和 DAO 后取消注释
-    // 示例：
-    // @Provides
-    // @Singleton
-    // fun provideUserDao(database: MrsHudsonDatabase): UserDao {
-    //     return database.userDao()
-    // }
-    //
-    // @Provides
-    // @Singleton
-    // fun provideConversationDao(database: MrsHudsonDatabase): ConversationDao {
-    //     return database.conversationDao()
-    // }
-    //
-    // @Provides
-    // @Singleton
-    // fun provideChatMessageDao(database: MrsHudsonDatabase): ChatMessageDao {
-    //     return database.chatMessageDao()
-    // }
-    //
-    // @Provides
-    // @Singleton
-    // fun provideCalendarEventDao(database: MrsHudsonDatabase): CalendarEventDao {
-    //     return database.calendarEventDao()
-    // }
-    //
-    // @Provides
-    // @Singleton
-    // fun provideTodoItemDao(database: MrsHudsonDatabase): TodoItemDao {
-    //     return database.todoItemDao()
-    // }
+    /**
+     * 提供用户 DAO
+     */
+    @Provides
+    @Singleton
+    fun provideUserDao(database: MrsHudsonDatabase): UserDao {
+        return database.userDao()
+    }
+
+    /**
+     * 提供消息 DAO
+     */
+    @Provides
+    @Singleton
+    fun provideMessageDao(database: MrsHudsonDatabase): MessageDao {
+        return database.messageDao()
+    }
+
+    /**
+     * 提供日历事件 DAO
+     */
+    @Provides
+    @Singleton
+    fun provideEventDao(database: MrsHudsonDatabase): EventDao {
+        return database.eventDao()
+    }
+
+    /**
+     * 提供待办事项 DAO
+     */
+    @Provides
+    @Singleton
+    fun provideTodoDao(database: MrsHudsonDatabase): TodoDao {
+        return database.todoDao()
+    }
 }

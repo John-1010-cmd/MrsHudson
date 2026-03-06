@@ -2,15 +2,26 @@ package com.mrshudson.android.data.local.database
 
 import androidx.room.Database
 import androidx.room.RoomDatabase
-import com.mrshudson.android.data.local.dao.*
-import com.mrshudson.android.data.local.entity.*
+import com.mrshudson.android.data.local.dao.EventDao
+import com.mrshudson.android.data.local.dao.MessageDao
+import com.mrshudson.android.data.local.dao.TodoDao
+import com.mrshudson.android.data.local.dao.UserDao
+import com.mrshudson.android.data.local.entity.EventEntity
+import com.mrshudson.android.data.local.entity.MessageEntity
+import com.mrshudson.android.data.local.entity.TodoEntity
+import com.mrshudson.android.data.local.entity.UserEntity
 
 /**
  * MrsHudson 应用的数据库类
  * 使用 Room 持久化库管理本地数据存储
  */
 @Database(
-    entities = [],
+    entities = [
+        UserEntity::class,
+        MessageEntity::class,
+        EventEntity::class,
+        TodoEntity::class
+    ],
     version = 1,
     exportSchema = false
 )
@@ -20,10 +31,23 @@ abstract class MrsHudsonDatabase : RoomDatabase() {
         const val DATABASE_NAME = "mrshudson_database"
     }
 
-    // DAO 方法将在添加实体后在这里定义
-    // abstract fun userDao(): UserDao
-    // abstract fun conversationDao(): ConversationDao
-    // abstract fun chatMessageDao(): ChatMessageDao
-    // abstract fun calendarEventDao(): CalendarEventDao
-    // abstract fun todoItemDao(): TodoItemDao
+    /**
+     * 获取用户 DAO
+     */
+    abstract fun userDao(): UserDao
+
+    /**
+     * 获取消息 DAO
+     */
+    abstract fun messageDao(): MessageDao
+
+    /**
+     * 获取日历事件 DAO
+     */
+    abstract fun eventDao(): EventDao
+
+    /**
+     * 获取待办事项 DAO
+     */
+    abstract fun todoDao(): TodoDao
 }

@@ -1,6 +1,12 @@
 package com.mrshudson.android.di
 
 import com.mrshudson.android.data.remote.AuthApi
+import com.mrshudson.android.data.remote.CalendarApi
+import com.mrshudson.android.data.remote.ChatApi
+import com.mrshudson.android.data.remote.PushApi
+import com.mrshudson.android.data.remote.RouteApi
+import com.mrshudson.android.data.remote.TodoApi
+import com.mrshudson.android.data.remote.WeatherApi
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -89,5 +95,59 @@ object NetworkModule {
     @Singleton
     fun provideAuthApi(retrofit: Retrofit): AuthApi {
         return retrofit.create(AuthApi::class.java)
+    }
+
+    /**
+     * 提供 ChatApi 实例
+     */
+    @Provides
+    @Singleton
+    fun provideChatApi(retrofit: Retrofit): ChatApi {
+        return retrofit.create(ChatApi::class.java)
+    }
+
+    /**
+     * 提供 WeatherApi 实例
+     */
+    @Provides
+    @Singleton
+    fun provideWeatherApi(retrofit: Retrofit): WeatherApi {
+        return retrofit.create(WeatherApi::class.java)
+    }
+
+    /**
+     * 提供 CalendarApi 实例
+     */
+    @Provides
+    @Singleton
+    fun provideCalendarApi(retrofit: Retrofit): CalendarApi {
+        return retrofit.create(CalendarApi::class.java)
+    }
+
+    /**
+     * 提供 TodoApi 实例
+     */
+    @Provides
+    @Singleton
+    fun provideTodoApi(retrofit: Retrofit): TodoApi {
+        return retrofit.create(TodoApi::class.java)
+    }
+
+    /**
+     * 提供 RouteApi 实例
+     */
+    @Provides
+    @Singleton
+    fun provideRouteApi(retrofit: Retrofit): RouteApi {
+        return retrofit.create(RouteApi::class.java)
+    }
+
+    /**
+     * 提供 PushApi 实例
+     */
+    @Provides
+    @Singleton
+    fun providePushApi(retrofit: Retrofit): PushApi {
+        return retrofit.create(PushApi::class.java)
     }
 }

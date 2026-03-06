@@ -2,6 +2,18 @@ package com.mrshudson.android.di
 
 import com.mrshudson.android.data.repository.AuthRepository
 import com.mrshudson.android.data.repository.AuthRepositoryImpl
+import com.mrshudson.android.data.repository.CalendarRepository
+import com.mrshudson.android.data.repository.CalendarRepositoryImpl
+import com.mrshudson.android.data.repository.ChatRepository
+import com.mrshudson.android.data.repository.ChatRepositoryImpl
+import com.mrshudson.android.data.repository.PushRepository
+import com.mrshudson.android.data.repository.PushRepositoryImpl
+import com.mrshudson.android.data.repository.RouteRepository
+import com.mrshudson.android.data.repository.RouteRepositoryImpl
+import com.mrshudson.android.data.repository.TodoRepository
+import com.mrshudson.android.data.repository.TodoRepositoryImpl
+import com.mrshudson.android.data.repository.WeatherRepository
+import com.mrshudson.android.data.repository.WeatherRepositoryImpl
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -24,24 +36,51 @@ abstract class RepositoryModule {
         authRepositoryImpl: AuthRepositoryImpl
     ): AuthRepository
 
-    // TODO: 后续添加其他 Repository 绑定
-    // @Binds
-    // abstract fun bindConversationRepository(
-    //     conversationRepositoryImpl: ConversationRepositoryImpl
-    // ): ConversationRepository
-    //
-    // @Binds
-    // abstract fun bindChatRepository(
-    //     chatRepositoryImpl: ChatRepositoryImpl
-    // ): ChatRepository
-    //
-    // @Binds
-    // abstract fun bindCalendarRepository(
-    //     calendarRepositoryImpl: CalendarRepositoryImpl
-    // ): CalendarRepository
-    //
-    // @Binds
-    // abstract fun bindTodoRepository(
-    //     todoRepositoryImpl: TodoRepositoryImpl
-    // ): TodoRepository
+    /**
+     * 绑定聊天仓库
+     */
+    @Binds
+    abstract fun bindChatRepository(
+        chatRepositoryImpl: ChatRepositoryImpl
+    ): ChatRepository
+
+    /**
+     * 绑定天气仓库
+     */
+    @Binds
+    abstract fun bindWeatherRepository(
+        weatherRepositoryImpl: WeatherRepositoryImpl
+    ): WeatherRepository
+
+    /**
+     * 绑定日历仓库
+     */
+    @Binds
+    abstract fun bindCalendarRepository(
+        calendarRepositoryImpl: CalendarRepositoryImpl
+    ): CalendarRepository
+
+    /**
+     * 绑定待办仓库
+     */
+    @Binds
+    abstract fun bindTodoRepository(
+        todoRepositoryImpl: TodoRepositoryImpl
+    ): TodoRepository
+
+    /**
+     * 绑定路线仓库
+     */
+    @Binds
+    abstract fun bindRouteRepository(
+        routeRepositoryImpl: RouteRepositoryImpl
+    ): RouteRepository
+
+    /**
+     * 绑定推送仓库
+     */
+    @Binds
+    abstract fun bindPushRepository(
+        pushRepositoryImpl: PushRepositoryImpl
+    ): PushRepository
 }

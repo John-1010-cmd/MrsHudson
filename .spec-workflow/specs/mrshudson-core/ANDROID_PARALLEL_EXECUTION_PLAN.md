@@ -1,146 +1,235 @@
-# MrsHudson Android 开发 - 多终端并发执行规划（Wave版）
+# MrsHudson Android 开发 - 并行 Task 代理执行规划（Wave版）
 
 ## 概述
 
-本文档将 Android 开发的 12 个任务按 **Wave（阶段）** 组织，并规划为 **4-5 个终端并行执行**，最大化开发效率。
+本文档将 Android 开发的 12 个任务按 **Wave（阶段）** 组织，通过 **5 个并行的 Task 代理**同时执行任务，**最大化并行度**以提升开发效率。
 
-**总任务数**: 12个
-**Wave 数量**: 6个
-**并行终端**: 4-5个
-**预计总工期**: 8-10天
+## 🎯 并行执行核心理念
+
+1. **Wave 内最大化并行**: 同一 Wave 内的多个任务，分配给不同代理**同时执行**
+2. **代理内任务并行**: 单个代理内的多个子任务，使用 `run_in_background` **并行执行**
+3. **减少串行依赖**: 扁平化任务依赖，允许更多任务同时启动
+4. **包隔离避免冲突**: 每个代理只修改指定包/目录
+
+## 📊 各 Wave 总览（并行度优化）
+
+| Wave | 阶段名称 | 并行代理 | 并行度 | 预计时间 | 关键交付物 |
+|------|----------|----------|--------|----------|------------|
+| Wave 1-2 | 基础架构 | Task 1 | 1 | 2天 | 可编译项目+认证+主框架 |
+| Wave 3 | 核心功能并行 | Task 1/2/3/4/5 | **4** ★ | 2天 | AI对话、日历、待办、天气、路线 |
+| Wave 4 | 高级功能并行 | Task 1/2/3/4 | **4** ★ | 1.5天 | 语音输入、推送、离线DB、优化 |
+| Wave 5-6 | 收尾发布 | Task 3/5 | **2** | 1.5天 | 离线完善、打包发布 |
+
+**预计总工期**: 5-7天（5个Task并行执行）
+**相比串行**: 节省约50%时间
 
 ---
 
-## 📊 各 Wave 总览
+## 🚀 并行 Task 代理执行策略
 
-| Wave | 阶段名称 | 终端 | 任务数 | 预计时间 | 关键交付物 |
-|------|----------|------|--------|----------|------------|
-| Wave 1 | 项目初始化 | Terminal A | 1个 | 1天 | 可编译的基础项目 |
-| Wave 2 | 认证与主框架 | Terminal A | 2个 | 2天 | 登录功能 + 底部导航框架 |
-| Wave 3 | 核心功能并行开发 | Terminal B/C/D | 5个 | 3天 | AI对话、日历、待办、天气、路线 |
-| Wave 4 | 高级功能增强 | Terminal B/C/D | 3个 | 2天 | 语音输入、推送、数据同步准备 |
-| Wave 5 | 离线模式与优化 | Terminal C/E | 2个 | 2天 | 离线数据同步、应用打包配置 |
-| Wave 6 | 集成测试与发布 | Terminal E | 1个 | 1天 | 发布 APK/AAB |
+**核心原则**: 通过 Claude Code 的 **Task 工具** 启动多个并行的子代理，各自负责不同的功能模块，通过**包级别隔离**避免冲突。
 
----
-
-## 🚀 快速开始
-
-### 本地多终端执行策略
-
-**核心原则**: 所有终端共享**同一个工作目录**，通过**包级别隔离**避免冲突。
+**最大化并行度原则**:
+1. **Wave 内并行**: 同一 Wave 内的多个任务，尽可能分配给不同代理并行执行
+2. **代理内并行**: 单个代理内的多个任务，使用 Task 工具的 `run_in_background` 参数并行执行
+3. **依赖扁平化**: 减少任务间的依赖关系，允许更多任务同时启动
+4. **包隔离**: 每个代理只修改自己负责的包/目录，避免文件冲突
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    本地工作目录                              │
-│          mrshudson-android/                                 │
-│                                                             │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │  Terminal A  │  Terminal B  │  Terminal C          │   │
-│  │  (基础架构)   │  (AI对话)    │  (日历/待办)          │   │
-│  │              │              │                      │   │
-│  │  ├─ di/      │  ├─ data/    │  ├─ data/            │   │
-│  │  ├─ ui/main  │  │  └─ chat/  │  │  └─ calendar/     │   │
-│  │  └─ ui/login │  └─ ui/chat/ │  └─ ui/calendar/     │   │
-│  │              │              │                      │   │
-│  │  阻塞其他    │  依赖A完成    │  依赖A完成            │   │
-│  └──────────────┴──────────────┴──────────────────────┘   │
-│                                                             │
-│  共享: build.gradle.kts, AndroidManifest.xml, Theme.kt      │
-│  策略: A先创建框架，B/C/D在各自包中并行开发                  │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    并行 Task 代理执行模型 (5个代理)                          │
+│                    mrshudson-android/                                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   Task 1        Task 2        Task 3        Task 4        Task 5          │
+│   (基础架构)     (AI对话)       (日历+待办)    (天气+路线)    (推送+打包)     │
+│                                                                             │
+│   ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐          │
+│   │ Wave 1  │  │         │  │         │  │         │  │         │          │
+│   │ Wave 2  │  │         │  │         │  │         │  │         │          │
+│   └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘          │
+│        │            │            │            │            │               │
+│        ▼            ▼            ▼            ▼            ▼               │
+│   ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐          │
+│   │ Wave 3  │  │ Wave 3  │  │ Wave 3  │  │ Wave 3  │  │         │          │
+│   │         │  │         │  │         │  │         │  │         │          │
+│   │ Auth    │  │ Chat    │  │ Calendar│  │ Weather │  │         │          │
+│   │ + Main  │  │         │  │ Todo    │  │ Route   │  │         │          │
+│   └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘          │
+│        │            │            │            │            │               │
+│        ▼            ▼            ▼            ▼            ▼               │
+│   ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐          │
+│   │ Wave 4  │  │ Wave 4  │  │ Wave 4  │  │ Wave 4  │  │ Wave 5  │          │
+│   │         │  │ Voice   │  │ Offline │  │ FCM     │  │ Build   │          │
+│   └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘          │
+│        │            │            │            │            │               │
+│        ▼            ▼            ▼            ▼            ▼               │
+│   ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐          │
+│   │ Wave 5  │  │         │  │ Wave 5  │  │         │  │ Wave 6  │          │
+│   │ 优化    │  │         │  │ Offline │  │         │  │ Release │          │
+│   └────┬────┘  └─────────┘  └────┬────┘  └─────────┘  └────┬────┘          │
+│        │                          │                         │               │
+│        ▼                          ▼                         ▼               │
+│                         最终编译验证                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 团队规模与终端分配建议
+### 并行执行命令模板
 
-| 团队规模 | 终端数 | 分配方案 | 预计工期 |
-|---------|-------|---------|----------|
-| 1人 | 1终端 | 按Wave顺序串行执行 | 15-20天 |
-| 2人 | 2终端 | 终端A负责Wave 1-2-5-6，终端B负责Wave 3-4 | 10-12天 |
-| 3人 | 3终端 | 终端A负责Wave 1-2，终端B负责Wave 3-4，终端C负责Wave 5-6 | 8-10天 |
-| 4-5人 | 4-5终端 | 每Wave最大化并行（本文档方案） | 8-10天 |
+**启动 5 个并行 Task 代理**（推荐）:
 
-### 本地多终端执行流程
+```bash
+# 同时启动 5 个 Task 代理
+Task 1: "执行 Wave 1 + Wave 2 - 初始化项目、认证、主框架"
+Task 2: "执行 Wave 3 - AI对话功能"
+Task 3: "执行 Wave 3 - 日历+待办功能 (并行)"
+Task 4: "执行 Wave 3 - 天气+路线功能 (并行)"
+Task 5: "等待 Wave 3 完成后执行打包配置"
 
-```
-终端A          终端B          终端C          终端D          终端E
- |              |              |              |              |
-├─ Wave 1 ─────┼──────────────┼──────────────┼──────────────┤
- |              |              |              |              |
- |  同步点: Wave 1完成，A通知其他终端
- |              |              |              |              |
-├─ Wave 2 ─────┼──────────────┼──────────────┼──────────────┤
- |              │              │              │              │
- |  同步点: Wave 2完成，B/C/D可以开始Wave 3
- |              │              │              │              │
-│              ├─ Wave 3 ─────┼──────────────┼──────────────┤
-│              │              │              │              │
-│              │  B/C/D各自在独立包中开发，互不干扰
-│              │              │              │              │
-│              │  包隔离策略:
-│              │  - B只改 data/remote/ChatApi.kt 和 ui/chat/
-│              │  - C只改 data/remote/CalendarApi.kt 和 ui/calendar/
-│              │  - D只改 data/remote/WeatherApi.kt 和 ui/weather/
-│              │              │              │              │
-│              │  同步点: 各自完成编译验证即可
-│              │              │              │              │
-│              ├─ Wave 4 ─────┤              │              │
-│              │              ├─ Wave 4-5 ───┤              │
-│              │              │              │              │
-│              │              │  同步点: ./gradlew build验证
-│              │              │              │              │
-│              │              │              │              ├─ Wave 5-6
+# Wave 3 完成后，同时启动 Wave 4
+Task 2: "执行 Wave 4 - 语音输入"
+Task 3: "执行 Wave 4 - 离线模式DB"
+Task 4: "执行 Wave 4 - FCM推送"
+Task 5: "并行执行 Wave 5 + Wave 6"
 ```
 
+### Task 代理分配建议（按并行度优化）
+
+| 代理数 | 分配方案 | 预计工期 | 并行度 |
+|--------|---------|----------|--------|
+| 1个 Task | 按Wave顺序串行执行 | 15-20天 | 1 |
+| 2个 Task | Task1负责基础+打包，Task2负责核心功能 | 10-12天 | 2 |
+| 3个 Task | Task1基础+认证，Task2对话+语音，Task3日历+待办+离线 | 8-10天 | 3 |
+| **4个 Task** | **推荐**：基础/对话/日历待办/天气路线 各自独立 | **6-8天** | **4** |
+| **5个 Task** | **最优**：基础/对话/日历待办/天气路线/推送打包 | **5-7天** | **5** |
+
+**推荐配置**: 5个 Task 代理，可达到最高并行效率
+
+### 并行 Task 代理执行流程
+
+### 并行执行流程图（最大化并行度）
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           并行执行时间线 (5 Task 代理)                         │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│  Day 1     Day 2     Day 3     Day 4     Day 5     Day 6     Day 7           │
+│                                                                                 │
+│  阶段1: 基础架构 (并行度=1)                                                     │
+│  Task1 ════════ Wave1-2 (初始化 + 认证 + 主框架)                              │
+│                                                                                 │
+│  阶段2: 核心功能并行开发 (并行度=4) ★ 最关键                                    │
+│  Task1 ════════ Wave3 - Auth/Main 完善                                       │
+│  Task2 ════════ Wave3 - AI对话 ★                                             │
+│  Task3 ════════ Wave3 - 日历 ★     ╔═══ 并行: 8.5 日历 + 8.6 待办           │
+│  Task4 ════════ Wave3 - 天气 ★     ╔═══ 并行: 8.7 天气 + 8.8 路线           │
+│  Task5 ════════ Wave3 - 打包准备 ★                                            │
+│                                                                                 │
+│  阶段3: 高级功能并行 (并行度=4) ★                                              │
+│  Task1 ════════ Wave4 - 优化                                                  │
+│  Task2 ════════ Wave4 - 语音输入 ★                                           │
+│  Task3 ════════ Wave4 - 离线DB ★     ╔═══ 阶段1: Room + DAO + SyncManager   │
+│  Task4 ════════ Wave4 - FCM推送 ★                                            │
+│                                                                                 │
+│  阶段4: 收尾与发布 (并行度=2)                                                   │
+│  Task3 ════════ Wave5 - 离线完善     ╔═══ 阶段2: Repository离线支持          │
+│  Task5 ════════ Wave5-6 - 打包发布 ★                                         │
+│                                                                                 │
+│  最终验证: ./gradlew build && ./gradlew assembleRelease                        │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 快速启动命令（5个代理并行执行）
+
+```bash
+# 步骤1: 启动 Task 1 初始化项目 + 认证 + 主框架
+Task 1: "执行 Wave 1 + Wave 2 - 初始化Android项目、实现认证、主框架"
+
+# 步骤2: 同时启动 4 个代理执行 Wave 3 (核心功能并行)
+Task 1: "Wave 3 - Auth/Main 完善"
+Task 2: "Wave 3 - AI对话功能 (ChatApi, ChatScreen, ChatViewModel)"
+Task 3: "Wave 3 - 日历+待办功能 - 同时执行 Task 8.5日历 + 8.6待办"
+Task 4: "Wave 3 - 天气+路线功能 - 同时执行 Task 8.7天气 + 8.8路线"
+Task 5: "Wave 5 - 打包配置准备 (签名、ProGuard、build配置)"
+
+# 步骤3: 同时启动 5 个代理执行 Wave 4-5 (高级功能)
+Task 1: "Wave 4 - 优化用户体验"
+Task 2: "Wave 4 - 语音输入功能"
+Task 3: "Wave 4 - 离线模式DB准备 (Room+DAO+SyncManager)"
+Task 4: "Wave 4 - FCM推送集成"
+Task 5: "Wave 5-6 - 打包发布配置"
+
+# 步骤4: 最终验证
+./gradlew build
+./gradlew assembleRelease
+```
 ### 文件冲突预防策略
 
-由于所有终端共享同一个工作目录，**必须遵守以下规则**:
+由于所有 Task 代理共享同一个工作目录，**必须遵守以下规则**:
 
 | 规则 | 说明 |
 |------|------|
-| **包级别隔离** | 每个终端只修改分配给自己的包/目录 |
-| **文件锁定** | 开始编辑前声明"我正在修改Xxx.kt"（口头/聊天工具） |
-| **不修改他人文件** | Terminal B不要修改Calendar相关的任何文件 |
-| **编译验证** | 每完成一个Wave就执行`./gradlew build`验证 |
+| **包级别隔离** | 每个 Task 只修改分配给自己的包/目录 |
+| **文件锁定** | 开始编辑前声明"我正在修改Xxx.kt" |
+| **不修改他人文件** | Task 1 不要修改 Calendar 相关的任何文件 |
+| **编译验证** | 每完成一个 Wave 就执行 `./gradlew build` 验证 |
 
-### 各终端工作目录
+### 工作目录
 
-所有终端都在同一个目录下工作：
+所有 Task 代理都在同一个目录下工作：
 
 ```bash
 cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-android
 ```
 
-**无需Git操作**，直接在同一个代码库上协作。
+**无需 Git 操作**，直接在同一个代码库上协作。
 
 ---
 
-## 🔄 多终端并行时间线
+## 🔄 并行 Task 代理时间线（优化版）
 
 ```
-Day 1    Day 2    Day 3    Day 4    Day 5    Day 6    Day 7    Day 8    Day 9-10
-─────────────────────────────────────────────────────────────────────────────────
+Day 1    Day 2    Day 3    Day 4    Day 5    Day 6    Day 7
+─────────────────────────────────────────────────────────────────
 
-Terminal A
-├─ Wave 1 [8.1]──────────┤
-├─ Wave 2 [8.2]───[8.3]──┤
+Task 1
+├─ Wave1-2 [8.1+8.2+8.3]──────────────────────────────────────┤
                          │
-                         ▼
-Terminal B               ├─ Wave 3 [8.4]──────────┤
-                         │          ├─ Wave 4 [8.11]─────────┤
-                         │                                      │
-Terminal C               ├─ Wave 3 [8.5]───[8.6]───────────────┤
-                         │          │         ├─ Wave 4 [8.10]─┤
-                         │                                      │
-Terminal D               ├─ Wave 3 [8.7]───[8.8]───┤
-                         │          │         ├─ Wave 4 [8.9]──┤
-                         │                                      │
-Terminal E                                                            ├─ Wave 5 [8.12]┤
-                                                                      │               │
-                                                                      └─ Wave 6 [测试]─┘
+                         ▼ 并行启动 (4个Task代理同时执行)
+Task 1 ───────── Wave3 - Auth/Main完善 ★
+Task 2 ───────── Wave3 - AI对话 [8.4] ★
+Task 3 ───────── Wave3 - 日历+待办 [8.5+8.6] ★ 并行
+Task 4 ───────── Wave3 - 天气+路线 [8.7+8.8] ★ 并行
+Task 5 ───────── Wave3 - 打包配置准备 ★
 
-关键路径: 8.1 → 8.2 → 8.3 → 8.5 → 8.6 → 8.10 → 8.12 (约8天)
+                         │
+                         ▼ Wave3完成
+
+Task 1 ───────── Wave4 - 优化 ★
+Task 2 ───────── Wave4 - 语音 [8.11] ★
+Task 3 ───────── Wave4 - 离线DB [8.10阶段1] ★
+Task 4 ───────── Wave4 - FCM [8.9] ★
+
+                         │
+                         ▼ Wave4完成
+
+Task 3 ───────── Wave5 - 离线完善 [8.10阶段2] ★
+Task 5 ───────── Wave5-6 - 打包发布 [8.12] ★
+
+                         │
+                         ▼ 最终验证
+
+./gradlew build && ./gradlew assembleRelease
+
+关键路径: Wave1-2 → Wave3(4并行) → Wave4(4并行) → Wave5-6 (约7天)
+并行度: Wave3/Wave4 = 4, Wave5 = 2
 ```
+
+**并行度提升说明**:
+- Wave 1-2: 串行 (1个Task) - 基础必须先完成
+- Wave 3: **4个Task并行** - AI对话/日历待办/天气路线/打包配置同时执行
+- Wave 4: **4个Task并行** - 语音/离线DB/FCM/优化同时执行
+- Wave 5-6: 2个Task并行 - 离线完善 + 打包发布
 
 ---
 
@@ -148,7 +237,7 @@ Terminal E                                                            ├─ Wav
 
 ### Wave 1: 项目初始化 ⏱️ 1天
 
-**执行终端**: Terminal A
+**执行代理**: Task 1
 **阻塞**: Wave 2, Wave 3, Wave 4, Wave 5, Wave 6
 **状态**: 阻塞节点
 
@@ -166,7 +255,7 @@ Terminal E                                                            ├─ Wav
 - 技术栈: Kotlin + Jetpack Compose + MVVM + Hilt
 - 核心依赖: Retrofit 2.9, Room 2.6, Navigation Compose 2.7
 
-#### Terminal A 执行命令
+#### Task 1 执行命令
 
 ```bash
 cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-android
@@ -186,7 +275,7 @@ else
     exit 1
 fi
 
-echo "=== Wave 1 完成，通知 Terminal B/C/D 可以准备Wave 3 ==="
+echo "=== Wave 1 完成，通知 Task 2/C/D 可以准备Wave 3 ==="
 ```
 
 #### Wave 1 完成后检查点 ✅
@@ -199,13 +288,13 @@ echo "=== Wave 1 完成，通知 Terminal B/C/D 可以准备Wave 3 ==="
 - [x] Retrofit + OkHttp 基础配置完成
 - [x] Room 数据库基础配置完成
 
-**阻塞解除信号**: Wave 1完成，Terminal B/C/D可以开始Wave 3
+**阻塞解除信号**: Wave 1完成，Task 2/C/D可以开始Wave 3
 
 ---
 
 ### Wave 2: 认证与主框架 ⏱️ 2天
 
-**执行终端**: Terminal A
+**执行代理**: Task 1
 **依赖**: Wave 1 完成
 **阻塞**: Wave 3 所有任务
 **状态**: 阻塞节点
@@ -233,7 +322,7 @@ enum class BottomNavItem(val route: String, val title: String, val icon: ImageVe
 }
 ```
 
-#### Terminal A 执行命令
+#### Task 1 执行命令
 
 ```bash
 cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-android
@@ -254,7 +343,7 @@ else
     exit 1
 fi
 
-echo "=== Wave 2 完成，通知 Terminal B/C/D 可以开始 Wave 3 ==="
+echo "=== Wave 2 完成，通知 Task 2/C/D 可以开始 Wave 3 ==="
 ```
 
 #### Wave 2 完成后检查点 ✅
@@ -269,13 +358,13 @@ echo "=== Wave 2 完成，通知 Terminal B/C/D 可以开始 Wave 3 ==="
 - [x] Material3 主题配置完成（支持亮/暗色模式）
 - [x] MrsHudson 品牌色已定义
 
-**阻塞解除信号**: Wave 2完成，Terminal B/C/D可以开始Wave 3
+**阻塞解除信号**: Wave 2完成，Task 2/C/D可以开始Wave 3
 
 ---
 
 ### Wave 3: 核心功能并行开发 ⏱️ 3天
 
-**执行终端**: Terminal B + Terminal C + Terminal D **并行**
+**执行代理**: Task 2 + Task 3 + Task 4 **并行**
 **依赖**: Wave 2 完成
 **阻塞**: Wave 4 对应任务
 **状态**: 高并发阶段
@@ -285,21 +374,21 @@ echo "=== Wave 2 完成，通知 Terminal B/C/D 可以开始 Wave 3 ==="
 
 #### 任务分配
 
-| 终端 | 负责任务 | 关联需求 | 预计时间 |
+| 代理 | 负责任务 | 关联需求 | 预计时间 |
 |------|----------|----------|----------|
-| **Terminal B** | 8.4 AI对话 | US-002 | 2天 |
-| **Terminal C** | 8.5 日历 + 8.6 待办 | US-004, US-005 | 3天 |
-| **Terminal D** | 8.7 天气 + 8.8 路线规划 | US-003, US-006 | 2天 |
+| **Task 2** | 8.4 AI对话 | US-002 | 2天 |
+| **Task 3** | 8.5 日历 + 8.6 待办 | US-004, US-005 | 3天 |
+| **Task 4** | 8.7 天气 + 8.8 路线规划 | US-003, US-006 | 2天 |
 
-#### 各终端执行计划
+#### 各代理执行计划
 
-##### Terminal B - AI对话功能
+##### Task 2 - AI对话功能
 
 ```bash
 cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-android
 
 # 声明文件锁定（口头告知其他终端）
-# "Terminal B开始编辑: ChatApi.kt, ChatScreen.kt, chat/包下所有文件"
+# "Task 2开始编辑: ChatApi.kt, ChatScreen.kt, chat/包下所有文件"
 
 # 启动 Task 8.4
 # [执行 Task 8.4 Prompt]
@@ -307,10 +396,10 @@ cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-and
 # 编译检查
 ./gradlew build -q
 if [ $? -eq 0 ]; then
-    echo "✅ Terminal B - Wave 3 编译通过"
+    echo "✅ Task 2 - Wave 3 编译通过"
 fi
 
-echo "=== Terminal B - Wave 3 完成 ==="
+echo "=== Task 2 - Wave 3 完成 ==="
 ```
 
 **输出文件**:
@@ -320,13 +409,13 @@ echo "=== Terminal B - Wave 3 完成 ==="
 - `ui/components/chat/MessageBubble.kt`
 - `ui/screens/chat/ChatViewModel.kt`
 
-##### Terminal C - 日历 + 待办
+##### Task 3 - 日历 + 待办
 
 ```bash
 cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-android
 
 # 声明文件锁定
-# "Terminal C开始编辑: CalendarApi.kt, TodoApi.kt, calendar/包, todo/包"
+# "Task 3开始编辑: CalendarApi.kt, TodoApi.kt, calendar/包, todo/包"
 
 # 并行启动 Task 8.5 和 8.6
 # [执行 Task 8.5 Prompt]
@@ -335,10 +424,10 @@ cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-and
 # 编译检查
 ./gradlew build -q
 if [ $? -eq 0 ]; then
-    echo "✅ Terminal C - Wave 3 编译通过"
+    echo "✅ Task 3 - Wave 3 编译通过"
 fi
 
-echo "=== Terminal C - Wave 3 完成 ==="
+echo "=== Task 3 - Wave 3 完成 ==="
 ```
 
 **输出文件**:
@@ -348,13 +437,13 @@ echo "=== Terminal C - Wave 3 完成 ==="
 - `ui/screens/todo/TodoScreen.kt`, `TodoItemCard.kt`
 - Room Entity: `EventEntity.kt`, `TodoEntity.kt`
 
-##### Terminal D - 天气 + 路线规划
+##### Task 4 - 天气 + 路线规划
 
 ```bash
 cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-android
 
 # 声明文件锁定
-# "Terminal D开始编辑: WeatherApi.kt, RouteApi.kt, weather/包, route/包"
+# "Task 4开始编辑: WeatherApi.kt, RouteApi.kt, weather/包, route/包"
 
 # 并行启动 Task 8.7 和 8.8
 # [执行 Task 8.7 Prompt]
@@ -363,10 +452,10 @@ cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-and
 # 编译检查
 ./gradlew build -q
 if [ $? -eq 0 ]; then
-    echo "✅ Terminal D - Wave 3 编译通过"
+    echo "✅ Task 4 - Wave 3 编译通过"
 fi
 
-echo "=== Terminal D - Wave 3 完成 ==="
+echo "=== Task 4 - Wave 3 完成 ==="
 ```
 
 **输出文件**:
@@ -377,7 +466,7 @@ echo "=== Terminal D - Wave 3 完成 ==="
 
 #### Wave 3 完成后检查点 ✅
 
-| 终端 | 检查项 | 状态 |
+| 代理 | 检查项 | 状态 |
 |------|--------|------|
 | B | 能发送消息并显示在列表 | [-] |
 | B | AI回复正确显示（左对齐，带头像） | [-] |
@@ -409,7 +498,7 @@ echo "=== Terminal D - Wave 3 完成 ==="
 由于B/C/D修改的是不同文件，各自完成后直接验证即可，无需合并：
 
 ```bash
-# 任意终端执行最终验证
+# 任意代理执行最终验证
 ./gradlew build
 
 # 如果编译通过，说明没有冲突
@@ -420,7 +509,7 @@ echo "✅ Wave 3 全部完成且编译通过"
 
 ### Wave 4: 高级功能增强 ⏱️ 2天
 
-**执行终端**: Terminal B + Terminal C + Terminal D **并行**
+**执行代理**: Task 2 + Task 3 + Task 4 **并行**
 **依赖**: Wave 3 对应任务完成
 **阻塞**: Wave 5, Wave 6
 **状态**: 高并发阶段
@@ -430,21 +519,21 @@ echo "✅ Wave 3 全部完成且编译通过"
 
 #### 任务分配
 
-| 终端 | 负责任务 | 依赖 | 预计时间 |
+| 代理 | 负责任务 | 依赖 | 预计时间 |
 |------|----------|------|----------|
-| **Terminal B** | 8.11 语音输入 | 8.4 (AI对话) | 1天 |
-| **Terminal C** | 8.10 离线模式DB准备 | 8.5, 8.6 (日历/待办) | 1天 |
-| **Terminal D** | 8.9 FCM推送集成 | 8.1 (基础) | 1天 |
+| **Task 2** | 8.11 语音输入 | 8.4 (AI对话) | 1天 |
+| **Task 3** | 8.10 离线模式DB准备 | 8.5, 8.6 (日历/待办) | 1天 |
+| **Task 4** | 8.9 FCM推送集成 | 8.1 (基础) | 1天 |
 
-#### 各终端执行计划
+#### 各代理执行计划
 
-##### Terminal B - 语音输入
+##### Task 2 - 语音输入
 
 ```bash
 cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-android
 
 # 声明文件锁定
-# "Terminal B继续编辑: VoiceRecognizer.kt, VoiceInputButton.kt, chat/包"
+# "Task 2继续编辑: VoiceRecognizer.kt, VoiceInputButton.kt, chat/包"
 
 # 启动 Task 8.11
 # [执行 Task 8.11 Prompt]
@@ -453,13 +542,13 @@ cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-and
 ./gradlew build -q
 ```
 
-##### Terminal C - 离线模式（数据同步部分）
+##### Task 3 - 离线模式（数据同步部分）
 
 ```bash
 cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-android
 
 # 声明文件锁定
-# "Terminal C继续编辑: SyncManager.kt, DAO接口, entity/包"
+# "Task 3继续编辑: SyncManager.kt, DAO接口, entity/包"
 
 # 启动 Task 8.10（先做数据同步部分）
 # [执行 Task 8.10 Prompt - 主要关注 Room DB 和 SyncManager]
@@ -468,13 +557,13 @@ cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-and
 ./gradlew build -q
 ```
 
-##### Terminal D - FCM推送
+##### Task 4 - FCM推送
 
 ```bash
 cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-android
 
 # 声明文件锁定
-# "Terminal D开始编辑: FcmService.kt, PushRepository.kt"
+# "Task 4开始编辑: FcmService.kt, PushRepository.kt"
 
 # 启动 Task 8.9
 # [执行 Task 8.9 Prompt]
@@ -485,7 +574,7 @@ cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-and
 
 #### Wave 4 完成后检查点 ✅
 
-| 终端 | 检查项 | 状态 |
+| 代理 | 检查项 | 状态 |
 |------|--------|------|
 | B | 按住语音按钮可以录音 | [-] |
 | B | 语音正确转为文字 | [-] |
@@ -500,13 +589,13 @@ cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-and
 | D | 能接收并显示推送通知 | [-] |
 | D | 点击通知打开应用 | [-] |
 
-**同步点**: Wave 4 完成后，Terminal C 继续 Wave 5 离线模式完善，Terminal E 准备打包配置
+**同步点**: Wave 4 完成后，Task 3 继续 Wave 5 离线模式完善，Task 5 准备打包配置
 
 ---
 
 ### Wave 5: 离线模式完善与打包准备 ⏱️ 2天
 
-**执行终端**: Terminal C + Terminal E
+**执行代理**: Task 3 + Task 5
 **依赖**: Wave 4 完成
 **阻塞**: Wave 6
 **状态**: 收尾准备
@@ -516,20 +605,20 @@ cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-and
 
 #### 任务分配
 
-| 终端 | 负责任务 | 依赖 | 预计时间 |
+| 代理 | 负责任务 | 依赖 | 预计时间 |
 |------|----------|------|----------|
-| **Terminal C** | 8.10 离线模式完善 | Wave 4 的 8.10 | 1天 |
-| **Terminal E** | 8.12 打包配置（部分） | Wave 4 合并完成 | 1天 |
+| **Task 3** | 8.10 离线模式完善 | Wave 4 的 8.10 | 1天 |
+| **Task 5** | 8.12 打包配置（部分） | Wave 4 合并完成 | 1天 |
 
 #### 执行计划
 
-##### Terminal C - 离线模式完善
+##### Task 3 - 离线模式完善
 
 ```bash
 cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-android
 
 # 声明文件锁定
-# "Terminal C继续编辑: CalendarRepository, TodoRepository（添加离线支持）"
+# "Task 3继续编辑: CalendarRepository, TodoRepository（添加离线支持）"
 
 # 完善 Task 8.10
 # - 完成离线支持的 Repository
@@ -540,13 +629,13 @@ cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-and
 ./gradlew build -q
 ```
 
-##### Terminal E - 打包配置启动
+##### Task 5 - 打包配置启动
 
 ```bash
 cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-android
 
 # 声明文件锁定
-# "Terminal E开始编辑: build.gradle.kts(签名配置), proguard-rules.pro"
+# "Task 5开始编辑: build.gradle.kts(签名配置), proguard-rules.pro"
 
 # 启动 Task 8.12（先做配置部分）
 # - 签名配置
@@ -559,7 +648,7 @@ cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-and
 
 #### Wave 5 完成后检查点 ✅
 
-| 终端 | 检查项 | 状态 |
+| 代理 | 检查项 | 状态 |
 |------|--------|------|
 | C | 离线时能查看已缓存数据 | [-] |
 | C | 网络恢复自动同步 | [-] |
@@ -574,7 +663,7 @@ cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-and
 
 ### Wave 6: 集成测试与发布 ⏱️ 1-2天
 
-**执行终端**: Terminal E
+**执行代理**: Task 5
 **依赖**: Wave 5 完成，所有功能合并
 **状态**: 最终发布
 
@@ -588,7 +677,7 @@ cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-and
 | 8.12 | Android 应用打包与发布配置（完成） | Release APK/AAB | `./gradlew assembleRelease` 成功 |
 | - | 集成测试 | 测试报告 | 核心流程通过 |
 
-#### Terminal E 执行计划
+#### Task 5 执行计划
 
 ```bash
 cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-android
@@ -729,36 +818,36 @@ mrshudson-android/
 ```
 mrshudson-android/app/src/main/java/com/mrshudson/android/
 ├── data/remote/
-│   ├── ChatApi.kt                          # Wave 3 - Terminal B
-│   ├── CalendarApi.kt                      # Wave 3 - Terminal C
-│   ├── TodoApi.kt                          # Wave 3 - Terminal C
-│   ├── WeatherApi.kt                       # Wave 3 - Terminal D
-│   └── RouteApi.kt                         # Wave 3 - Terminal D
+│   ├── ChatApi.kt                          # Wave 3 - Task 2
+│   ├── CalendarApi.kt                      # Wave 3 - Task 3
+│   ├── TodoApi.kt                          # Wave 3 - Task 3
+│   ├── WeatherApi.kt                       # Wave 3 - Task 4
+│   └── RouteApi.kt                         # Wave 3 - Task 4
 ├── data/repository/
-│   ├── ChatRepository.kt                   # Wave 3 - Terminal B
-│   ├── CalendarRepository.kt               # Wave 3-5 - Terminal C
+│   ├── ChatRepository.kt                   # Wave 3 - Task 2
+│   ├── CalendarRepository.kt               # Wave 3-5 - Task 3
 │   └── ...
 ├── data/local/entity/
-│   ├── EventEntity.kt                      # Wave 3 - Terminal C
-│   ├── TodoEntity.kt                       # Wave 3 - Terminal C
-│   └── MessageEntity.kt                    # Wave 5 - Terminal C
+│   ├── EventEntity.kt                      # Wave 3 - Task 3
+│   ├── TodoEntity.kt                       # Wave 3 - Task 3
+│   └── MessageEntity.kt                    # Wave 5 - Task 3
 ├── data/local/dao/
-│   ├── EventDao.kt                         # Wave 5 - Terminal C
-│   └── TodoDao.kt                          # Wave 5 - Terminal C
+│   ├── EventDao.kt                         # Wave 5 - Task 3
+│   └── TodoDao.kt                          # Wave 5 - Task 3
 ├── data/sync/
-│   └── SyncManager.kt                      # Wave 4-5 - Terminal C
+│   └── SyncManager.kt                      # Wave 4-5 - Task 3
 ├── worker/
-│   └── SyncWorker.kt                       # Wave 5 - Terminal C
+│   └── SyncWorker.kt                       # Wave 5 - Task 3
 ├── service/
-│   └── FcmService.kt                       # Wave 4 - Terminal D
+│   └── FcmService.kt                       # Wave 4 - Task 4
 ├── utils/
-│   └── VoiceRecognizer.kt                  # Wave 4 - Terminal B
+│   └── VoiceRecognizer.kt                  # Wave 4 - Task 2
 └── ui/screens/
-    ├── chat/ChatScreen.kt                  # Wave 3 - Terminal B
-    ├── calendar/CalendarScreen.kt          # Wave 3 - Terminal C
-    ├── todo/TodoScreen.kt                  # Wave 3 - Terminal C
-    ├── weather/WeatherScreen.kt            # Wave 3 - Terminal D
-    └── route/RouteScreen.kt                # Wave 3 - Terminal D
+    ├── chat/ChatScreen.kt                  # Wave 3 - Task 2
+    ├── calendar/CalendarScreen.kt          # Wave 3 - Task 3
+    ├── todo/TodoScreen.kt                  # Wave 3 - Task 3
+    ├── weather/WeatherScreen.kt            # Wave 3 - Task 4
+    └── route/RouteScreen.kt                # Wave 3 - Task 4
 ```
 
 ---
@@ -929,14 +1018,14 @@ Success Criteria:
 - 页面状态切换时保持
 ```
 
-### Wave 3 - Terminal B - Task 8.4 Prompt
+### Wave 3 - Task 2 - Task 8.4 Prompt
 
 ```
 Implement the task for spec mrshudson-core:
 
 Role: Android Developer
 
-Task: 实现 Android 端 AI 对话功能 (Wave 3 - Terminal B)
+Task: 实现 Android 端 AI 对话功能 (Wave 3 - Task 2)
 
 Context:
 - 后端 API: POST /api/chat/send, GET /api/chat/history
@@ -981,14 +1070,14 @@ Success Criteria:
 - 空消息不发送
 ```
 
-### Wave 3 - Terminal C - Task 8.5 Prompt
+### Wave 3 - Task 3 - Task 8.5 Prompt
 
 ```
 Implement the task for spec mrshudson-core:
 
 Role: Android Developer
 
-Task: 实现 Android 端日历功能 (Wave 3 - Terminal C)
+Task: 实现 Android 端日历功能 (Wave 3 - Task 3)
 
 Context:
 - 后端 API: /api/calendar/events
@@ -1035,14 +1124,14 @@ Success Criteria:
 - 能删除事件
 ```
 
-### Wave 3 - Terminal C - Task 8.6 Prompt
+### Wave 3 - Task 3 - Task 8.6 Prompt
 
 ```
 Implement the task for spec mrshudson-core:
 
 Role: Android Developer
 
-Task: 实现 Android 端待办事项功能 (Wave 3 - Terminal C)
+Task: 实现 Android 端待办事项功能 (Wave 3 - Task 3)
 
 Requirements:
 1. 创建数据模型：
@@ -1086,14 +1175,14 @@ Success Criteria:
 - 筛选功能正常
 ```
 
-### Wave 3 - Terminal D - Task 8.7 Prompt
+### Wave 3 - Task 4 - Task 8.7 Prompt
 
 ```
 Implement the task for spec mrshudson-core:
 
 Role: Android Developer
 
-Task: 实现 Android 端天气查询功能 (Wave 3 - Terminal D)
+Task: 实现 Android 端天气查询功能 (Wave 3 - Task 4)
 
 Context:
 - 天气数据通过后端 API 获取（后端调用高德天气 API）
@@ -1138,14 +1227,14 @@ Success Criteria:
 - 能手动切换城市
 ```
 
-### Wave 3 - Terminal D - Task 8.8 Prompt
+### Wave 3 - Task 4 - Task 8.8 Prompt
 
 ```
 Implement the task for spec mrshudson-core:
 
 Role: Android Developer
 
-Task: 实现 Android 端路线规划功能 (Wave 3 - Terminal D)
+Task: 实现 Android 端路线规划功能 (Wave 3 - Task 4)
 
 Requirements:
 1. 创建数据模型：
@@ -1181,14 +1270,14 @@ Success Criteria:
 - 切换出行方式重新查询
 ```
 
-### Wave 4 - Terminal B - Task 8.11 Prompt
+### Wave 4 - Task 2 - Task 8.11 Prompt
 
 ```
 Implement the task for spec mrshudson-core:
 
 Role: Android Developer
 
-Task: 实现 Android 端语音输入功能 (Wave 4 - Terminal B)
+Task: 实现 Android 端语音输入功能 (Wave 4 - Task 2)
 
 Requirements:
 1. 权限配置：
@@ -1227,14 +1316,14 @@ Success Criteria:
 - 文字自动发送给 AI
 ```
 
-### Wave 4 - Terminal C - Task 8.10 Prompt (阶段1)
+### Wave 4 - Task 3 - Task 8.10 Prompt (阶段1)
 
 ```
 Implement the task for spec mrshudson-core:
 
 Role: Android Developer
 
-Task: 实现离线模式与数据同步 - 阶段1 (Wave 4 - Terminal C)
+Task: 实现离线模式与数据同步 - 阶段1 (Wave 4 - Task 3)
 
 Context:
 - 用户希望离线时也能查看数据
@@ -1267,14 +1356,14 @@ Success Criteria:
 - SyncManager 监听网络状态
 ```
 
-### Wave 4 - Terminal D - Task 8.9 Prompt
+### Wave 4 - Task 4 - Task 8.9 Prompt
 
 ```
 Implement the task for spec mrshudson-core:
 
 Role: Android Developer
 
-Task: 集成 FCM 推送通知 (Wave 4 - Terminal D)
+Task: 集成 FCM 推送通知 (Wave 4 - Task 4)
 
 Context:
 - 后端需要 deviceToken 才能发送推送
@@ -1316,14 +1405,14 @@ Success Criteria:
 - 点击通知打开应用
 ```
 
-### Wave 5 - Terminal C - Task 8.10 Prompt (阶段2)
+### Wave 5 - Task 3 - Task 8.10 Prompt (阶段2)
 
 ```
 Implement the task for spec mrshudson-core:
 
 Role: Android Developer
 
-Task: 实现离线模式与数据同步 - 阶段2 (Wave 5 - Terminal C)
+Task: 实现离线模式与数据同步 - 阶段2 (Wave 5 - Task 3)
 
 Context:
 - Wave 4 已完成 Room DB 和 SyncManager
@@ -1350,14 +1439,14 @@ Success Criteria:
 - 后台定期同步运行
 ```
 
-### Wave 5-6 - Terminal E - Task 8.12 Prompt
+### Wave 5-6 - Task 5 - Task 8.12 Prompt
 
 ```
 Implement the task for spec mrshudson-core:
 
 Role: Android Developer
 
-Task: 配置 Android 应用发布打包 (Wave 5-6 - Terminal E)
+Task: 配置 Android 应用发布打包 (Wave 5-6 - Task 5)
 
 Requirements:
 1. 签名配置：
@@ -1396,9 +1485,9 @@ Success Criteria:
 
 ---
 
-## 🚀 终端快速启动指南
+## 🚀 Task 代理快速启动指南
 
-### Terminal A（基础架构）
+### Task 1（基础架构）
 
 ```bash
 cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-android
@@ -1411,10 +1500,10 @@ cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-and
 # [执行 Wave 2 Prompts]
 ./gradlew build
 
-echo "=== Terminal A 完成，通知 Terminal B/C/D ==="
+echo "=== Task 1 完成，通知 Task 2/C/D ==="
 ```
 
-### Terminal B（AI对话+语音）
+### Task 2（AI对话+语音）
 
 ```bash
 cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-android
@@ -1422,17 +1511,17 @@ cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-and
 # 等待 A 完成
 
 # Wave 3
-# 声明: "Terminal B编辑chat/包"
+# 声明: "Task 2编辑chat/包"
 # [执行 Wave 3 - Task 8.4 Prompt]
 ./gradlew build
 
 # Wave 4
-# 声明: "Terminal B继续编辑chat/包"
+# 声明: "Task 2继续编辑chat/包"
 # [执行 Wave 4 - Task 8.11 Prompt]
 ./gradlew build
 ```
 
-### Terminal C（日历+待办+离线）
+### Task 3（日历+待办+离线）
 
 ```bash
 cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-android
@@ -1440,22 +1529,22 @@ cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-and
 # 等待 A 完成
 
 # Wave 3
-# 声明: "Terminal C编辑calendar/和todo/包"
+# 声明: "Task 3编辑calendar/和todo/包"
 # [执行 Wave 3 - Task 8.5, 8.6 Prompts]
 ./gradlew build
 
 # Wave 4
-# 声明: "Terminal C编辑sync/和dao/包"
+# 声明: "Task 3编辑sync/和dao/包"
 # [执行 Wave 4 - Task 8.10 Prompt 阶段1]
 ./gradlew build
 
 # Wave 5
-# 声明: "Terminal C编辑repository/包（离线支持）"
+# 声明: "Task 3编辑repository/包（离线支持）"
 # [执行 Wave 5 - Task 8.10 Prompt 阶段2]
 ./gradlew build
 ```
 
-### Terminal D（天气+路线+推送）
+### Task 4（天气+路线+推送）
 
 ```bash
 cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-android
@@ -1463,17 +1552,17 @@ cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-and
 # 等待 A 完成
 
 # Wave 3
-# 声明: "Terminal D编辑weather/和route/包"
+# 声明: "Task 4编辑weather/和route/包"
 # [执行 Wave 3 - Task 8.7, 8.8 Prompts]
 ./gradlew build
 
 # Wave 4
-# 声明: "Terminal D编辑service/包（FCM）"
+# 声明: "Task 4编辑service/包（FCM）"
 # [执行 Wave 4 - Task 8.9 Prompt]
 ./gradlew build
 ```
 
-### Terminal E（打包发布）
+### Task 5（打包发布）
 
 ```bash
 cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-android
@@ -1481,7 +1570,7 @@ cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-and
 # 等待 Wave 5 完成
 
 # Wave 5-6
-# 声明: "Terminal E编辑build.gradle.kts和proguard-rules.pro"
+# 声明: "Task 5编辑build.gradle.kts和proguard-rules.pro"
 # [执行 Wave 5-6 - Task 8.12 Prompt]
 ./gradlew assembleRelease
 
@@ -1508,7 +1597,7 @@ cd /Users/huangzhuangcan/Documents/GitHub/John-1010-cmd/Mrs-Hudson/mrshudson-and
 ```
 com.mrshudson.android
 ├── data
-│   ├── local          # Wave 3-5 Terminal C 使用
+│   ├── local          # Wave 3-5 Task 3 使用
 │   │   ├── dao        # Wave 4-5
 │   │   ├── entity     # Wave 3-4
 │   │   └── datastore  # Wave 2
@@ -1548,12 +1637,14 @@ com.mrshudson.android
 | v1.0 | 2026-03-05 | 初始版本，按终端分组规划 |
 | v2.0 | 2026-03-05 | 参考 ai-cost-optimization 重构为 Wave 规划 |
 | v2.1 | 2026-03-05 | 参考 PARALLEL_EXECUTION.md 增加团队规模建议、检查点、进度跟踪 |
-| v3.0 | 2026-03-05 | 移除所有Git操作和协作流程，简化为纯本地多终端执行方案 |
+| v3.0 | 2026-03-05 | 移除所有Git操作和协作流程，简化为并行Task代理执行方案 |
+| v4.0 | 2026-03-06 | 将"本地多终端"改为"多个并行的Task代理模拟"执行 |
+| v5.0 | 2026-03-06 | **优化并行度**：最大化Wave内并行执行，添加快速启动命令，预计工期缩短至5-7天 |
 
 ---
 
-**文档版本**: v3.0
-**最后更新**: 2026-03-05
+**文档版本**: v5.0
+**最后更新**: 2026-03-06
 **适用规格**: mrshudson-core
 **参考文档**:
 - ai-cost-optimization/IMPLEMENTATION_SUMMARY.md

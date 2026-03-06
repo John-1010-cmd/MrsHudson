@@ -33,6 +33,32 @@ public class SemanticCacheServiceImpl implements SemanticCacheService {
     private final AtomicLong totalRequests = new AtomicLong(0);
     private final AtomicLong cacheHits = new AtomicLong(0);
 
+    /**
+     * 判断响应是否为错误响应
+     */
+    private boolean isErrorResponse(String response) {
+        if (response == null || response.trim().isEmpty()) {
+            return true;
+        }
+        // 检测错误关键词
+        String[] errorPatterns = {
+            "未找到城市",
+            "查询天气失败",
+            "查询失败",
+            "获取城市编码失败",
+            "错误：",
+            "error",
+            "Error"
+        };
+        String lowerResponse = response.toLowerCase();
+        for (String pattern : errorPatterns) {
+            if (lowerResponse.contains(pattern.toLowerCase())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public SemanticCacheServiceImpl(VectorStore vectorStore, EmbeddingService embeddingService) {
         this.vectorStore = vectorStore;
         this.embeddingService = embeddingService;
@@ -84,6 +110,12 @@ public class SemanticCacheServiceImpl implements SemanticCacheService {
         if (userId == null || query == null || query.trim().isEmpty() ||
             response == null || response.trim().isEmpty()) {
             log.warn("Cannot cache null or empty query/response for user {}", userId);
+            return null;
+        }
+
+        // 不缓存错误响应
+        if (isErrorResponse(response)) {
+            log.debug("Skipping cache for error response: query='{}'", query);
             return null;
         }
 

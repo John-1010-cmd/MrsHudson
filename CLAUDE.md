@@ -413,6 +413,8 @@ DI: Hilt Modules (NetworkModule, DatabaseModule, RepositoryModule, DataStoreModu
 关键环境变量（在 `.env` 中配置）：
 
 - `KIMI_API_KEY`: Kimi AI API 密钥（必填，从 https://platform.moonshot.cn/ 获取）
+- `AI_PROVIDER`: AI 提供商，可选 `kimi`（默认）或 `minimax`
+- `MINIMAX_API_KEY`: MiniMax API 密钥（当 AI_PROVIDER=minimax 时必填，从 https://platform.minimax.cn/ 获取）
 - `JWT_SECRET`: JWT 签名密钥（可选，默认使用内置密钥，生产环境建议配置）
   - 建议使用至少 256 位的随机字符串
   - 可使用 `openssl rand -base64 32` 生成

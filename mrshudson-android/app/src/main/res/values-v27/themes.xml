@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.MrsHudson" parent="android:Theme.Material.Light.NoActionBar">
+        <!-- API 27+ 导航栏亮色 -->
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+</resources>

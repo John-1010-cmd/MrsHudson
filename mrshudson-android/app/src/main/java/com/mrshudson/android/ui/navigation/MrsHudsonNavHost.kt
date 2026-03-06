@@ -48,8 +48,7 @@ fun MrsHudsonNavHost(
                     }
                 },
                 onNavigateToSettings = {
-                    // TODO: 导航到设置页面
-                    // navController.navigate(NavRoutes.SETTINGS)
+                    // 设置页面功能开发中
                 }
             )
         }

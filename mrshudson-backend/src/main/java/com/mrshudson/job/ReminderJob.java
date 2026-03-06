@@ -1,6 +1,7 @@
 package com.mrshudson.job;
 
 import com.mrshudson.domain.entity.Reminder;
+import com.mrshudson.service.PushService;
 import com.mrshudson.service.ReminderService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,6 +24,7 @@ import java.util.List;
 public class ReminderJob {
 
     private final ReminderService reminderService;
+    private final PushService pushService;
 
     /**
      * 每分钟执行一次，扫描并推送提醒
@@ -68,12 +70,12 @@ public class ReminderJob {
     }
 
     /**
-     * 推送提醒（模拟推送，后续接入真实推送服务）
+     * 推送提醒
      */
     private void pushReminder(Reminder reminder, LocalDateTime pushTime, DateTimeFormatter formatter) {
         String typeText = getTypeText(reminder.getType());
 
-        // 打印推送日志（模拟推送）
+        // 打印推送日志
         log.info("========================================");
         log.info("【提醒推送】");
         log.info("用户ID: {}", reminder.getUserId());
@@ -85,11 +87,15 @@ public class ReminderJob {
         log.info("关联ID: {}", reminder.getRefId());
         log.info("========================================");
 
-        // TODO: 后续接入真实推送服务
-        // 1. WebSocket 实时推送
-        // 2. 邮件推送
-        // 3. 短信推送
-        // 4. 第三方推送服务（如极光推送、Firebase Cloud Messaging 等）
+        // 通过 FCM 发送推送
+        String title = "MrsHudson 提醒";
+        String body = reminder.getTitle();
+        if (reminder.getContent() != null && !reminder.getContent().isEmpty()) {
+            body = reminder.getTitle() + ": " + reminder.getContent();
+        }
+
+        int successCount = pushService.sendNotificationToUser(reminder.getUserId(), title, body);
+        log.info("FCM 推送结果: 成功发送给 {} 个设备", successCount);
     }
 
     /**

@@ -85,11 +85,4 @@ public class AiCostRecord {
         if (outputTokens == null) outputTokens = 0;
         return inputTokens + outputTokens;
     }
-
-    /**
-     * 是否命中缓存
-     */
-    public boolean isCacheHit() {
-        return cacheHit != null && cacheHit == 1;
-    }
 }

@@ -75,6 +75,9 @@
 -keep class * implements com.google.gson.TypeAdapterFactory
 -keep class * implements com.google.gson.JsonSerializer
 -keep class * implements com.google.gson.JsonDeserializer
+-keepclassmembers,allowobfuscation class * {
+    @com.google.gson.annotations.SerializedName <fields>;
+}
 
 # Room
 -keep class * extends androidx.room.RoomDatabase
@@ -84,15 +87,32 @@
 -keep class * extends dagger.hilt.android.HiltAndroidApp
 -keep class * extends android.app.Application
 -keep @dagger.hilt.android.HiltAndroidApp class *
+-keep class dagger.hilt.** { *; }
+-keep class javax.inject.** { *; }
+-keep class * extends dagger.hilt.android.internal.managers.ComponentSupplier { *; }
+-keep class * implements dagger.hilt.internal.GeneratedComponent { *; }
+-keep @dagger.hilt.InstallIn class *
 
 # DataStore
 -keep class androidx.datastore.** { *; }
 -dontwarn androidx.datastore.**
 
+# Compose
+-keep class androidx.compose.** { *; }
+-dontwarn androidx.compose.**
+-keepclassmembers class androidx.compose.** {
+    @androidx.compose.runtime.Composable <methods>;
+}
+
+# Navigation Compose
+-keep class androidx.navigation.compose.** { *; }
+-dontwarn androidx.navigation.compose.**
+
 # MrsHudson 应用类
 -keep class com.mrshudson.android.** { *; }
 -keep class com.mrshudson.android.data.remote.dto.** { *; }
 -keep class com.mrshudson.android.data.local.entity.** { *; }
+-keep class com.mrshudson.android.domain.model.** { *; }
 
 # 保留注解
 -keepattributes *Annotation*
@@ -121,4 +141,11 @@
 # 保留 R 类
 -keepclassmembers class **.R$* {
     public static <fields>;
+}
+
+# 保留自定义 View 构造函数
+-keepclassmembers class * extends android.view.View {
+    public <init>(android.content.Context);
+    public <init>(android.content.Context, android.util.AttributeSet);
+    public <init>(android.content.Context, android.util.AttributeSet, int);
 }

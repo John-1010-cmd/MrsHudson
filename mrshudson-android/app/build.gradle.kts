@@ -5,9 +5,25 @@ plugins {
     alias(libs.plugins.hilt.android)
 }
 
+// 读取 keystore 配置 (PKCS12 格式)
+val keystoreFile = rootProject.file("release.keystore")
+val keystorePassword = project.findProperty("RELEASE_STORE_PASSWORD") as? String ?: "android"
+val keystoreKeyAlias = project.findProperty("RELEASE_KEY_ALIAS") as? String ?: "mrshudson"
+val keystoreKeyPassword = project.findProperty("RELEASE_KEY_PASSWORD") as? String ?: "android"
+
 android {
     namespace = "com.mrshudson.android"
     compileSdk = 34
+
+    // 多架构支持配置
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+            isUniversalApk = true
+        }
+    }
 
     defaultConfig {
         applicationId = "com.mrshudson.android"
@@ -20,12 +36,33 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        // 支持所有架构的 NDK
+        ndk {
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+        }
+    }
+
+    // 签名配置 (PKCS12 格式)
+    signingConfigs {
+        create("release") {
+            // 如果 keystore 文件存在，使用它进行签名
+            if (keystoreFile.exists() && keystorePassword.isNotEmpty()) {
+                storeFile = keystoreFile
+                storePassword = keystorePassword
+                keyAlias = keystoreKeyAlias
+                // PKCS12 格式使用相同的密码
+                keyPassword = if (keystoreKeyPassword.isEmpty()) keystorePassword else keystoreKeyPassword
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            // 使用 release 签名配置
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -34,6 +71,7 @@ android {
         debug {
             isMinifyEnabled = false
             applicationIdSuffix = ".debug"
+            isDebuggable = true
         }
     }
 
@@ -94,6 +132,18 @@ dependencies {
 
     // Coroutines
     implementation(libs.bundles.coroutines)
+
+    // WorkManager
+    implementation(libs.workmanager.runtime)
+    implementation(libs.hilt.work)
+    kapt(libs.hilt.work.compiler)
+
+    // Firebase
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging.ktx)
+
+    // Accompanist Permissions
+    implementation(libs.accompanist.permissions)
 
     // Testing
     testImplementation(libs.junit)

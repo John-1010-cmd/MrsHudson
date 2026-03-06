@@ -73,8 +73,11 @@ public class WeatherTool implements BaseTool {
             Integer forecastDays = params.getInteger("forecast_days");
 
             if (city == null || city.isEmpty()) {
-                return "错误：城市名称不能为空";
+                return "请告诉我您想查询哪个城市的天气？比如：北京、上海、广州等";
             }
+
+            // 尝试提取真正的城市名（处理 AI 可能传错参数的情况）
+            city = extractCityFromInput(city);
 
             // 根据参数决定查询当前天气还是预报
             if (forecastDays != null && forecastDays > 0) {
@@ -89,5 +92,52 @@ public class WeatherTool implements BaseTool {
             log.error("天气工具执行失败, city={}, forecastDays={}", city, forecastDays, e);
             return "查询天气失败: " + e.getMessage();
         }
+    }
+
+    /**
+     * 从输入中提取城市名
+     * 处理 AI 可能传错参数的情况，如将 "今天广州的天气怎么样" 当作城市名
+     */
+    private String extractCityFromInput(String input) {
+        if (input == null || input.isEmpty()) {
+            return input;
+        }
+
+        // 常见城市列表
+        String[] cities = {
+            "北京", "上海", "广州", "深圳", "杭州", "南京", "成都", "武汉",
+            "西安", "重庆", "天津", "苏州", "郑州", "长沙", "沈阳", "青岛",
+            "宁波", "东莞", "厦门", "福州", "昆明", "哈尔滨", "长春", "大连",
+            "济南", "合肥", "南宁", "贵阳", "太原", "石家庄", "兰州", "乌鲁木齐"
+        };
+
+        // 检查输入是否直接是城市名
+        for (String city : cities) {
+            if (input.contains(city)) {
+                return city;
+            }
+        }
+
+        // 尝试匹配常见的城市+天气模式
+        // 如 "今天广州的天气" -> "广州"
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
+            "(?:今天|明天|后天|本周|下周)?(.+?)(?:的|天气|怎么样|如何|情况)"
+        );
+        java.util.regex.Matcher matcher = pattern.matcher(input);
+        if (matcher.find()) {
+            String extracted = matcher.group(1).trim();
+            // 再次检查提取的结果
+            for (String city : cities) {
+                if (extracted.equals(city) || extracted.contains(city)) {
+                    return city;
+                }
+            }
+            // 如果提取的不是已知城市，返回原始输入（让后续逻辑处理错误）
+            if (!extracted.isEmpty() && extracted.length() <= 10) {
+                return extracted;
+            }
+        }
+
+        return input;
     }
 }
