@@ -6,6 +6,8 @@ import com.mrshudson.android.data.remote.dto.CreateConversationResponse
 import com.mrshudson.android.data.remote.dto.MessageDto
 import com.mrshudson.android.data.remote.dto.SendMessageRequest
 import com.mrshudson.android.data.remote.dto.SendMessageResponse
+import com.mrshudson.android.data.remote.dto.TtsRequest
+import com.mrshudson.android.data.remote.dto.TtsResponse
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.DELETE
@@ -78,4 +80,16 @@ interface ChatApi {
     suspend fun deleteConversation(
         @Path("id") conversationId: String
     ): Response<ResultDto<Unit>>
+
+    /**
+     * 语音合成（TTS）
+     * 将文本转换为语音
+     *
+     * @param request TTS请求，包含要转换的文本和参数
+     * @return 生成的音频URL
+     */
+    @POST("chat/tts")
+    suspend fun textToSpeech(
+        @Body request: TtsRequest
+    ): Response<ResultDto<TtsResponse>>
 }

@@ -72,4 +72,13 @@ public interface ReminderService {
      * @return 需要发送的提醒列表
      */
     List<Reminder> getPendingReminders();
+
+    /**
+     * 延迟提醒
+     *
+     * @param reminderId 提醒ID
+     * @param minutes 延迟分钟数
+     * @return 延迟后的提醒
+     */
+    Reminder snooze(Long reminderId, Integer minutes);
 }

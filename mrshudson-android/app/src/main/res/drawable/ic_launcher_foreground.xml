@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 简单的机器人/AI 图标 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,27c-7.73,0 -14,6.27 -14,14v8c0,7.73 6.27,14 14,14s14,-6.27 14,-14v-8c0,-7.73 -6.27,-14 -14,-14zM54,67c-4.42,0 -8,-3.58 -8,-8v-4c0,-4.42 3.58,-8 8,-8s8,3.58 8,8v4c0,4.42 -3.58,8 -8,8z"/>
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M36,49c0,-7.73 6.27,-14 14,-14v-8c0,-2.76 -2.24,-5 -5,-5s-5,2.24 -5,5v8c-2.76,0 -5,2.24 -5,5v10c0,2.76 2.24,5 5,5h1c2.76,0 5,2.24 5,5s-2.24,5 -5,5h-10c-2.76,0 -5,-2.24 -5,-5s2.24,-5 5,-5h1c2.76,0 5,-2.24 5,-5v-10z"/>
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M72,49c0,-7.73 -6.27,-14 -14,-14v-8c0,-2.76 2.24,-5 5,-5s5,2.24 5,5v8c2.76,0 5,2.24 5,5v10c0,2.76 -2.24,5 -5,5h-1c-2.76,0 -5,2.24 -5,5s2.24,5 5,5h10c2.76,0 5,-2.24 5,-5s-2.24,-5 -5,-5h-1c-2.76,0 -5,-2.24 -5,-5v-10z"/>
+</vector>

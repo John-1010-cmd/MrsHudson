@@ -16,22 +16,30 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import com.mrshudson.android.domain.model.AudioPlayState
 import com.mrshudson.android.domain.model.Message
-import com.mrshudson.android.domain.model.MessageRole
 
 /**
  * 消息气泡组件
  * 用于显示聊天消息，用户消息右对齐蓝色，AI消息左对齐灰色
+ * 支持TTS播放功能
  *
  * @param message 消息数据
+ * @param onPlay 点击播放（从头开始）
+ * @param onPause 点击暂停
+ * @param onResume 点击继续
  * @param modifier 修饰符
  */
 @Composable
 fun MessageBubble(
     message: Message,
+    onPlay: (() -> Unit)? = null,
+    onPause: (() -> Unit)? = null,
+    onResume: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val isUserMessage = message.isUserMessage()
+    val hasPlaybackHandlers = onPlay != null && onPause != null && onResume != null
 
     Row(
         modifier = modifier
@@ -58,47 +66,64 @@ fun MessageBubble(
         }
 
         Column(
-            modifier = Modifier
-                .widthIn(max = 280.dp)
-                .clip(
-                    RoundedCornerShape(
-                        topStart = 16.dp,
-                        topEnd = 16.dp,
-                        bottomStart = if (isUserMessage) 16.dp else 4.dp,
-                        bottomEnd = if (isUserMessage) 4.dp else 16.dp
-                    )
+            horizontalAlignment = if (isUserMessage) Alignment.End else Alignment.Start
+        ) {
+            // TTS 播放按钮（仅AI消息且有播放处理时显示）
+            if (hasPlaybackHandlers && !isUserMessage) {
+                TtsButton(
+                    playState = message.audioPlayState,
+                    hasAudio = message.hasAudio(),
+                    onPlay = { onPlay?.invoke() },
+                    onPause = { onPause?.invoke() },
+                    onResume = { onResume?.invoke() },
+                    modifier = Modifier.padding(bottom = 4.dp)
                 )
-                .background(
-                    if (isUserMessage) {
-                        MaterialTheme.colorScheme.primary
+            }
+
+            // 消息气泡
+            Column(
+                modifier = Modifier
+                    .widthIn(max = 280.dp)
+                    .clip(
+                        RoundedCornerShape(
+                            topStart = 16.dp,
+                            topEnd = 16.dp,
+                            bottomStart = if (isUserMessage) 16.dp else 4.dp,
+                            bottomEnd = if (isUserMessage) 4.dp else 16.dp
+                        )
+                    )
+                    .background(
+                        if (isUserMessage) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant
+                        }
+                    )
+                    .padding(12.dp)
+            ) {
+                Text(
+                    text = message.content,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (isUserMessage) {
+                        MaterialTheme.colorScheme.onPrimary
                     } else {
-                        MaterialTheme.colorScheme.surfaceVariant
+                        MaterialTheme.colorScheme.onSurfaceVariant
                     }
                 )
-                .padding(12.dp)
-        ) {
-            Text(
-                text = message.content,
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (isUserMessage) {
-                    MaterialTheme.colorScheme.onPrimary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                }
-            )
 
-            Text(
-                text = message.formattedTime(),
-                style = MaterialTheme.typography.labelSmall,
-                color = if (isUserMessage) {
-                    MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f)
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                },
-                modifier = Modifier
-                    .align(Alignment.End)
-                    .padding(top = 4.dp)
-            )
+                Text(
+                    text = message.formattedTime(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (isUserMessage) {
+                        MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f)
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    },
+                    modifier = Modifier
+                        .align(Alignment.End)
+                        .padding(top = 4.dp)
+                )
+            }
         }
 
         if (isUserMessage) {

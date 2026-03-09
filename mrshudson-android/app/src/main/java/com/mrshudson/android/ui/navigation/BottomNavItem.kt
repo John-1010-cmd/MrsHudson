@@ -5,6 +5,7 @@ import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.ui.graphics.vector.ImageVector
 
@@ -21,7 +22,8 @@ enum class BottomNavItem(
     CALENDAR("calendar", "日历", Icons.Default.CalendarToday),
     TODO("todo", "待办", Icons.Default.CheckCircle),
     WEATHER("weather", "天气", Icons.Default.WbSunny),
-    ROUTE("route", "路线", Icons.Default.Map);
+    ROUTE("route", "路线", Icons.Default.Map),
+    REMINDER("reminder", "提醒", Icons.Default.Notifications);
 
     companion object {
         /**

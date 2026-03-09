@@ -1,6 +1,7 @@
 package com.mrshudson.android.ui.screens.chat
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mrshudson.android.data.remote.ApiResult
 import com.mrshudson.android.data.repository.ChatRepository
@@ -8,6 +9,7 @@ import com.mrshudson.android.data.repository.SendMessageResult
 import com.mrshudson.android.domain.model.Conversation
 import com.mrshudson.android.domain.model.Message
 import com.mrshudson.android.domain.model.MessageRole
+import com.mrshudson.android.ui.components.chat.AudioPlayer
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -32,19 +34,30 @@ data class ChatUiState(
 
 /**
  * AI 对话页面的 ViewModel
- * 管理对话状态、处理用户交互
+ * 管理对话状态、处理用户交互、TTS播放
  */
 @HiltViewModel
 class ChatViewModel @Inject constructor(
-    private val chatRepository: ChatRepository
-) : ViewModel() {
+    private val chatRepository: ChatRepository,
+    application: Application
+) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
+    // 音频播放器
+    val audioPlayer: AudioPlayer by lazy {
+        AudioPlayer(application.applicationContext, chatRepository)
+    }
+
     init {
         // 初始化时加载会话列表
         loadConversations()
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        audioPlayer.release()
     }
 
     /**
@@ -272,5 +285,28 @@ class ChatViewModel @Inject constructor(
      */
     fun clearError() {
         _uiState.update { it.copy(error = null) }
+    }
+
+    /**
+     * 更新消息的音频播放状态
+     *
+     * @param updatedMessage 更新后的消息
+     */
+    fun updateMessageAudioState(updatedMessage: Message) {
+        _uiState.update { state ->
+            val updatedMessages = state.messages.map { msg ->
+                if (msg.id == updatedMessage.id) {
+                    updatedMessage
+                } else {
+                    // 停止其他消息的播放状态
+                    if (msg.audioPlayState == com.mrshudson.android.domain.model.AudioPlayState.PLAYING) {
+                        msg.copy(audioPlayState = com.mrshudson.android.domain.model.AudioPlayState.IDLE)
+                    } else {
+                        msg
+                    }
+                }
+            }
+            state.copy(messages = updatedMessages)
+        }
     }
 }

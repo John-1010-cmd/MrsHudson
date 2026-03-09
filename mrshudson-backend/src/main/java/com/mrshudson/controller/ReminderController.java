@@ -125,6 +125,29 @@ public class ReminderController {
     }
 
     /**
+     * 延迟提醒
+     */
+    @PutMapping("/{id}/snooze")
+    public Result<ReminderResponse> snooze(
+            @PathVariable Long id,
+            @RequestParam Integer minutes,
+            HttpSession session) {
+        User currentUser = (User) session.getAttribute("user");
+        if (currentUser == null) {
+            return Result.error(401, "请先登录");
+        }
+
+        log.info("用户{}延迟提醒{}: {}分钟", currentUser.getId(), id, minutes);
+
+        Reminder snoozedReminder = reminderService.snooze(id, minutes);
+        if (snoozedReminder == null) {
+            return Result.error(404, "提醒不存在或延迟失败");
+        }
+
+        return Result.success(ReminderResponse.fromEntity(snoozedReminder));
+    }
+
+    /**
      * 提醒响应DTO
      */
     public static class ReminderResponse {

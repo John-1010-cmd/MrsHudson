@@ -43,6 +43,11 @@ const router = createRouter({
           path: 'metrics',
           name: 'metrics',
           component: () => import('../views/MetricsView.vue')
+        },
+        {
+          path: 'reminders',
+          name: 'reminders',
+          component: () => import('../views/ReminderView.vue')
         }
       ]
     },

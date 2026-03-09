@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -72,7 +71,7 @@ import com.mrshudson.android.ui.components.chat.VoiceRecognizerCallback
 
 /**
  * AI 对话页面
- * 提供完整的对话功能，包括会话列表、消息收发、语音输入
+ * 提供完整的对话功能，包括会话列表、消息收发、语音输入、TTS播放
  *
  * @param modifier 修饰符
  * @param viewModel ViewModel
@@ -88,6 +87,9 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     var inputText by remember { mutableStateOf("") }
     var voiceButtonState by remember { mutableStateOf(VoiceButtonState.IDLE) }
+
+    // 音频播放器
+    val audioPlayer = viewModel.audioPlayer
 
     // 麦克风权限
     val micPermissionState = rememberPermissionState(android.Manifest.permission.RECORD_AUDIO)
@@ -142,6 +144,13 @@ fun ChatScreen(
     DisposableEffect(Unit) {
         onDispose {
             voiceRecognizer.destroy()
+        }
+    }
+
+    // 设置音频播放器回调
+    LaunchedEffect(audioPlayer) {
+        audioPlayer.setOnStateChangedListener { updatedMessage ->
+            viewModel.updateMessageAudioState(updatedMessage)
         }
     }
 
@@ -232,7 +241,12 @@ fun ChatScreen(
                                 items = uiState.messages,
                                 key = { it.id }
                             ) { message ->
-                                MessageBubble(message = message)
+                                MessageBubble(
+                                    message = message,
+                                    onPlay = { audioPlayer.replay(message) },
+                                    onPause = { audioPlayer.pause(message) },
+                                    onResume = { audioPlayer.resume(message) }
+                                )
                             }
 
                             // 加载中显示

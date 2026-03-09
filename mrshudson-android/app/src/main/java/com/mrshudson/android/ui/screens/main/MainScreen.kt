@@ -19,18 +19,23 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.mrshudson.android.data.repository.ChatRepository
+import com.mrshudson.android.ui.components.chat.AudioPlayer
 import com.mrshudson.android.ui.navigation.BottomNavItem
 import com.mrshudson.android.ui.screens.calendar.CalendarScreen
 import com.mrshudson.android.ui.screens.chat.ChatScreen
 import com.mrshudson.android.ui.screens.route.RouteScreen
 import com.mrshudson.android.ui.screens.todo.TodoScreen
 import com.mrshudson.android.ui.screens.weather.WeatherScreen
+import com.mrshudson.android.ui.screens.reminder.ReminderScreen
 import com.mrshudson.android.ui.theme.MrsHudsonTheme
 
 /**
@@ -149,6 +154,7 @@ private fun MainContent(
         BottomNavItem.TODO -> TodoScreen(modifier = modifier)
         BottomNavItem.WEATHER -> WeatherScreen(modifier = modifier)
         BottomNavItem.ROUTE -> RouteScreen(modifier = modifier)
+        BottomNavItem.REMINDER -> ReminderScreen(modifier = modifier)
     }
 }
 

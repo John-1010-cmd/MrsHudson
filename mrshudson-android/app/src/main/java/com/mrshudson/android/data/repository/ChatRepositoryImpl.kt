@@ -8,6 +8,8 @@ import com.mrshudson.android.data.remote.dto.CreateConversationRequest
 import com.mrshudson.android.data.remote.dto.MessageDto
 import com.mrshudson.android.data.remote.dto.SendMessageRequest
 import com.mrshudson.android.data.remote.dto.SendMessageResponse
+import com.mrshudson.android.data.remote.dto.TtsRequest
+import com.mrshudson.android.data.remote.dto.TtsResponse
 import com.mrshudson.android.domain.model.Conversation
 import com.mrshudson.android.domain.model.Message
 import com.mrshudson.android.domain.model.createConversation
@@ -149,7 +151,8 @@ class ChatRepositoryImpl @Inject constructor(
             id = id,
             role = role,
             content = content,
-            createdAt = createdAt
+            createdAt = createdAt,
+            audioUrl = audioUrl
         )
     }
 
@@ -161,7 +164,8 @@ class ChatRepositoryImpl @Inject constructor(
             id = id,
             role = role,
             content = content,
-            createdAt = createdAt
+            createdAt = createdAt,
+            audioUrl = audioUrl
         )
     }
 
@@ -176,5 +180,26 @@ class ChatRepositoryImpl @Inject constructor(
             lastMessageAt = lastMessageAt,
             createdAt = createdAt
         )
+    }
+
+    override suspend fun textToSpeech(request: TtsRequest): ApiResult<TtsResponse> {
+        return try {
+            val response = chatApi.textToSpeech(request)
+            val result = handleResultResponse(response)
+
+            when (result) {
+                is ApiResult.Success -> {
+                    ApiResult.Success(result.data)
+                }
+                is ApiResult.Error -> {
+                    ApiResult.Error(result.code, result.message)
+                }
+                is ApiResult.Loading -> {
+                    ApiResult.Error(-1, "Unexpected loading state")
+                }
+            }
+        } catch (e: Exception) {
+            ApiResult.Error(-1, e.message ?: "语音合成失败")
+        }
     }
 }

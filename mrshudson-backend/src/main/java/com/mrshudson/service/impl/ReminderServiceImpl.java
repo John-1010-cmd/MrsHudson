@@ -249,4 +249,32 @@ public class ReminderServiceImpl implements ReminderService {
 
         return sb.toString();
     }
+
+    @Override
+    @Transactional
+    public Reminder snooze(Long reminderId, Integer minutes) {
+        if (reminderId == null) {
+            log.warn("延迟提醒失败，提醒ID不能为空");
+            return null;
+        }
+        if (minutes == null || minutes <= 0) {
+            log.warn("延迟提醒失败，延迟分钟数必须大于0");
+            return null;
+        }
+
+        Reminder reminder = reminderMapper.selectById(reminderId);
+        if (reminder == null) {
+            log.warn("延迟提醒失败，提醒不存在: {}", reminderId);
+            return null;
+        }
+
+        // 计算新的提醒时间
+        LocalDateTime newRemindAt = LocalDateTime.now().plusMinutes(minutes);
+        reminder.setRemindAt(newRemindAt);
+        reminder.setIsRead(false); // 重置为未读状态
+
+        reminderMapper.updateById(reminder);
+        log.info("提醒已延迟: reminderId={}, 新的提醒时间={}", reminderId, newRemindAt);
+        return reminder;
+    }
 }

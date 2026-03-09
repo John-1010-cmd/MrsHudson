@@ -1,6 +1,8 @@
 package com.mrshudson.android.data.repository
 
 import com.mrshudson.android.data.remote.ApiResult
+import com.mrshudson.android.data.remote.dto.TtsRequest
+import com.mrshudson.android.data.remote.dto.TtsResponse
 import com.mrshudson.android.domain.model.Conversation
 import com.mrshudson.android.domain.model.Message
 import kotlinx.coroutines.flow.Flow
@@ -56,6 +58,15 @@ interface ChatRepository {
      * @return 删除结果
      */
     fun deleteConversation(conversationId: String): Flow<ApiResult<Unit>>
+
+    /**
+     * 语音合成（TTS）
+     * 将文本转换为语音
+     *
+     * @param request TTS请求
+     * @return TTS响应，包含音频URL
+     */
+    suspend fun textToSpeech(request: TtsRequest): ApiResult<TtsResponse>
 }
 
 /**

@@ -5,6 +5,9 @@ plugins {
     alias(libs.plugins.hilt.android)
 }
 
+// 应用 Google Services 插件
+apply(plugin = "com.google.gms.google-services")
+
 // 读取 keystore 配置 (PKCS12 格式)
 val keystoreFile = rootProject.file("release.keystore")
 val keystorePassword = project.findProperty("RELEASE_STORE_PASSWORD") as? String ?: "android"

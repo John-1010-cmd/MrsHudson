@@ -8,6 +8,8 @@ import com.mrshudson.android.data.repository.ChatRepository
 import com.mrshudson.android.data.repository.ChatRepositoryImpl
 import com.mrshudson.android.data.repository.PushRepository
 import com.mrshudson.android.data.repository.PushRepositoryImpl
+import com.mrshudson.android.data.repository.ReminderRepository
+import com.mrshudson.android.data.repository.ReminderRepositoryImpl
 import com.mrshudson.android.data.repository.RouteRepository
 import com.mrshudson.android.data.repository.RouteRepositoryImpl
 import com.mrshudson.android.data.repository.TodoRepository
@@ -83,4 +85,12 @@ abstract class RepositoryModule {
     abstract fun bindPushRepository(
         pushRepositoryImpl: PushRepositoryImpl
     ): PushRepository
+
+    /**
+     * 绑定提醒仓库
+     */
+    @Binds
+    abstract fun bindReminderRepository(
+        reminderRepositoryImpl: ReminderRepositoryImpl
+    ): ReminderRepository
 }

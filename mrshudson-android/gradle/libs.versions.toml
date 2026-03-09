@@ -18,6 +18,7 @@ junit = "4.13.2"
 junit-ext = "1.1.5"
 espresso = "3.5.1"
 firebase-bom = "32.7.2"
+google-services = "4.4.0"
 accompanist-permissions = "0.34.0"
 
 [libraries]
@@ -117,3 +118,4 @@ android-library = { id = "com.android.library", version = "8.2.2" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-kapt = { id = "org.jetbrains.kotlin.kapt", version.ref = "kotlin" }
 hilt-android = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
+google-services = { id = "com.google.gms.google-services", version.ref = "google-services" }
