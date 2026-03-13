@@ -1635,10 +1635,10 @@ Success Criteria:
 ---
 
 ### Task 8.9: 集成 Firebase Cloud Messaging 推送
-**状态**: [~] (框架已实现，需配置 Firebase)
+**状态**: [x]
 **优先级**: P1
 **完成日期**: 2026-03-05
-**备注**: FcmService、PushRepository 框架已实现，需配置 google-services.json 才能启用
+**备注**: FcmService、PushRepository 框架已实现，google-services.json 已配置，Android 项目编译成功
 **关联需求**: US-007, US-009
 **文件**:
 - `mrshudson-android/app/src/main/java/com/mrshudson/android/service/FcmService.kt`
@@ -1829,10 +1829,10 @@ Success Criteria:
 ---
 
 ### Task 8.12: Android 应用打包与发布配置
-**状态**: [~] (需 Firebase 配置)
+**状态**: [x]
 **优先级**: P2
 **完成日期**: 2026-03-05
-**备注**: 可编译 Debug APK，Release 发布需配置 Firebase
+**备注**: Debug APK 编译成功，Release 发布配置已完成 (google-services.json 已配置)
 **关联需求**: US-009
 **文件**:
 - `mrshudson-android/app/build.gradle.kts`（签名配置）
