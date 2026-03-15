@@ -48,10 +48,10 @@ interface BaseApi {
                         if (data != null) {
                             ApiResult.success(data)
                         } else {
-                            ApiResult.error(200, "数据为空")
+                            ApiResult.error(200, "数据为空，请重试")
                         }
                     }
-                    else -> ApiResult.error(result.code, result.message)
+                    else -> ApiResult.error(result.code, result.message?.takeIf { it.isNotBlank() && it != "null" } ?: "未知错误")
                 }
             } else {
                 ApiResult.error(response.code(), "响应体为空")
@@ -75,5 +75,5 @@ interface BaseApi {
 data class ResultDto<T>(
     val code: Int,
     val data: T?,
-    val message: String
+    val message: String?
 )

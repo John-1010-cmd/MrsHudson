@@ -68,18 +68,6 @@ fun MessageBubble(
         Column(
             horizontalAlignment = if (isUserMessage) Alignment.End else Alignment.Start
         ) {
-            // TTS 播放按钮（仅AI消息且有播放处理时显示）
-            if (hasPlaybackHandlers && !isUserMessage) {
-                TtsButton(
-                    playState = message.audioPlayState,
-                    hasAudio = message.hasAudio(),
-                    onPlay = { onPlay?.invoke() },
-                    onPause = { onPause?.invoke() },
-                    onResume = { onResume?.invoke() },
-                    modifier = Modifier.padding(bottom = 4.dp)
-                )
-            }
-
             // 消息气泡
             Column(
                 modifier = Modifier
@@ -122,6 +110,18 @@ fun MessageBubble(
                     modifier = Modifier
                         .align(Alignment.End)
                         .padding(top = 4.dp)
+                )
+            }
+
+            // TTS 播放按钮（仅AI消息且有播放处理时显示在消息气泡下方）
+            if (hasPlaybackHandlers && !isUserMessage) {
+                TtsButton(
+                    playState = message.audioPlayState,
+                    hasAudio = message.hasAudio(),
+                    onPlay = { onPlay?.invoke() },
+                    onPause = { onPause?.invoke() },
+                    onResume = { onResume?.invoke() },
+                    modifier = Modifier.padding(top = 4.dp)
                 )
             }
         }

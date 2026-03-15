@@ -102,9 +102,23 @@ fun createMessage(
 ): Message {
     val messageRole = MessageRole.fromString(role)
     val dateTime = try {
-        LocalDateTime.parse(createdAt.replace("Z", "").substringBefore("."))
+        // 清理时间字符串，支持多种格式：2026-03-15T19:27:38、2026-03-15T19:27:38.123、2026-03-15T19:27:38Z
+        val cleaned = createdAt
+            .replace("Z", "")
+            .substringBefore(".") // 去掉毫秒
+            .trim()
+        if (cleaned.isNotEmpty()) {
+            LocalDateTime.parse(cleaned)
+        } else {
+            LocalDateTime.now()
+        }
     } catch (e: Exception) {
-        LocalDateTime.now()
+        try {
+            // 尝试直接解析（可能包含毫秒）
+            LocalDateTime.parse(createdAt.replace("Z", ""))
+        } catch (e2: Exception) {
+            LocalDateTime.now()
+        }
     }
 
     return Message(

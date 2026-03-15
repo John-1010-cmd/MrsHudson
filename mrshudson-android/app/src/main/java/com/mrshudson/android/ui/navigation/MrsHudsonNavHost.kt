@@ -7,6 +7,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.mrshudson.android.ui.screens.login.LoginScreen
 import com.mrshudson.android.ui.screens.main.MainScreen
+import com.mrshudson.android.ui.screens.settings.SettingsScreen
 
 /**
  * MrsHudson 应用导航图
@@ -48,7 +49,16 @@ fun MrsHudsonNavHost(
                     }
                 },
                 onNavigateToSettings = {
-                    // 设置页面功能开发中
+                    navController.navigate(NavRoutes.SETTINGS)
+                }
+            )
+        }
+
+        // 设置页面
+        composable(NavRoutes.SETTINGS) {
+            SettingsScreen(
+                onNavigateBack = {
+                    navController.popBackStack()
                 }
             )
         }

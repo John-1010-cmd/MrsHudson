@@ -44,6 +44,11 @@ android {
         ndk {
             abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
         }
+
+        // 讯飞 TTS 配置
+        buildConfigField("String", "XFYUN_APP_ID", "\"${project.findProperty("xfyun.app_id") ?: ""}\"")
+        buildConfigField("String", "XFYUN_API_KEY", "\"${project.findProperty("xfyun.api_key") ?: ""}\"")
+        buildConfigField("String", "XFYUN_API_SECRET", "\"${project.findProperty("xfyun.api_secret") ?: ""}\"")
     }
 
     // 签名配置 (PKCS12 格式)

@@ -4,6 +4,7 @@ import com.mrshudson.android.data.remote.ApiResult
 import com.mrshudson.android.data.remote.BaseApi
 import com.mrshudson.android.data.remote.ChatApi
 import com.mrshudson.android.data.remote.dto.ConversationDto
+import com.mrshudson.android.data.remote.dto.ConversationListResponseDto
 import com.mrshudson.android.data.remote.dto.CreateConversationRequest
 import com.mrshudson.android.data.remote.dto.MessageDto
 import com.mrshudson.android.data.remote.dto.SendMessageRequest
@@ -28,7 +29,7 @@ class ChatRepositoryImpl @Inject constructor(
     private val chatApi: ChatApi
 ) : ChatRepository, BaseApi {
 
-    override fun sendMessage(message: String, conversationId: String?): Flow<ApiResult<SendMessageResult>> = flow {
+    override fun sendMessage(message: String, conversationId: Long?): Flow<ApiResult<SendMessageResult>> = flow {
         emit(ApiResult.Loading)
         try {
             val request = SendMessageRequest(
@@ -36,29 +37,35 @@ class ChatRepositoryImpl @Inject constructor(
                 conversationId = conversationId
             )
             val response = chatApi.sendMessage(request)
+            android.util.Log.d("ChatRepository", "sendMessage response: ${response.code()}, body: ${response.body()}")
             val result = handleResultResponse(response)
 
             when (result) {
                 is ApiResult.Success -> {
                     val sendMessageResponse = result.data
+                    android.util.Log.d("ChatRepository", "sendMessageResponse: $sendMessageResponse")
                     val msg = sendMessageResponse.toDomainModel()
+                    android.util.Log.d("ChatRepository", "converted message: $msg")
+                    // 后端不返回 conversationId，使用请求中的 conversationId
                     val sendResult = SendMessageResult(
                         message = msg,
-                        conversationId = sendMessageResponse.conversationId
+                        conversationId = conversationId
                     )
                     emit(ApiResult.Success(sendResult))
                 }
                 is ApiResult.Error -> {
+                    android.util.Log.e("ChatRepository", "sendMessage error: ${result.code}, ${result.message}")
                     emit(ApiResult.Error(result.code, result.message))
                 }
                 is ApiResult.Loading -> { /* ignore */ }
             }
         } catch (e: Exception) {
+            android.util.Log.e("ChatRepository", "sendMessage exception", e)
             emit(ApiResult.Error(-1, e.message ?: "发送消息失败，请检查网络连接"))
         }
     }
 
-    override fun getHistory(conversationId: String, limit: Int): Flow<ApiResult<List<Message>>> = flow {
+    override fun getHistory(conversationId: Long, limit: Int): Flow<ApiResult<List<Message>>> = flow {
         emit(ApiResult.Loading)
         try {
             val response = chatApi.getHistory(conversationId, limit)
@@ -66,7 +73,8 @@ class ChatRepositoryImpl @Inject constructor(
 
             when (result) {
                 is ApiResult.Success -> {
-                    val messageDtos = result.data
+                    val historyResponse = result.data
+                    val messageDtos = historyResponse.messages ?: emptyList()
                     val messages = messageDtos.map { it.toDomainModel() }
                     emit(ApiResult.Success(messages))
                 }
@@ -88,7 +96,8 @@ class ChatRepositoryImpl @Inject constructor(
 
             when (result) {
                 is ApiResult.Success -> {
-                    val conversationDtos = result.data
+                    val listResponse = result.data
+                    val conversationDtos = listResponse.conversations ?: emptyList()
                     val conversations = conversationDtos.map { it.toDomainModel() }
                     emit(ApiResult.Success(conversations))
                 }
@@ -128,7 +137,7 @@ class ChatRepositoryImpl @Inject constructor(
         }
     }
 
-    override fun deleteConversation(conversationId: String): Flow<ApiResult<Unit>> = flow {
+    override fun deleteConversation(conversationId: Long): Flow<ApiResult<Unit>> = flow {
         emit(ApiResult.Loading)
         try {
             val response = chatApi.deleteConversation(conversationId)
@@ -145,11 +154,23 @@ class ChatRepositoryImpl @Inject constructor(
 
     /**
      * 将 SendMessageResponse 转换为领域模型 Message
+     * 后端返回: messageId, content, functionCalls, createdAt, audioUrl
      */
     private fun SendMessageResponse.toDomainModel(): Message {
+        // 解析 messageId，支持普通数字和 cache_ 前缀格式
+        val parsedId = try {
+            if (messageId.startsWith("cache_")) {
+                messageId.removePrefix("cache_").toLong()
+            } else {
+                messageId.toLong()
+            }
+        } catch (e: NumberFormatException) {
+            System.currentTimeMillis() // 解析失败使用时间戳
+        }
+
         return createMessage(
-            id = id,
-            role = role,
+            id = parsedId,
+            role = "assistant", // 发送消息返回的都是 AI 回复
             content = content,
             createdAt = createdAt,
             audioUrl = audioUrl
@@ -158,14 +179,15 @@ class ChatRepositoryImpl @Inject constructor(
 
     /**
      * 将 MessageDto 转换为领域模型 Message
+     * 后端返回: id (String), role, content, createdAt, functionCall
      */
     private fun MessageDto.toDomainModel(): Message {
         return createMessage(
-            id = id,
+            id = id.toLong(),
             role = role,
             content = content,
             createdAt = createdAt,
-            audioUrl = audioUrl
+            audioUrl = null // 历史消息没有 audioUrl
         )
     }
 

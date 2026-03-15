@@ -1,6 +1,9 @@
 package com.mrshudson.optim.wrapper.impl;
 
 import com.mrshudson.domain.dto.*;
+import com.mrshudson.domain.entity.ChatMessage;
+import com.mrshudson.domain.entity.Conversation;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.mrshudson.optim.cache.SemanticCacheService;
 import com.mrshudson.optim.compress.ConversationSummarizer;
 import com.mrshudson.optim.config.OptimProperties;
@@ -10,6 +13,7 @@ import com.mrshudson.optim.intent.impl.HybridIntentRouter;
 import com.mrshudson.optim.monitor.CostMonitorService;
 import com.mrshudson.optim.monitor.MetricsService;
 import com.mrshudson.optim.wrapper.OptimChatService;
+import com.mrshudson.service.AsyncTaskService;
 import com.mrshudson.service.ChatService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,18 +38,21 @@ import java.util.concurrent.atomic.AtomicLong;
  * 6. 记录成本统计
  */
 @Slf4j
-@Service
 @Primary
+@Service
 @RequiredArgsConstructor
 public class OptimChatServiceImpl implements OptimChatService {
 
     private final ChatService delegate;
+    private final com.mrshudson.mapper.ChatMessageMapper chatMessageMapper;
+    private final com.mrshudson.mapper.ConversationMapper conversationMapper;
     private final SemanticCacheService semanticCacheService;
     private final HybridIntentRouter hybridIntentRouter;
     private final ConversationSummarizer conversationSummarizer;
     private final CostMonitorService costMonitorService;
     private final MetricsService metricsService;
     private final OptimProperties optimProperties;
+    private final AsyncTaskService asyncTaskService;
 
     // 运行时配置开关（可动态调整）
     private volatile boolean semanticCacheEnabled = true;
@@ -82,6 +89,12 @@ public class OptimChatServiceImpl implements OptimChatService {
                     costMonitorService.recordCacheHit(userId, conversationId, "kimi", "chat");
                 }
 
+                // 保存消息到数据库
+                saveMessages(userId, conversationId, userMessage, cachedResponse.get());
+
+                // 生成会话标题（如果是第一条消息）
+                checkAndGenerateTitle(conversationId, userMessage);
+
                 // 构建缓存响应
                 return buildCachedResponse(cachedResponse.get());
             }
@@ -109,6 +122,12 @@ public class OptimChatServiceImpl implements OptimChatService {
                     semanticCacheService.put(userId, userMessage, routeResult.getResponse());
                 }
 
+                // 保存消息到数据库
+                saveMessages(userId, conversationId, userMessage, routeResult.getResponse());
+
+                // 生成会话标题（如果是第一条消息）
+                checkAndGenerateTitle(conversationId, userMessage);
+
                 return buildRoutedResponse(routeResult);
             }
 
@@ -123,6 +142,7 @@ public class OptimChatServiceImpl implements OptimChatService {
         }
 
         // ========== 第4层：调用原始 ChatService（AI调用） ==========
+        log.info("OptimChatService.sendMessage 被调用，conversationId={}, message={}", conversationId, userMessage);
         log.debug("调用原始 ChatService 进行AI处理");
         totalAiCalls.incrementAndGet();
 
@@ -333,6 +353,65 @@ public class OptimChatServiceImpl implements OptimChatService {
 
         } catch (Exception e) {
             log.warn("记录AI调用成本失败: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 保存用户消息和AI响应到数据库
+     */
+    private void saveMessages(Long userId, Long conversationId, String userMessage, String aiResponse) {
+        try {
+            // 保存用户消息
+            ChatMessage userMsg = new ChatMessage();
+            userMsg.setUserId(userId);
+            userMsg.setConversationId(conversationId);
+            userMsg.setRole(ChatMessage.Role.USER.name());
+            userMsg.setContent(userMessage);
+            chatMessageMapper.insert(userMsg);
+
+            // 保存AI响应
+            ChatMessage assistantMsg = new ChatMessage();
+            assistantMsg.setUserId(userId);
+            assistantMsg.setConversationId(conversationId);
+            assistantMsg.setRole(ChatMessage.Role.ASSISTANT.name());
+            assistantMsg.setContent(aiResponse);
+            chatMessageMapper.insert(assistantMsg);
+
+            // 更新会话最后消息时间
+            if (conversationId != null) {
+                Conversation conversation = new Conversation();
+                conversation.setId(conversationId);
+                conversation.setLastMessageAt(LocalDateTime.now());
+                conversationMapper.updateById(conversation);
+            }
+
+            log.debug("消息已保存: userId={}, conversationId={}", userId, conversationId);
+        } catch (Exception e) {
+            log.error("保存消息失败: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 检查并生成会话标题（如果是第一条用户消息）
+     */
+    private void checkAndGenerateTitle(Long conversationId, String firstMessage) {
+        if (conversationId == null || firstMessage == null) {
+            return;
+        }
+
+        // 查询该会话的消息数量
+        LambdaQueryWrapper<ChatMessage> wrapper = new LambdaQueryWrapper<ChatMessage>()
+                .eq(ChatMessage::getConversationId, conversationId)
+                .eq(ChatMessage::getRole, ChatMessage.Role.USER.name());
+
+        long userMessageCount = chatMessageMapper.selectCount(wrapper);
+
+        log.info("检查会话 {} 是否需要生成标题，当前用户消息数: {}", conversationId, userMessageCount);
+
+        // 如果是第一条用户消息，异步生成标题
+        if (userMessageCount == 1) {
+            log.info("会话 {} 是第一条消息，调用 AsyncTaskService 生成标题", conversationId);
+            asyncTaskService.generateConversationTitle(conversationId, firstMessage);
         }
     }
 }

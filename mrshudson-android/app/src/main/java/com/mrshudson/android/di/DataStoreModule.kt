@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStoreFile
+import com.mrshudson.android.data.local.datastore.SettingsDataStore
 import com.mrshudson.android.data.local.datastore.TokenDataStore
 import dagger.Module
 import dagger.Provides
@@ -50,5 +51,17 @@ object DataStoreModule {
         @ApplicationContext context: Context
     ): TokenDataStore {
         return TokenDataStore(context)
+    }
+
+    /**
+     * 提供 SettingsDataStore 实例
+     * 用于应用设置的存储和管理
+     */
+    @Provides
+    @Singleton
+    fun provideSettingsDataStore(
+        @ApplicationContext context: Context
+    ): SettingsDataStore {
+        return SettingsDataStore(context)
     }
 }

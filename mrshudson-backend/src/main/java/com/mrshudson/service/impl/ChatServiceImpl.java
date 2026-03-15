@@ -13,6 +13,7 @@ import com.mrshudson.mapper.ConversationMapper;
 import com.mrshudson.mcp.ToolRegistry;
 import com.mrshudson.mcp.kimi.dto.Message;
 import com.mrshudson.mcp.kimi.dto.ToolCall;
+import com.mrshudson.service.AsyncTaskService;
 import com.mrshudson.service.ChatService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -41,6 +42,7 @@ public class ChatServiceImpl implements ChatService {
     private final ConversationMapper conversationMapper;
     private final AIServiceFactory aiServiceFactory;
     private final ToolRegistry toolRegistry;
+    private final AsyncTaskService asyncTaskService;
 
     /**
      * 构建系统提示词（精简版，控制在500字以内）
@@ -304,6 +306,7 @@ public class ChatServiceImpl implements ChatService {
 
     /**
      * 检查并生成会话标题（如果是第一条用户消息）
+     * 注意：调用外部 AsyncTaskService 来确保 @Async 生效（解决 Spring AOP 自我调用问题）
      */
     private void checkAndGenerateTitle(Long conversationId, String firstMessage) {
         // 查询该会话的消息数量
@@ -313,9 +316,12 @@ public class ChatServiceImpl implements ChatService {
 
         long userMessageCount = chatMessageMapper.selectCount(wrapper);
 
-        // 如果是第一条用户消息，异步生成标题
+        log.info("检查会话 {} 是否需要生成标题，当前用户消息数: {}", conversationId, userMessageCount);
+
+        // 如果是第一条用户消息，异步生成标题（调用外部服务确保@Async生效）
         if (userMessageCount == 1) {
-            generateConversationTitle(conversationId, firstMessage);
+            log.info("会话 {} 是第一条消息，调用 AsyncTaskService 生成标题", conversationId);
+            asyncTaskService.generateConversationTitle(conversationId, firstMessage);
         }
     }
 

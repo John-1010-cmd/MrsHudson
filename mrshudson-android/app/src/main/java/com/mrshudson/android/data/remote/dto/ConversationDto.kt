@@ -12,7 +12,7 @@ import com.google.gson.annotations.SerializedName
  * @property createdAt 创建时间
  */
 data class ConversationDto(
-    val id: String,
+    val id: Long,
     val title: String,
     val provider: String? = null,
     @SerializedName("last_message_at")
@@ -37,6 +37,16 @@ data class CreateConversationRequest(
  * @property title 会话标题
  */
 data class CreateConversationResponse(
-    val id: String,
+    val id: Long,
     val title: String
+)
+
+/**
+ * 会话列表响应包装类
+ * 对应后端 ConversationListResponse，包含 conversations 字段
+ *
+ * @property conversations 会话列表
+ */
+data class ConversationListResponseDto(
+    val conversations: List<ConversationDto>? = null
 )

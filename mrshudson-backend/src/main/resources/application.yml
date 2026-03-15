@@ -82,6 +82,8 @@ voice:
   enable-tts: true
   # TTS音频文件存储路径（相对路径，基于应用启动目录）
   tts-storage-path: uploads/tts/
+  # TTS 音频访问基础URL（本地开发使用 localhost，部署时改为实际服务器地址）
+  tts-base-url: ${TTS_BASE_URL:http://localhost:8080}
   # 讯飞配置（mock-mode为false时需要配置）
   # 获取地址: https://www.xfyun.cn/
   xfyun-app-id: ${XFYUN_APP_ID:}
@@ -93,6 +95,20 @@ voice:
   xfyun-tts-url: https://tts-api.xfyun.cn/v2/tts
   # 发音人: x4_xiaoyan(讯飞小燕)、x4_yezi(讯飞小露)、aisjiuxu(讯飞许久)、aisjinger(讯飞小婧)、aisbabyxu(讯飞许小宝)
   xfyun-tts-voice: x4_xiaoyan
+  # 是否上传到 GitHub（开启后 TTS 文件会上传到 GitHub 仓库）
+  upload-to-github: false
+
+# GitHub Storage Configuration
+# 从 https://github.com/settings/tokens 生成 Personal Access Token
+github:
+  enabled: false
+  token: ${GITHUB_TOKEN:}
+  owner: ${GITHUB_OWNER:}
+  repo: ${GITHUB_REPO:ImgRepo}
+  branch: ${GITHUB_BRANCH:master}
+  path: tts/
+  # GitHub Raw URL 前缀
+  raw-url-prefix: https://raw.githubusercontent.com
 
 # Weather API Configuration (高德地图)
 # 从 https://lbs.amap.com/ 获取API Key

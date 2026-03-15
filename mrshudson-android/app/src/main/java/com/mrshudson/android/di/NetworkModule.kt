@@ -41,29 +41,36 @@ object NetworkModule {
 
     /**
      * 获取基础 URL
-     * 优先从 local.properties 读取 api.baseurl 配置
+     * 优先从 assets/config.properties 读取 api.baseurl 配置
      */
     private fun getBaseUrl(context: Context): String {
-        // 默认 URL
+        // 默认 URL（模拟器专用）
         var baseUrl = DEFAULT_BASE_URL
 
         try {
-            // 尝试从 local.properties 读取
-            val localProperties = File(context.filesDir.parentFile?.parentFile, "local.properties")
-            if (localProperties.exists()) {
-                val properties = Properties()
-                localProperties.inputStream().use { properties.load(it) }
-                val customUrl = properties.getProperty("api.baseurl")
-                if (!customUrl.isNullOrBlank()) {
-                    // 确保 URL 以 /api/ 结尾
-                    baseUrl = if (customUrl.endsWith("/")) customUrl else "$customUrl/"
-                    if (!baseUrl.endsWith("api/")) {
-                        baseUrl = "${baseUrl}api/"
-                    }
+            // 从 assets/config.properties 读取
+            val inputStream = context.assets.open("config.properties")
+            val tempFile = File(context.cacheDir, "config.properties")
+            tempFile.outputStream().use { output ->
+                inputStream.copyTo(output)
+            }
+            inputStream.close()
+
+            val properties = Properties()
+            tempFile.inputStream().use { stream ->
+                properties.load(stream)
+            }
+            tempFile.delete()
+
+            val customUrl = properties.getProperty("api.baseurl")
+            if (!customUrl.isNullOrBlank()) {
+                baseUrl = if (customUrl.endsWith("/")) customUrl else "$customUrl/"
+                if (!baseUrl.endsWith("api/")) {
+                    baseUrl = "${baseUrl}api/"
                 }
             }
         } catch (e: Exception) {
-            // 读取失败，使用默认 URL
+            // 读取失败，使用默认 URL（模拟器地址）
         }
 
         return baseUrl

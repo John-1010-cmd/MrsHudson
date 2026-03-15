@@ -21,7 +21,7 @@ interface ChatRepository {
      * @param conversationId 会话ID，可选，为空时创建新会话
      * @return 发送消息结果的 Flow，成功时返回 AI 回复消息和会话ID
      */
-    fun sendMessage(message: String, conversationId: String?): Flow<ApiResult<SendMessageResult>>
+    fun sendMessage(message: String, conversationId: Long?): Flow<ApiResult<SendMessageResult>>
 
     /**
      * 获取会话历史消息
@@ -31,7 +31,7 @@ interface ChatRepository {
      * @param limit 限制返回消息数量，默认50
      * @return 消息列表结果的 Flow
      */
-    fun getHistory(conversationId: String, limit: Int = 50): Flow<ApiResult<List<Message>>>
+    fun getHistory(conversationId: Long, limit: Int = 50): Flow<ApiResult<List<Message>>>
 
     /**
      * 获取会话列表
@@ -57,7 +57,7 @@ interface ChatRepository {
      * @param conversationId 要删除的会话ID
      * @return 删除结果
      */
-    fun deleteConversation(conversationId: String): Flow<ApiResult<Unit>>
+    fun deleteConversation(conversationId: Long): Flow<ApiResult<Unit>>
 
     /**
      * 语音合成（TTS）
@@ -77,5 +77,5 @@ interface ChatRepository {
  */
 data class SendMessageResult(
     val message: Message,
-    val conversationId: String?
+    val conversationId: Long?
 )

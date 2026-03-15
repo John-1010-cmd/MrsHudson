@@ -66,4 +66,9 @@ public class VoiceProperties {
      * 音频文件访问基础URL（用于生成完整URL）
      */
     private String ttsBaseUrl = "http://localhost:8080";
+
+    /**
+     * 是否上传到 GitHub
+     */
+    private boolean uploadToGithub = true;
 }

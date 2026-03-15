@@ -1,6 +1,8 @@
 package com.mrshudson.android.data.remote
 
+import com.mrshudson.android.data.remote.dto.ChatHistoryResponseDto
 import com.mrshudson.android.data.remote.dto.ConversationDto
+import com.mrshudson.android.data.remote.dto.ConversationListResponseDto
 import com.mrshudson.android.data.remote.dto.CreateConversationRequest
 import com.mrshudson.android.data.remote.dto.CreateConversationResponse
 import com.mrshudson.android.data.remote.dto.MessageDto
@@ -42,11 +44,11 @@ interface ChatApi {
      * @param limit 限制返回消息数量，默认50
      * @return 消息列表
      */
-    @GET("chat/history")
+    @GET("chat/history/{conversationId}")
     suspend fun getHistory(
-        @Query("conversation_id") conversationId: String,
+        @Path("conversationId") conversationId: Long,
         @Query("limit") limit: Int = 50
-    ): Response<ResultDto<List<MessageDto>>>
+    ): Response<ResultDto<ChatHistoryResponseDto>>
 
     /**
      * 获取会话列表
@@ -55,7 +57,7 @@ interface ChatApi {
      * @return 会话列表
      */
     @GET("chat/conversations")
-    suspend fun getConversations(): Response<ResultDto<List<ConversationDto>>>
+    suspend fun getConversations(): Response<ResultDto<ConversationListResponseDto>>
 
     /**
      * 创建新会话
@@ -78,7 +80,7 @@ interface ChatApi {
      */
     @DELETE("chat/conversations/{id}")
     suspend fun deleteConversation(
-        @Path("id") conversationId: String
+        @Path("id") conversationId: Long
     ): Response<ResultDto<Unit>>
 
     /**

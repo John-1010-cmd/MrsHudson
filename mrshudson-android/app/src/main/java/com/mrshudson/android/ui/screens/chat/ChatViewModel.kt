@@ -3,6 +3,7 @@ package com.mrshudson.android.ui.screens.chat
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.mrshudson.android.data.local.datastore.SettingsDataStore
 import com.mrshudson.android.data.remote.ApiResult
 import com.mrshudson.android.data.repository.ChatRepository
 import com.mrshudson.android.data.repository.SendMessageResult
@@ -25,7 +26,7 @@ import javax.inject.Inject
 data class ChatUiState(
     val messages: List<Message> = emptyList(),
     val conversations: List<Conversation> = emptyList(),
-    val currentConversationId: String? = null,
+    val currentConversationId: Long? = null,
     val currentConversationTitle: String = "新对话",
     val isLoading: Boolean = false,
     val isSending: Boolean = false,
@@ -39,6 +40,7 @@ data class ChatUiState(
 @HiltViewModel
 class ChatViewModel @Inject constructor(
     private val chatRepository: ChatRepository,
+    private val settingsDataStore: SettingsDataStore,
     application: Application
 ) : AndroidViewModel(application) {
 
@@ -47,7 +49,7 @@ class ChatViewModel @Inject constructor(
 
     // 音频播放器
     val audioPlayer: AudioPlayer by lazy {
-        AudioPlayer(application.applicationContext, chatRepository)
+        AudioPlayer(application.applicationContext, chatRepository, settingsDataStore)
     }
 
     init {
@@ -97,7 +99,7 @@ class ChatViewModel @Inject constructor(
      *
      * @param conversationId 会话ID
      */
-    fun selectConversation(conversationId: String) {
+    fun selectConversation(conversationId: Long) {
         val conversation = _uiState.value.conversations.find { it.id == conversationId }
         _uiState.update {
             it.copy(
@@ -113,7 +115,7 @@ class ChatViewModel @Inject constructor(
      *
      * @param conversationId 会话ID
      */
-    private fun loadHistory(conversationId: String) {
+    private fun loadHistory(conversationId: Long) {
         viewModelScope.launch {
             chatRepository.getHistory(conversationId).collect { result ->
                 when (result) {
@@ -246,7 +248,7 @@ class ChatViewModel @Inject constructor(
      *
      * @param conversationId 要删除的会话ID
      */
-    fun deleteConversation(conversationId: String) {
+    fun deleteConversation(conversationId: Long) {
         viewModelScope.launch {
             chatRepository.deleteConversation(conversationId).collect { result ->
                 when (result) {

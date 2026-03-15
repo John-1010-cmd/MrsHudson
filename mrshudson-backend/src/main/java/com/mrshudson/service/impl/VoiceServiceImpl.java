@@ -7,11 +7,13 @@ import cn.xfyun.model.response.iat.IatResponse;
 import cn.xfyun.service.iat.AbstractIatWebSocketListener;
 import cn.xfyun.service.tts.AbstractTtsWebSocketListener;
 import com.mrshudson.config.VoiceProperties;
+import com.mrshudson.service.GitHubStorageService;
 import com.mrshudson.service.VoiceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.Response;
 import okhttp3.WebSocket;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -32,6 +34,9 @@ import java.util.concurrent.CompletableFuture;
 public class VoiceServiceImpl implements VoiceService {
 
     private final VoiceProperties voiceProperties;
+
+    @Autowired(required = false)
+    private GitHubStorageService gitHubStorageService;
 
     @Override
     public String speechToText(MultipartFile audioFile) {
@@ -233,7 +238,24 @@ public class VoiceServiceImpl implements VoiceService {
         if (success) {
             log.info("语音合成成功，文件: {}, 绝对路径: {}, 大小: {} bytes",
                     fileName, filePath.toString(), Files.size(filePath));
-            // 返回完整URL，前端可直接播放
+
+            // 尝试上传到 GitHub
+            if (gitHubStorageService != null && voiceProperties.isUploadToGithub()) {
+                try {
+                    byte[] fileContent = Files.readAllBytes(filePath);
+                    String gitHubUrl = gitHubStorageService.uploadFile(fileName, fileContent);
+                    if (gitHubUrl != null) {
+                        log.info("TTS 文件已上传到 GitHub: {}", gitHubUrl);
+                        // 删除本地文件以节省空间
+                        Files.deleteIfExists(filePath);
+                        return gitHubUrl;
+                    }
+                } catch (Exception e) {
+                    log.warn("上传到 GitHub 失败，回退到本地存储: {}", e.getMessage());
+                }
+            }
+
+            // 返回本地 URL
             String baseUrl = voiceProperties.getTtsBaseUrl();
             if (baseUrl != null && !baseUrl.isEmpty()) {
                 return baseUrl + "/" + storagePath + fileName;

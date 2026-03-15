@@ -13,7 +13,7 @@ import java.time.format.DateTimeFormatter
  * @property createdAt 创建时间
  */
 data class Conversation(
-    val id: String,
+    val id: Long,
     val title: String,
     val provider: String? = null,
     val lastMessageAt: LocalDateTime? = null,
@@ -47,7 +47,7 @@ data class Conversation(
  * @param createdAt 创建时间字符串
  */
 fun createConversation(
-    id: String,
+    id: Long,
     title: String,
     provider: String? = null,
     lastMessageAt: String? = null,

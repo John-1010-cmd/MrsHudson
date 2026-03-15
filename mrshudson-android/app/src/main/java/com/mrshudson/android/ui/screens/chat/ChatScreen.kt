@@ -11,7 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -36,12 +36,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -169,38 +166,18 @@ fun ChatScreen(
         }
     }
 
-    Scaffold(
-        modifier = modifier,
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = uiState.currentConversationTitle.ifEmpty { "AI 对话" },
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                ),
-                actions = {
-                    IconButton(onClick = { viewModel.createNewConversation() }) {
-                        Icon(
-                            imageVector = Icons.Filled.Add,
-                            contentDescription = "新建会话"
-                        )
-                    }
-                }
-            )
-        },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
-    ) { paddingValues ->
+    // 使用 Box 替代 Scaffold，避免与 MainScreen 的 Scaffold 嵌套冲突
+    Box(modifier = modifier.fillMaxSize()) {
+        // 错误提示
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
+
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
-                .imePadding()
+                .navigationBarsPadding()
         ) {
             // 左侧会话列表
             ConversationList(
@@ -219,6 +196,31 @@ fun ChatScreen(
                     .weight(1f)
                     .fillMaxSize()
             ) {
+                // 顶部标题栏
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.primaryContainer)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = uiState.currentConversationTitle.ifEmpty { "AI 对话" },
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = { viewModel.createNewConversation() }) {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = "新建会话",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+
                 // 消息列表
                 Box(
                     modifier = Modifier
@@ -325,9 +327,9 @@ fun ChatScreen(
 @Composable
 private fun ConversationList(
     conversations: List<Conversation>,
-    currentConversationId: String?,
-    onConversationClick: (String) -> Unit,
-    onDeleteConversation: (String) -> Unit,
+    currentConversationId: Long?,
+    onConversationClick: (Long) -> Unit,
+    onDeleteConversation: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
