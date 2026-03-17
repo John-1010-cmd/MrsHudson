@@ -6,6 +6,9 @@
 1. 兜底回答机制：扩展 AI 能力边界
 2. Token 统计：透明化资源消耗
 3. 质量优化：平衡质量与性能
+4. 意图理解增强：正确理解用户意图（回答问题1）
+5. 自纠错机制：AI回复有误时自动纠正（回答问题2）
+6. 成本优化：降低AI调用成本
 
 ## Steering Document Alignment
 
@@ -22,39 +25,54 @@
 ```
 com.mrshudson/
 ├── optim/              # 现有：优化模块
-│   ├── fallback/       # 新增：兜底回答
-│   ├── token/          # 新增：Token 统计
-│   ├── context/        # 新增：上下文管理
-│   └── quality/       # 新增：质量优化
+│   ├── fallback/       # 兜底回答
+│   ├── token/          # Token 统计
+│   ├── context/        # 上下文管理
+│   ├── quality/        # 质量优化
+│   ├── intent/         # 意图理解增强 ← 新增
+│   ├── correction/     # 自纠错机制 ← 新增
+│   └── cost/          # 成本优化 ← 新增
 ├── mcp/                # 现有：MCP 工具
 ├── service/            # 现有：服务层
 ```
 
 ## Architecture
 
-### 核心架构图
+### 核心架构图（增强版）
 
 ```mermaid
 graph TD
-    A[用户请求] --> B{意图路由层}
-    B -->|工具查询| C{工具可用?}
-    C -->|是| D[执行工具]
-    C -->|否| E[兜底机制]
-    D --> F{执行成功?}
-    F -->|是| G[格式化响应]
-    F -->|否| E
-    E --> H[LLM 直接回答]
-    B -->|非工具| H
+    A[用户请求] --> B{缓存检查}
+    B -->|命中| C[返回缓存]
+    B -->|未命中| D{意图路由层}
 
-    G --> I[Token 统计]
-    H --> I
+    D -->|模糊意图| E[意图澄清]
+    E --> A
 
-    I --> J[SSE 流式输出]
-    J --> K[末尾追加 Token 统计]
+    D -->|明确意图| F{工具可用?}
+    F -->|是| G[执行工具]
+    F -->|否| H[兜底机制]
 
-    style E fill:#ffcdd2
-    style I fill:#e3f2fd
-    style K fill:#c8e6c9
+    G --> I{结果校验}
+    I -->|失败| J[纠错重试]
+    I -->|成功| K[格式化响应]
+    J -->|重试成功| K
+    J -->|重试失败| H
+
+    H --> L[LLM 直接回答]
+
+    C --> M[Token 统计]
+    K --> M
+    L --> M
+
+    M --> N[SSE 流式输出]
+    N --> O[末尾追加 Token 统计]
+
+    style E fill:#fff3e0
+    style H fill:#ffcdd2
+    style J fill:#fce4ec
+    style M fill:#e3f2fd
+    style O fill:#c8e6c9
 ```
 
 ### 请求处理流程
@@ -251,9 +269,12 @@ public class TokenTrackerService implements TokenTracker {
     private final Map<String, TokenUsage> trackingStore = new ConcurrentHashMap<>();
     private final Map<String, Long> startTimes = new ConcurrentHashMap<>();
 
-    // Token 价格（单位：元 / 1M tokens）
-    private static final BigDecimal INPUT_PRICE = new BigDecimal("12.00");
-    private static final BigDecimal OUTPUT_PRICE = new BigDecimal("12.00");
+    // Token 价格从配置读取（单位：元 / 1M tokens），默认值 Kimi API
+    @Value("${ai.pricing.input:12.00}")
+    private BigDecimal inputPrice;
+
+    @Value("${ai.pricing.output:12.00}")
+    private BigDecimal outputPrice;
 
     @Override
     public String startTracking() {
@@ -314,11 +335,11 @@ public class TokenTrackerService implements TokenTracker {
         }
 
         BigDecimal inputCost = usage.getInputTokens()
-            .multiply(INPUT_PRICE)
+            .multiply(inputPrice)
             .divide(BigDecimal.valueOf(1_000_000), 6, RoundingMode.HALF_UP);
 
         BigDecimal outputCost = usage.getOutputTokens()
-            .multiply(OUTPUT_PRICE)
+            .multiply(outputPrice)
             .divide(BigDecimal.valueOf(1_000_000), 6, RoundingMode.HALF_UP);
 
         return inputCost.add(outputCost);
@@ -474,9 +495,10 @@ public class ContextManagerImpl implements ContextManager {
             prompt += msg.getRole() + ": " + msg.getContent() + "\n";
         }
 
-        // 调用轻量模型生成摘要
+        // 调用轻量模型生成摘要（模型名从配置读取，默认 moonshot-v1-8k）
+        String summaryModel = summaryProperties.getModel();
         ChatRequest request = ChatRequest.builder()
-            .model("moonshot-v1-8k")
+            .model(summaryModel != null ? summaryModel : "moonshot-v1-8k")
             .messages(List.of(
                 Message.system("你是一个对话摘要助手。"),
                 Message.user(prompt)
@@ -660,6 +682,556 @@ public class FallbackDecision {
 }
 ```
 
+## 新增组件：意图理解增强（解决用户问题1）
+
+### Component 5: IntentRouter（意图路由器 - 增强版）
+
+**Purpose:** 增强意图识别，支持置信度评估和模糊意图澄清。
+
+```java
+public interface IntentRouter {
+
+    /**
+     * 识别用户意图
+     * @param message 用户消息
+     * @return IntentResult 包含意图类型和置信度
+     */
+    IntentResult recognizeIntent(String message);
+
+    /**
+     * 判断是否需要澄清
+     * @param intentResult 意图识别结果
+     * @return boolean 是否需要用户确认
+     */
+    boolean needsClarification(IntentResult intentResult);
+
+    /**
+     * 构建澄清问题
+     * @param message 原始消息
+     * @param intentResult 识别结果
+     * @return String 澄清问题
+     */
+    String buildClarification(String message, IntentResult intentResult);
+}
+```
+
+**意图识别结果**：
+
+```java
+@Data
+@Builder
+public class IntentResult {
+    private IntentType type;           // 意图类型
+    private double confidence;          // 置信度 0.0-1.0
+    private Map<String, Object> extractedParams;  // 提取的参数
+    private List<IntentType> candidates;  // 候选意图（置信度相近时）
+
+    public boolean isHighConfidence() {
+        return confidence >= 0.8;
+    }
+
+    public boolean isAmbiguous() {
+        return candidates != null && !candidates.isEmpty();
+    }
+}
+```
+
+**意图类型枚举**：
+
+```java
+public enum IntentType {
+    // 工具类意图
+    WEATHER("天气查询", true),
+    CALENDAR("日历事件", true),
+    TODO("待办事项", true),
+    ROUTE("路线规划", true),
+
+    // 非工具类意图
+    GENERAL_CHAT("通用对话", false),
+    GENERAL_KNOWLEDGE("知识问答", false),
+    QUESTION_ABOUT_AI("关于AI", false),
+
+    // 未知
+    UNKNOWN("未知", false);
+
+    private final String description;
+    private final boolean isToolIntent;
+
+    public boolean isToolIntent() {
+        return isToolIntent;
+    }
+}
+```
+
+**置信度评估策略**：
+
+```java
+@Service
+public class IntentConfidenceEvaluator {
+
+    private static final double HIGH_CONFIDENCE_THRESHOLD = 0.8;
+    private static final double LOW_CONFIDENCE_THRESHOLD = 0.5;
+
+    public double calculateConfidence(String message, IntentType intent) {
+        // 1. 关键词匹配得分
+        double keywordScore = calculateKeywordScore(message, intent);
+
+        // 2. 上下文相关性得分
+        double contextScore = calculateContextScore(message, intent);
+
+        // 3. 综合得分
+        return keywordScore * 0.7 + contextScore * 0.3;
+    }
+
+    private double calculateKeywordScore(String message, IntentType intent) {
+        // 检查消息中是否包含该意图的关键词
+        Set<String> keywords = getKeywordsForIntent(intent);
+        long matchCount = keywords.stream()
+            .filter(message::contains)
+            .count();
+        return Math.min(1.0, matchCount * 0.3);
+    }
+
+    private double calculateContextScore(String message, IntentType intent) {
+        // 简单实现：检查与历史消息的相关性
+        return 0.8; // 默认值
+    }
+}
+```
+
+**澄清机制实现**：
+
+```java
+@Service
+public class IntentClarificationService {
+
+    public String buildClarificationPrompt(String message, IntentResult intentResult) {
+        // 1. 多个候选意图时
+        if (intentResult.isAmbiguous()) {
+            return buildMultipleChoiceClarification(message, intentResult);
+        }
+
+        // 2. 置信度低但有主要意图
+        if (intentResult.getConfidence() < 0.8 && intentResult.getType() != IntentType.UNKNOWN) {
+            return buildLowConfidenceClarification(message, intentResult);
+        }
+
+        // 3. 缺少必要参数
+        if (hasMissingParameters(intentResult)) {
+            return buildParameterClarification(message, intentResult);
+        }
+
+        return null; // 不需要澄清
+    }
+
+    private String buildMultipleChoiceClarification(String message, IntentResult intentResult) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("我不太确定您的意思，请问您是想：\n");
+        List<IntentType> candidates = intentResult.getCandidates();
+        for (int i = 0; i < candidates.size(); i++) {
+            sb.append(i + 1).append(". ").append(candidates.get(i).getDescription()).append("\n");
+        }
+        return sb.toString();
+    }
+
+    private boolean hasMissingParameters(IntentResult intentResult) {
+        // 检查是否缺少必要参数，如天气查询缺少城市
+        Map<String, Object> params = intentResult.getExtractedParams();
+        if (params == null) {
+            return intentResult.getType().isToolIntent();
+        }
+        // 具体参数检查...
+        return false;
+    }
+}
+```
+
+---
+
+### Component 6: SelfCorrectingAgent（自纠错代理 - 解决用户问题2）
+
+**Purpose:** 执行后验证结果，失败时自动重试或降级。
+
+```java
+public interface SelfCorrectingAgent {
+
+    /**
+     * 验证工具执行结果
+     * @param toolName 工具名称
+     * @param result 执行结果
+     * @param originalRequest 原始请求
+     * @return ValidationResult 验证结果
+     */
+    ValidationResult validate(String toolName, ToolResult result, Object originalRequest);
+
+    /**
+     * 执行纠错
+     * @param validationResult 验证失败的结果
+     * @param context 上下文
+     * @return Flux<String> 纠错后的响应
+     */
+    Flux<String> correctAndRetry(ValidationResult validationResult, FallbackContext context);
+}
+```
+
+**验证结果**：
+
+```java
+@Data
+@Builder
+public class ValidationResult {
+    private boolean isValid;
+    private ErrorType errorType;
+    private String errorMessage;
+    private double confidence;  // 结果置信度
+
+    public enum ErrorType {
+        FORMAT_ERROR,      // 格式错误
+        DATA_ERROR,        // 数据不合理
+        TIMEOUT,           // 执行超时
+        PARTIAL_RESULT,    // 部分结果
+        NONE               // 无错误
+    }
+
+    public static ValidationResult success() {
+        return ValidationResult.builder()
+            .isValid(true)
+            .errorType(ErrorType.NONE)
+            .confidence(1.0)
+            .build();
+    }
+
+    public static ValidationResult failure(ErrorType type, String message) {
+        return ValidationResult.builder()
+            .isValid(false)
+            .errorType(type)
+            .errorMessage(message)
+            .confidence(0.0)
+            .build();
+    }
+}
+```
+
+**工具结果校验器**：
+
+```java
+@Service
+public class ToolResultValidator {
+
+    @Autowired
+    private ToolRegistry toolRegistry;
+
+    public ValidationResult validate(String toolName, ToolResult result, Object request) {
+        // 1. 检查是否执行成功
+        if (!result.isSuccess()) {
+            return ValidationResult.failure(
+                ValidationResult.ErrorType.DATA_ERROR,
+                "工具执行失败: " + result.getErrorMessage()
+            );
+        }
+
+        // 2. 获取该工具的校验规则
+        ToolValidator validator = getValidator(toolName);
+        if (validator != null) {
+            return validator.validate(result, request);
+        }
+
+        // 3. 默认校验
+        return defaultValidation(result);
+    }
+
+    private ValidationResult defaultValidation(ToolResult result) {
+        String content = result.getContent();
+
+        // 检查返回是否为空
+        if (content == null || content.isBlank()) {
+            return ValidationResult.failure(
+                ValidationResult.ErrorType.DATA_ERROR,
+                "返回结果为空"
+            );
+        }
+
+        // 检查是否包含错误标记
+        if (content.contains("无法") || content.contains("失败")) {
+            return ValidationResult.failure(
+                ValidationResult.ErrorType.DATA_ERROR,
+                "返回结果包含错误信息"
+            );
+        }
+
+        return ValidationResult.success();
+    }
+
+    private ToolValidator getValidator(String toolName) {
+        // 根据工具名返回对应的校验器
+        return null;
+    }
+}
+```
+
+**纠错重试策略**：
+
+```java
+@Service
+public class CorrectionRetryStrategy {
+
+    private static final int MAX_RETRIES = 2;
+
+    public Flux<String> correctAndRetry(
+            ValidationResult validationResult,
+            FallbackContext context,
+            KimiClient kimClient) {
+
+        // 1. 分析错误原因
+        String errorAnalysis = analyzeError(validationResult);
+
+        // 2. 构建纠错提示词
+        String correctionPrompt = buildCorrectionPrompt(
+            context.getUserMessage(),
+            errorAnalysis,
+            validationResult
+        );
+
+        // 3. 使用 LLM 重新生成回答
+        ChatRequest request = ChatRequest.builder()
+            .messages(List.of(
+                Message.system(getSystemPrompt()),
+                Message.user(correctionPrompt)
+            ))
+            .temperature(0.5)  // 较低温度，更准确
+            .build();
+
+        return kimClient.streamChat(request);
+    }
+
+    private String analyzeError(ValidationResult result) {
+        return switch (result.getErrorType()) {
+            case FORMAT_ERROR -> "返回格式不符合预期";
+            case DATA_ERROR -> "数据内容存在问题：" + result.getErrorMessage();
+            case TIMEOUT -> "请求超时，未获得完整结果";
+            case PARTIAL_RESULT -> "只获得了部分结果";
+            default -> "未知错误";
+        };
+    }
+
+    private String buildCorrectionPrompt(
+            String originalMessage,
+            String errorAnalysis,
+            ValidationResult result) {
+
+        return String.format("""
+            用户原始问题：%s
+
+            上一次回答存在问题，原因：%s
+
+            请基于你的知识重新回答用户的问题，确保回答准确、完整。
+            如果无法确定答案，请明确告知用户。
+            """,
+            originalMessage,
+            errorAnalysis
+        );
+    }
+}
+```
+
+**错误模式学习**：
+
+```java
+@Service
+public class ErrorPatternLearner {
+
+    @Autowired
+    private RedisTemplate<String, String> redisTemplate;
+
+    private static final String ERROR_PATTERN_KEY = "ai:error_patterns:";
+
+    /**
+     * 记录错误模式
+     */
+    public void recordErrorPattern(String toolName, String errorType, String userQuery) {
+        String key = ERROR_PATTERN_KEY + toolName + ":" + errorType;
+        redisTemplate.opsForSet().add(key, userQuery);
+
+        // 记录频率
+        redisTemplate.opsForZSet().incrementScore(
+            ERROR_PATTERN_KEY + "frequency",
+            toolName + ":" + errorType,
+            1
+        );
+    }
+
+    /**
+     * 获取常见错误模式
+     */
+    public List<String> getCommonErrorPatterns(String toolName) {
+        String key = ERROR_PATTERN_KEY + toolName + ":*";
+        Set<String> patterns = redisTemplate.opsForSet().members(key);
+        return patterns != null ? new ArrayList<>(patterns) : Collections.emptyList();
+    }
+
+    /**
+     * 在系统提示词中加入错误规避指引
+     */
+    public String getErrorAvoidanceGuidance(String toolName) {
+        Set<ZSetOperations.TypedTuple<String>> frequentErrors =
+            redisTemplate.opsForZSet()
+                .reverseRangeWithScores(ERROR_PATTERN_KEY + "frequency", 0, 4);
+
+        if (frequentErrors == null || frequentErrors.isEmpty()) {
+            return "";
+        }
+
+        StringBuilder guidance = new StringBuilder("\n【历史错误规避】\n");
+        for (var tuple : frequentErrors) {
+            String errorType = tuple.getValue();
+            guidance.append("- 避免：").append(errorType).append("\n");
+        }
+        return guidance.toString();
+    }
+}
+```
+
+---
+
+### Component 7: CostOptimizer（成本优化 - 补充缺失）
+
+**Purpose:** 降低 AI 调用成本，通过缓存和智能路由。
+
+```java
+public interface CostOptimizer {
+
+    /**
+     * 检查是否有缓存命中
+     * @param userId 用户ID
+     * @param message 用户消息
+     * @return CachedResult 缓存结果（可能为null）
+     */
+    CachedResult checkCache(Long userId, String message);
+
+    /**
+     * 判断是否使用小模型
+     * @param message 用户消息
+     * @return boolean 是否使用小模型
+     */
+    boolean shouldUseSmallModel(String message);
+
+    /**
+     * 记录缓存
+     */
+    void saveCache(Long userId, String message, String response);
+}
+```
+
+**语义缓存**：
+
+```java
+@Service
+public class SemanticCacheService implements CostOptimizer {
+
+    @Autowired
+    private RedisTemplate<String, String> redisTemplate;
+
+    @Autowired
+    private EmbeddingService embeddingService;
+
+    private static final String CACHE_PREFIX = "ai:semantic_cache:";
+    private static final double SIMILARITY_THRESHOLD = 0.9;
+    private static final Duration CACHE_TTL = Duration.ofHours(24);
+
+    @Override
+    public CachedResult checkCache(Long userId, String message) {
+        // 1. 精确匹配
+        String exactKey = CACHE_PREFIX + userId + ":" + hash(message);
+        String exactResult = redisTemplate.opsForValue().get(exactKey);
+        if (exactResult != null) {
+            return CachedResult.hit(exactResult, CachedResult.MatchType.EXACT);
+        }
+
+        // 2. 语义相似匹配
+        double[] queryEmbedding = embeddingService.getEmbedding(message);
+
+        // 遍历缓存找相似
+        Set<String> cacheKeys = redisTemplate.keys(CACHE_PREFIX + userId + ":*");
+        if (cacheKeys == null || cacheKeys.isEmpty()) {
+            return CachedResult.miss();
+        }
+
+        for (String key : cacheKeys) {
+            String cachedMessage = extractMessageFromKey(key);
+            double[] cachedEmbedding = embeddingService.getEmbedding(cachedMessage);
+            double similarity = cosineSimilarity(queryEmbedding, cachedEmbedding);
+
+            if (similarity >= SIMILARITY_THRESHOLD) {
+                String cachedResponse = redisTemplate.opsForValue().get(key);
+                return CachedResult.hit(cachedResponse, CachedResult.MatchType.SEMANTIC);
+            }
+        }
+
+        return CachedResult.miss();
+    }
+
+    @Override
+    public void saveCache(Long userId, String message, String response) {
+        String key = CACHE_PREFIX + userId + ":" + hash(message);
+        redisTemplate.opsForValue().set(key, response, CACHE_TTL);
+
+        // 同时保存 embedding 用于相似匹配
+        String embeddingKey = CACHE_PREFIX + userId + ":embedding:" + hash(message);
+        double[] embedding = embeddingService.getEmbedding(message);
+        redisTemplate.opsForValue().set(embeddingKey, toJson(embedding), CACHE_TTL);
+    }
+
+    @Override
+    public boolean shouldUseSmallModel(String message) {
+        // 简单问题用小模型
+        if (message.length() < 20) {
+            return true;
+        }
+
+        // 问候类问题用小模型
+        String[] greetingPatterns = {"你好", "hello", "hi", "在吗"};
+        for (String pattern : greetingPatterns) {
+            if (message.toLowerCase().contains(pattern.toLowerCase())) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}
+```
+
+**缓存结果**：
+
+```java
+@Data
+@Builder
+public class CachedResult {
+    private boolean hit;
+    private String response;
+    private MatchType matchType;
+
+    public enum MatchType {
+        EXACT,     // 精确匹配
+        SEMANTIC   // 语义相似匹配
+    }
+
+    public static CachedResult miss() {
+        return CachedResult.builder().hit(false).build();
+    }
+
+    public static CachedResult hit(String response, MatchType type) {
+        return CachedResult.builder()
+            .hit(true)
+            .response(response)
+            .matchType(type)
+            .build();
+    }
+}
+```
+
+---
+
 ## Error Handling
 
 ### Error Scenarios
@@ -679,6 +1251,14 @@ public class FallbackDecision {
 4. **SSE 连接中断**
    - Handling: 记录已发送的 token 统计
    - User Impact: 可能无法看到完整的 token 统计
+
+5. **意图识别失败** (新增)
+   - Handling: 返回兜底，使用 LLM 直接回答
+   - User Impact: 无感知
+
+6. **缓存命中** (新增)
+   - Handling: 返回缓存结果，标记"（缓存命中）"
+   - User Impact: 响应更快
 
 ## Testing Strategy
 

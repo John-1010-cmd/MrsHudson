@@ -1,6 +1,9 @@
 # AI Agent 核心工程范式
 
 > MrsHudson 技术文档 | 版本: 1.0 | 更新日期: 2026-03-10
+> **注意**: 本文档为 MrsHudson 项目技术参考文档，与 `ai-agent-optimization-v2` 优化 spec 相互独立。优化 spec 聚焦于具体功能实现，本文档提供通用工程知识。
+
+---
 
 ---
 
@@ -551,10 +554,10 @@ public class AgentMetrics {
 | 异步任务（标题生成） | ✅ 已实现 |
 | 工具降级处理 | ✅ 已实现 |
 | JWT 认证 | ✅ 已实现 |
-| 流式输出 | ⏳ 待实现 |
-| 上下文压缩 | ⏳ 待实现 |
-| 语义缓存 | ⏳ 待实现 |
-| 意图路由 | ⏳ 待实现 |
+| 流式输出 | 🔄 开发中 (ai-agent-optimization-v2 模块2) |
+| 上下文压缩 | ⏳ 待实现 (ai-agent-optimization-v2 模块3) |
+| 语义缓存 | ⏳ 待实现 (ai-agent-optimization-v2 模块7) |
+| 意图路由 | ⏳ 待实现 (ai-agent-optimization-v2 模块5) |
 
 ---
 

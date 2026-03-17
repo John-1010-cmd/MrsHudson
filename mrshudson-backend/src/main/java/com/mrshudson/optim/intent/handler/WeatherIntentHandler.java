@@ -46,15 +46,30 @@ public class WeatherIntentHandler extends AbstractIntentHandler {
             city = "北京";
         }
 
-        log.debug("提取城市参数: {}, 原始查询: {}", city, query);
+        // 提取日期参数，判断是查询当天天气还是预报
+        String dateStr = (String) parameters.get("date");
+        String dateType = (String) parameters.get("dateType");
+        String weatherResult;
 
-        // 调用天气服务查询
-        String weatherResult = weatherService.getCurrentWeather(city);
+        // 判断是否需要查询预报（如果用户问的是明天、后天等）
+        if (dateStr != null && dateType != null && !"今天".equals(dateType)) {
+            // 查询预报天气
+            weatherResult = weatherService.getWeatherForecast(city, 7);
+        } else {
+            // 查询当前天气
+            weatherResult = weatherService.getCurrentWeather(city);
+        }
+
+        log.debug("提取城市参数: {}, 日期: {} ({})，原始查询: {}", city, dateStr, dateType, query);
 
         // 构建参数Map
         Map<String, Object> resultParams = new HashMap<>();
         resultParams.put("city", city);
         resultParams.put("query", query);
+        if (dateStr != null) {
+            resultParams.put("date", dateStr);
+            resultParams.put("dateType", dateType);
+        }
 
         // 返回结果，固定置信度0.95
         return RouteResult.builder()

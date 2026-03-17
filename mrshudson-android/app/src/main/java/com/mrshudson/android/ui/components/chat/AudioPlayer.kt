@@ -20,6 +20,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.io.File
 import java.util.Properties
 
@@ -44,7 +46,8 @@ data class AudioPlayerState(
 class AudioPlayer(
     private val context: Context,
     private val chatRepository: ChatRepository,
-    private val settingsDataStore: SettingsDataStore
+    private val settingsDataStore: SettingsDataStore,
+    private val okHttpClient: OkHttpClient
 ) {
     companion object {
         private const val TAG = "AudioPlayer"
@@ -76,6 +79,52 @@ class AudioPlayer(
     private fun isGitHubUrl(url: String?): Boolean {
         return url?.contains("raw.githubusercontent.com") == true ||
                 url?.contains("github.com") == true
+    }
+
+    /**
+     * 检查 URL 是否需要认证（是否为服务端音频）
+     * 公开的 URL（如 GitHub）不需要认证，服务端音频需要认证
+     */
+    private fun requiresAuth(url: String?): Boolean {
+        if (url.isNullOrBlank()) return false
+        // GitHub 公开 URL 不需要认证
+        if (isGitHubUrl(url)) return false
+        // 其他非 http/https 开头的或者包含服务端地址的都需要认证
+        val serverUrl = resolveServerBaseUrl() ?: "http://10.0.2.2:8080"
+        return url.startsWith(serverUrl) || url.contains("/uploads/")
+    }
+
+    /**
+     * 使用 OkHttp 下载音频到临时文件（带认证）
+     * 通过 AuthInterceptor 自动添加 Authorization 头
+     * 注意：需要在协程中调用此方法
+     */
+    private suspend fun downloadAudioWithAuth(url: String): File? {
+        return withContext(Dispatchers.IO) {
+            try {
+                val request = Request.Builder()
+                    .url(url)
+                    .build()
+
+                val response = okHttpClient.newCall(request).execute()
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "下载音频失败: ${response.code}")
+                    return@withContext null
+                }
+
+                val tempFile = File(context.cacheDir, "tts_auth_${System.currentTimeMillis()}.mp3")
+                response.body?.byteStream()?.use { input ->
+                    tempFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                Log.i(TAG, "音频下载成功: ${tempFile.absolutePath}")
+                tempFile
+            } catch (e: Exception) {
+                Log.e(TAG, "下载音频异常", e)
+                null
+            }
+        }
     }
 
     /**
@@ -414,7 +463,14 @@ class AudioPlayer(
             return
         }
 
-        // 非 GitHub URL，直接流式播放
+        // 如果是需要认证的 URL（服务端音频），先下载到临时文件再播放
+        if (requiresAuth(processedUrl)) {
+            Log.i(TAG, "服务端音频需要认证，先下载到临时文件: $processedUrl")
+            downloadAndPlayWithAuth(message, processedUrl, startPosition)
+            return
+        }
+
+        // 公开 URL，直接流式播放
         updateState(message.id, AudioPlayState.LOADING, startPosition)
 
         currentScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -454,6 +510,25 @@ class AudioPlayer(
         } catch (e: Exception) {
             Log.e(TAG, "PlayFromUrl failed", e)
             updateState(message.id, AudioPlayState.IDLE, 0L, e.message)
+        }
+    }
+
+    /**
+     * 使用 OkHttp 下载需要认证的音频并播放
+     */
+    private fun downloadAndPlayWithAuth(message: Message, url: String, startPosition: Long) {
+        updateState(message.id, AudioPlayState.LOADING, startPosition)
+
+        currentScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+        currentScope?.launch {
+            val tempFile = downloadAudioWithAuth(url)
+            if (tempFile != null && tempFile.exists()) {
+                Log.i(TAG, "认证音频下载成功，播放本地文件: ${tempFile.absolutePath}")
+                playFromLocalFile(message, tempFile.absolutePath, startPosition)
+            } else {
+                Log.e(TAG, "认证音频下载失败")
+                updateState(message.id, AudioPlayState.IDLE, 0L, "音频加载失败")
+            }
         }
     }
 

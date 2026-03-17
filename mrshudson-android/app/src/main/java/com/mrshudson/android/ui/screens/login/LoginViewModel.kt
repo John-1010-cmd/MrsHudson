@@ -1,16 +1,21 @@
 package com.mrshudson.android.ui.screens.login
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.mrshudson.android.data.local.datastore.SettingsDataStore
+import com.mrshudson.android.data.remote.ServerUrlManager
 import com.mrshudson.android.data.repository.AuthRepository
 import com.mrshudson.android.domain.model.User
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -67,8 +72,83 @@ sealed class LoginEvent {
  */
 @HiltViewModel
 class LoginViewModel @Inject constructor(
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    @ApplicationContext private val context: Context
 ) : ViewModel() {
+
+    /**
+     * 设置数据存储
+     */
+    private val settingsDataStore = SettingsDataStore(context)
+
+    /**
+     * 当前服务器地址
+     */
+    private val _serverUrl = MutableStateFlow("")
+    val serverUrl: StateFlow<String> = _serverUrl.asStateFlow()
+
+    /**
+     * 是否显示设置对话框
+     */
+    private val _showSettingsDialog = MutableStateFlow(false)
+    val showSettingsDialog: StateFlow<Boolean> = _showSettingsDialog.asStateFlow()
+
+    init {
+        // 加载保存的服务器地址
+        loadServerUrl()
+    }
+
+    /**
+     * 加载保存的服务器地址
+     */
+    private fun loadServerUrl() {
+        viewModelScope.launch {
+            settingsDataStore.getServerUrl().collect { url ->
+                _serverUrl.value = url
+            }
+        }
+    }
+
+    /**
+     * 显示设置对话框
+     */
+    fun showSettings() {
+        _showSettingsDialog.value = true
+    }
+
+    /**
+     * 隐藏设置对话框
+     */
+    fun hideSettings() {
+        _showSettingsDialog.value = false
+    }
+
+    /**
+     * 保存服务器地址
+     */
+    fun saveServerUrl(url: String) {
+        viewModelScope.launch {
+            val trimmedUrl = url.trim()
+            if (trimmedUrl.isNotBlank()) {
+                settingsDataStore.saveServerUrl(trimmedUrl)
+                ServerUrlManager.setServerUrl(trimmedUrl)
+                _serverUrl.value = trimmedUrl
+            }
+            hideSettings()
+        }
+    }
+
+    /**
+     * 清除服务器地址（使用默认值）
+     */
+    fun clearServerUrl() {
+        viewModelScope.launch {
+            settingsDataStore.clearServerUrl()
+            ServerUrlManager.clearServerUrl()
+            _serverUrl.value = ""
+            hideSettings()
+        }
+    }
 
     /**
      * 登录 UI 状态

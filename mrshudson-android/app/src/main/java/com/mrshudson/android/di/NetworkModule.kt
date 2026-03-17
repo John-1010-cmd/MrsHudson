@@ -7,8 +7,11 @@ import com.mrshudson.android.data.remote.ChatApi
 import com.mrshudson.android.data.remote.PushApi
 import com.mrshudson.android.data.remote.ReminderApi
 import com.mrshudson.android.data.remote.RouteApi
+import com.mrshudson.android.data.remote.ServerUrlManager
 import com.mrshudson.android.data.remote.TodoApi
+import com.mrshudson.android.data.remote.UrlRewriteInterceptor
 import com.mrshudson.android.data.remote.WeatherApi
+import com.mrshudson.android.data.local.datastore.SettingsDataStore
 import com.mrshudson.android.data.local.datastore.TokenDataStore
 import com.mrshudson.android.data.remote.AuthInterceptor
 import dagger.Module
@@ -108,12 +111,14 @@ object NetworkModule {
     @Singleton
     fun provideOkHttpClient(
         loggingInterceptor: HttpLoggingInterceptor,
-        authInterceptor: AuthInterceptor
+        authInterceptor: AuthInterceptor,
+        urlRewriteInterceptor: UrlRewriteInterceptor
     ): OkHttpClient {
         return OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
+            .addInterceptor(urlRewriteInterceptor)  // 添加 URL 重写拦截器
             .addInterceptor(authInterceptor)  // 添加认证拦截器
             .addInterceptor(loggingInterceptor)  // 添加日志拦截器
             .build()
@@ -140,11 +145,24 @@ object NetworkModule {
         okHttpClient: OkHttpClient,
         gsonConverterFactory: GsonConverterFactory
     ): Retrofit {
+        // 初始化时从 SettingsDataStore 加载保存的服务器地址
+        initializeServerUrl(context)
+
         return Retrofit.Builder()
             .baseUrl(getBaseUrl(context))
             .client(okHttpClient)
             .addConverterFactory(gsonConverterFactory)
             .build()
+    }
+
+    /**
+     * 初始化服务器地址
+     * 从 SettingsDataStore 加载保存的服务器地址到 ServerUrlManager
+     * 注意：由于 Hilt 初始化时无法使用协程，改为在首次网络请求时动态加载
+     * 见 UrlRewriteInterceptor 中的延迟初始化逻辑
+     */
+    private fun initializeServerUrl(context: Context) {
+        // 不再在此处同步读取，改为在 UrlRewriteInterceptor 中延迟初始化
     }
 
     /**
@@ -217,5 +235,17 @@ object NetworkModule {
     @Singleton
     fun provideReminderApi(retrofit: Retrofit): ReminderApi {
         return retrofit.create(ReminderApi::class.java)
+    }
+
+    /**
+     * 提供 UrlRewriteInterceptor 实例
+     * 用于动态修改请求的服务器地址
+     */
+    @Provides
+    @Singleton
+    fun provideUrlRewriteInterceptor(
+        @ApplicationContext context: Context
+    ): UrlRewriteInterceptor {
+        return UrlRewriteInterceptor(context)
     }
 }

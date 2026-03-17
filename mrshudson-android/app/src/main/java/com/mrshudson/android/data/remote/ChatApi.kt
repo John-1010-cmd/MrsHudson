@@ -66,7 +66,7 @@ interface ChatApi {
      * @param request 创建会话请求
      * @return 新创建的会话信息
      */
-    @POST("chat/conversations")
+    @POST("chat/conversation")
     suspend fun createConversation(
         @Body request: CreateConversationRequest
     ): Response<ResultDto<CreateConversationResponse>>
@@ -78,7 +78,7 @@ interface ChatApi {
      * @param conversationId 要删除的会话ID
      * @return 删除结果
      */
-    @DELETE("chat/conversations/{id}")
+    @DELETE("chat/conversation/{id}")
     suspend fun deleteConversation(
         @Path("id") conversationId: Long
     ): Response<ResultDto<Unit>>

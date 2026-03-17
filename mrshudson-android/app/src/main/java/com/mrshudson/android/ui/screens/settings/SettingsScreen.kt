@@ -22,11 +22,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
@@ -46,19 +46,25 @@ fun SettingsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
     var serverUrl by remember { mutableStateOf(uiState.serverUrl) }
 
     // 监听保存结果
-    kotlinx.coroutines.MainScope().launch {
+    LaunchedEffect(Unit) {
         viewModel.saveResult.collect { result ->
             if (result != null) {
                 snackbarHostState.showSnackbar(result)
                 if (result.contains("成功")) {
+                    // 延迟一点返回，让用户看到提示
+                    kotlinx.coroutines.delay(500)
                     onNavigateBack()
                 }
             }
         }
+    }
+
+    // 当 UI 状态更新时，同步输入框
+    LaunchedEffect(uiState.serverUrl) {
+        serverUrl = uiState.serverUrl
     }
 
     Scaffold(
@@ -110,6 +116,19 @@ fun SettingsScreen(
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // 显示当前服务器地址
+            Text(
+                text = if (uiState.serverUrl.isNotBlank()) {
+                    "当前: ${uiState.serverUrl}"
+                } else {
+                    "当前: 使用默认地址"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary
             )
 
             Spacer(modifier = Modifier.height(24.dp))

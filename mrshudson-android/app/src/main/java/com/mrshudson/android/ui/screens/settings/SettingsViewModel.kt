@@ -3,6 +3,7 @@ package com.mrshudson.android.ui.screens.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mrshudson.android.data.local.datastore.SettingsDataStore
+import com.mrshudson.android.data.remote.ServerUrlManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -52,7 +53,11 @@ class SettingsViewModel @Inject constructor(
     fun saveServerUrl(url: String) {
         viewModelScope.launch {
             try {
-                settingsDataStore.saveServerUrl(url.trim())
+                val trimmedUrl = url.trim()
+                settingsDataStore.saveServerUrl(trimmedUrl)
+                // 同时更新运行时管理器，使其立即生效
+                ServerUrlManager.setServerUrl(trimmedUrl)
+                _uiState.value = _uiState.value.copy(serverUrl = trimmedUrl)
                 _saveResult.value = "保存成功"
             } catch (e: Exception) {
                 _saveResult.value = "保存失败: ${e.message}"
@@ -67,6 +72,8 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 settingsDataStore.clearServerUrl()
+                ServerUrlManager.clearServerUrl()
+                _uiState.value = _uiState.value.copy(serverUrl = "")
                 _saveResult.value = "已使用默认地址"
             } catch (e: Exception) {
                 _saveResult.value = "清除失败: ${e.message}"

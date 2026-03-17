@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
 import java.time.LocalDateTime
 import javax.inject.Inject
 
@@ -41,6 +42,7 @@ data class ChatUiState(
 class ChatViewModel @Inject constructor(
     private val chatRepository: ChatRepository,
     private val settingsDataStore: SettingsDataStore,
+    private val okHttpClient: OkHttpClient,
     application: Application
 ) : AndroidViewModel(application) {
 
@@ -49,7 +51,7 @@ class ChatViewModel @Inject constructor(
 
     // 音频播放器
     val audioPlayer: AudioPlayer by lazy {
-        AudioPlayer(application.applicationContext, chatRepository, settingsDataStore)
+        AudioPlayer(application.applicationContext, chatRepository, settingsDataStore, okHttpClient)
     }
 
     init {
