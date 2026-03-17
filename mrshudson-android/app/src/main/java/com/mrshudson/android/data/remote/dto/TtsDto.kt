@@ -1,7 +1,5 @@
 package com.mrshudson.android.data.remote.dto
 
-import com.google.gson.annotations.SerializedName
-
 /**
  * 语音合成请求
  *
@@ -30,12 +28,10 @@ data class TtsRequest(
  * @property errorMessage 错误信息（失败时）
  */
 data class TtsResponse(
-    @SerializedName("audio_url")
-    val audioUrl: String,
+    val audioUrl: String? = null,
     val text: String,
     val duration: Int? = null,
     val engine: String? = null,
     val success: Boolean = true,
-    @SerializedName("error_message")
     val errorMessage: String? = null
 )

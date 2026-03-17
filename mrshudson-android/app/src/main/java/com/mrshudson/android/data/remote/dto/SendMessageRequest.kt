@@ -1,7 +1,5 @@
 package com.mrshudson.android.data.remote.dto
 
-import com.google.gson.annotations.SerializedName
-
 /**
  * 发送消息请求数据类
  *
@@ -12,6 +10,5 @@ import com.google.gson.annotations.SerializedName
 data class SendMessageRequest(
     val message: String,
     val sessionId: String? = null,
-    @SerializedName("conversation_id")
     val conversationId: Long? = null
 )

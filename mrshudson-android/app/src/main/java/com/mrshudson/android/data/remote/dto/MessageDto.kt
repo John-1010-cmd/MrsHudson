@@ -1,7 +1,5 @@
 package com.mrshudson.android.data.remote.dto
 
-import com.google.gson.annotations.SerializedName
-
 /**
  * 历史消息数据类
  * 对应后端 ChatHistoryResponse.MessageInfo
@@ -31,14 +29,10 @@ data class MessageDto(
  * @property audioUrl 语音合成音频URL（AI消息可能有）
  */
 data class SendMessageResponse(
-    @SerializedName("message_id")
     val messageId: String,
     val content: String,
-    @SerializedName("function_calls")
     val functionCalls: List<FunctionCallInfo>? = null,
-    @SerializedName("created_at")
     val createdAt: String,
-    @SerializedName("audio_url")
     val audioUrl: String? = null
 )
 

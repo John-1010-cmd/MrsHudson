@@ -20,6 +20,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.util.Properties
 
 /**
  * 音频播放器状态
@@ -80,30 +82,87 @@ class AudioPlayer(
      * 替换 URL 中的 localhost 为配置的服务器地址
      */
     private fun replaceLocalhostWithServerUrl(originalUrl: String): String {
-        var result = originalUrl
+        val resolvedServerBaseUrl = resolveServerBaseUrl()?.trimEnd('/')
 
-        // 尝试从设置中获取服务器地址
-        try {
-            val serverUrl = kotlinx.coroutines.runBlocking {
-                settingsDataStore.getServerUrl().first()
+        var result = originalUrl.trim()
+        if (result.isEmpty()) return result
+
+        if (resolvedServerBaseUrl != null) {
+            val replaced = result
+                .replace("http://localhost:8080", resolvedServerBaseUrl)
+                .replace("http://127.0.0.1:8080", resolvedServerBaseUrl)
+                .replace("https://localhost:8080", resolvedServerBaseUrl)
+                .replace("https://127.0.0.1:8080", resolvedServerBaseUrl)
+            if (replaced != result) {
+                Log.i(TAG, "URL 转换: $result -> $replaced")
             }
+            result = replaced
+        }
 
-            if (serverUrl.isNotBlank()) {
-                // 提取服务器的基础地址，如 http://localhost:8080
-                val baseUrl = serverUrl.trimEnd('/')
-
-                // 替换 localhost:8080
-                result = result.replace("http://localhost:8080", baseUrl)
-                result = result.replace("http://127.0.0.1:8080", baseUrl)
-                Log.i(TAG, "URL 转换: $originalUrl -> $result")
+        // 处理后端返回相对路径（例如 /uploads/tts/xxx.mp3 或 uploads/tts/xxx.mp3）
+        if (!result.startsWith("http://") && !result.startsWith("https://") && resolvedServerBaseUrl != null) {
+            result = if (result.startsWith("/")) {
+                resolvedServerBaseUrl + result
             } else {
-                Log.i(TAG, "未配置服务器地址，使用原始 URL: $originalUrl")
+                "$resolvedServerBaseUrl/$result"
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "获取服务器地址失败，使用原始 URL: $e")
+            Log.i(TAG, "URL 补全: $originalUrl -> $result")
         }
 
         return result
+    }
+
+    /**
+     * 尝试解析服务端基础地址（例如 http://10.0.2.2:8080）
+     *
+     * 优先级：
+     * 1) SettingsDataStore 中用户配置的 serverUrl
+     * 2) assets/config.properties 中的 api.baseurl（Retrofit 同源配置）
+     * 3) Android 模拟器默认宿主机地址 http://10.0.2.2:8080
+     */
+    private fun resolveServerBaseUrl(): String? {
+        // 1) 用户配置
+        try {
+            val serverUrl = kotlinx.coroutines.runBlocking {
+                settingsDataStore.getServerUrl().first()
+            }.trim()
+
+            if (serverUrl.isNotBlank()) {
+                return serverUrl.removeSuffix("/api").removeSuffix("/api/").trimEnd('/')
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "读取 serverUrl 失败: ${e.message}")
+        }
+
+        // 2) assets/config.properties（NetworkModule 也会读）
+        try {
+            val inputStream = context.assets.open("config.properties")
+            val tempFile = File(context.cacheDir, "config.properties")
+            tempFile.outputStream().use { output ->
+                inputStream.copyTo(output)
+            }
+            inputStream.close()
+
+            val properties = Properties()
+            tempFile.inputStream().use { stream ->
+                properties.load(stream)
+            }
+            tempFile.delete()
+
+            val apiBaseUrl = properties.getProperty("api.baseurl")?.trim()
+            if (!apiBaseUrl.isNullOrBlank()) {
+                val normalized = if (apiBaseUrl.endsWith("/")) apiBaseUrl else "$apiBaseUrl/"
+                return normalized
+                    .removeSuffix("api/")
+                    .removeSuffix("api")
+                    .trimEnd('/')
+            }
+        } catch (e: Exception) {
+            // ignore
+        }
+
+        // 3) fallback（模拟器访问宿主机）
+        return "http://10.0.2.2:8080"
     }
 
     /**
@@ -304,7 +363,7 @@ class AudioPlayer(
                         }
                         player.start()
                         // 播放成功后更新状态，传入audioUrl以更新UI层
-                        updateState(message.id, AudioPlayState.PLAYING, startPosition, newAudioUrl = audioUrl)
+                        updateState(message.id, AudioPlayState.PLAYING, startPosition, newAudioUrl = actualUrl)
                     } catch (e: Exception) {
                         Log.e(TAG, "Play prepared failed", e)
                         updateState(message.id, AudioPlayState.IDLE, 0L, e.message)
@@ -543,12 +602,13 @@ class AudioPlayer(
                     when (result) {
                         is ApiResult.Success -> {
                             val response = result.data
-                            if (response.success && !response.audioUrl.isNullOrBlank()) {
+                            val audioUrl = response.audioUrl
+                            if (response.success && !audioUrl.isNullOrBlank()) {
                                 // 更新消息的audioUrl
-                                val updatedMessage = message.copy(audioUrl = response.audioUrl)
+                                val updatedMessage = message.copy(audioUrl = audioUrl)
                                 currentMessage = updatedMessage
                                 // 传入新的audioUrl以便更新UI层
-                                playFromUrlWithAudioUpdate(updatedMessage, response.audioUrl, 0L)
+                                playFromUrlWithAudioUpdate(updatedMessage, audioUrl, 0L)
                             } else {
                                 // 服务端 TTS 失败，尝试使用客户端 TTS
                                 playWithClientTts(message)
