@@ -47,6 +47,17 @@ public interface IntentRouter {
     String getMode();
 
     /**
+     * 识别用户意图（简化的意图识别接口）
+     *
+     * @param message 用户消息
+     * @return 意图类型
+     */
+    default IntentType recognizeIntent(String message) {
+        IntentClassification classification = classify(message);
+        return classification.getIntentType();
+    }
+
+    /**
      * 意图分类结果内部类
      */
     class IntentClassification {

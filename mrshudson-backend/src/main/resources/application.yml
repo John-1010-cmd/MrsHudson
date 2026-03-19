@@ -56,7 +56,7 @@ logging:
 # 支持: kimi, minimax
 # 备选: zhipu(智谱GLM4), qwen(通义千问) - 暂未实现
 ai:
-  provider: ${AI_PROVIDER:kimi}
+  provider: ${AI_PROVIDER:minimax}
   kimi:
     api-key: ${KIMI_API_KEY:}
     base-url: https://api.moonshot.cn/v1
@@ -67,7 +67,7 @@ ai:
   minimax:
     api-key: ${MINIMAX_API_KEY:}
     base-url: https://api.minimax.chat/v1
-    model: MiniMax-M2.5
+    model: MiniMax-M2.7
     timeout: 30000
     temperature: 0.7
     max-tokens: 4096

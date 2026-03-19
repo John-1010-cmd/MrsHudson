@@ -142,6 +142,19 @@ public class RedisVectorStore implements VectorStore {
     }
 
     @Override
+    public int deleteAll(String userId) {
+        Set<String> keys = getUserCacheKeys(userId);
+        if (keys.isEmpty()) {
+            return 0;
+        }
+
+        Long deleted = redisTemplate.delete(keys);
+        int count = deleted != null ? deleted.intValue() : 0;
+        log.info("Deleted {} cache entries for user {}", count, userId);
+        return count;
+    }
+
+    @Override
     public CacheStats getStats(String userId) {
         Set<String> keys = getUserCacheKeys(userId);
 

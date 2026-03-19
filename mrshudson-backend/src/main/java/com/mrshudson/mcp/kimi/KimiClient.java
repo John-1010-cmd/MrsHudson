@@ -7,12 +7,14 @@ import com.mrshudson.mcp.kimi.dto.ChatResponse;
 import com.mrshudson.mcp.kimi.dto.Message;
 import com.mrshudson.mcp.kimi.dto.Tool;
 import com.mrshudson.optim.config.OptimProperties;
+import com.mrshudson.optim.token.TokenUsage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.*;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -139,5 +141,23 @@ public class KimiClient {
         }
 
         throw new RuntimeException("AI服务返回空响应");
+    }
+
+    /**
+     * 从响应中获取 Token 使用统计
+     *
+     * @param response API 响应
+     * @return Token 使用统计
+     */
+    public TokenUsage getTokenUsage(ChatResponse response) {
+        if (response == null || response.getUsage() == null) {
+            return null;
+        }
+        return TokenUsage.builder()
+                .inputTokens(response.getUsage().getPromptTokens())
+                .outputTokens(response.getUsage().getCompletionTokens())
+                .model(kimiProperties.getModel())
+                .timestamp(LocalDateTime.now())
+                .build();
     }
 }

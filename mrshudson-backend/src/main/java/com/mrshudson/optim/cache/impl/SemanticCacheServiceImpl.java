@@ -201,15 +201,14 @@ public class SemanticCacheServiceImpl implements SemanticCacheService {
         }
 
         try {
-            // 获取统计信息中的条目数作为清空的数量
-            VectorStore.CacheStats stats = vectorStore.getStats(String.valueOf(userId));
-            int count = stats.getTotalEntries();
+            // 使用 vectorStore.deleteAll() 清除用户的所有缓存
+            int count = vectorStore.deleteAll(String.valueOf(userId));
 
-            // 这里假设VectorStore有方法可以清空，但接口中没有定义
-            // 实际实现中可以通过遍历删除来实现
-            // 简化起见，这里只记录日志
-            log.info("Clearing all cache entries for user {}: {} entries", userId, count);
+            // 重置统计
+            totalRequests.set(0);
+            cacheHits.set(0);
 
+            log.info("Clearing all cache entries for user {}: {} entries deleted", userId, count);
             return count;
         } catch (Exception e) {
             log.warn("Error clearing cache for user {}: {}", userId, e.getMessage());

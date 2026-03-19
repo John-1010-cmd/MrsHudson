@@ -48,6 +48,14 @@ public interface VectorStore {
     int cleanup(String userId);
 
     /**
+     * 删除用户的所有缓存数据
+     *
+     * @param userId 用户ID
+     * @return 删除的条目数量
+     */
+    int deleteAll(String userId);
+
+    /**
      * 获取用户缓存统计信息
      *
      * @param userId 用户ID

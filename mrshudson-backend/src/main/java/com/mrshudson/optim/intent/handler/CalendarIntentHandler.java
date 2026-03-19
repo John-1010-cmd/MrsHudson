@@ -26,7 +26,7 @@ public class CalendarIntentHandler extends AbstractIntentHandler {
 
     // 日历查询关键词
     private static final String[] CALENDAR_KEYWORDS = {
-            "日程", "会议", "安排", "日历", "今天", "明天", "下周", "这周", "有什么"
+            "日程", "会议", "安排", "日历", "今天", "明天", "下周", "这周"
     };
 
     // 时间关键词

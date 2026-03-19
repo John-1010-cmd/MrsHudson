@@ -190,6 +190,37 @@ public class ChromaVectorStore implements VectorStore {
     }
 
     @Override
+    public int deleteAll(String userId) {
+        try {
+            List<ChromaClient.ChromaDocument> documents = chromaClient.getAllDocuments();
+            List<String> idsToDelete = new ArrayList<>();
+
+            for (ChromaClient.ChromaDocument doc : documents) {
+                Map<String, String> metadata = doc.getMetadata();
+                if (metadata == null) {
+                    continue;
+                }
+
+                String docUserId = metadata.get("userId");
+                if (userId.equals(docUserId)) {
+                    idsToDelete.add(doc.getId());
+                }
+            }
+
+            if (!idsToDelete.isEmpty()) {
+                chromaClient.deleteDocuments(idsToDelete);
+                log.info("Deleted {} entries from Chroma for user {}", idsToDelete.size(), userId);
+            }
+
+            return idsToDelete.size();
+
+        } catch (Exception e) {
+            log.error("Error deleting all from Chroma: {}", e.getMessage(), e);
+            return 0;
+        }
+    }
+
+    @Override
     public CacheStats getStats(String userId) {
         try {
             List<ChromaClient.ChromaDocument> documents = chromaClient.getAllDocuments();

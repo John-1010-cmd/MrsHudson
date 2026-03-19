@@ -81,4 +81,19 @@ public class ToolRegistry {
     public boolean hasTool(String toolName) {
         return toolDefinitions.containsKey(toolName);
     }
+
+    /**
+     * 获取所有工具的描述列表
+     *
+     * @return 工具描述列表
+     */
+    public List<String> getToolDescriptions() {
+        List<String> descriptions = new ArrayList<>();
+        for (Tool tool : toolDefinitions.values()) {
+            String name = tool.getFunction().getName();
+            String desc = tool.getFunction().getDescription();
+            descriptions.add(name + ": " + desc);
+        }
+        return descriptions;
+    }
 }
