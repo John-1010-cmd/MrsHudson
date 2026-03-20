@@ -1,5 +1,6 @@
 package com.mrshudson.optim.compress.impl;
 
+import com.mrshudson.ai.AIClientFactory;
 import com.mrshudson.mcp.kimi.KimiClient;
 import com.mrshudson.mcp.kimi.dto.ChatResponse;
 import com.mrshudson.mcp.kimi.dto.Message;
@@ -14,7 +15,7 @@ import java.util.List;
 
 /**
  * 对话压缩器实现类
- * 使用 Kimi API 生成对话摘要，减少 Token 消耗
+ * 使用 AI API 生成对话摘要，减少 Token 消耗
  */
 @Slf4j
 @Component
@@ -22,7 +23,7 @@ import java.util.List;
 public class ConversationSummarizerImpl implements ConversationSummarizer {
 
     private final CompressionConfig compressionConfig;
-    private final KimiClient kimiClient;
+    private final AIClientFactory aiClientFactory;
 
     /**
      * 判断对话是否需要压缩
@@ -101,7 +102,8 @@ public class ConversationSummarizerImpl implements ConversationSummarizer {
             // 使用轻量级系统提示词
             String systemPrompt = "你是一个对话摘要助手。请用简洁的语言概括对话主题，严格限制字数。";
 
-            ChatResponse response = kimiClient.chatCompletion(
+            KimiClient aiClient = (KimiClient) aiClientFactory.getClient();
+            ChatResponse response = aiClient.chatCompletion(
                     List.of(
                             Message.system(systemPrompt),
                             Message.user(prompt)

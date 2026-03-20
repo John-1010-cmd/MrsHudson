@@ -3,6 +3,8 @@ package com.mrshudson.controller;
 import com.mrshudson.domain.dto.Result;
 import com.mrshudson.optim.cache.SemanticCacheService;
 import com.mrshudson.optim.cache.ToolCacheManager;
+import com.mrshudson.optim.cost.CacheInvalidationService;
+import com.mrshudson.optim.cost.CacheMetrics;
 import com.mrshudson.util.JwtContext;
 import com.mrshudson.util.JwtTokenUtil;
 import jakarta.servlet.http.HttpServletRequest;
@@ -30,6 +32,8 @@ public class CacheManageController {
     private final ToolCacheManager toolCacheManager;
     private final RedisTemplate<String, String> redisTemplate;
     private final JwtTokenUtil jwtTokenUtil;
+    private final CacheInvalidationService cacheInvalidationService;
+    private final CacheMetrics cacheMetrics;
 
     private static final String TOKEN_PREFIX = "Bearer ";
 
@@ -178,6 +182,132 @@ public class CacheManageController {
         } catch (Exception e) {
             log.error("[CacheManage] 获取缓存统计失败: error={}", e.getMessage(), e);
             return Result.error("获取缓存统计失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 手动清除缓存（通用接口）
+     *
+     * @param request HTTP请求
+     * @param cacheType 缓存类型: user, tool, semantic, all
+     * @param userId 用户ID（可选）
+     * @param toolName 工具名称（可选）
+     * @return 操作结果
+     */
+    @PostMapping("/clear")
+    public Result<Map<String, Object>> clearCache(
+            HttpServletRequest request,
+            @RequestParam(required = false) String cacheType,
+            @RequestParam(required = false) Long userId,
+            @RequestParam(required = false) String toolName) {
+
+        Long currentUserId = extractUserIdFromRequest(request);
+
+        // 检查管理员权限
+        if (!isAdmin(currentUserId)) {
+            log.warn("[CacheManage] 非管理员用户尝试清除缓存: userId={}", currentUserId);
+            return Result.error(403, "需要管理员权限");
+        }
+
+        log.info("[CacheManage] 管理员清除缓存: cacheType={}, userId={}, toolName={}", cacheType, userId, toolName);
+
+        Map<String, Object> result = new HashMap<>();
+
+        try {
+            switch (cacheType != null ? cacheType.toLowerCase() : "all") {
+                case "user":
+                    if (userId != null) {
+                        cacheInvalidationService.invalidateUserCache(userId);
+                        result.put("message", "用户缓存已清除");
+                        result.put("userId", userId);
+                    } else {
+                        return Result.error("清除用户缓存需要指定userId");
+                    }
+                    break;
+
+                case "tool":
+                    if (toolName != null) {
+                        cacheInvalidationService.invalidateToolCache(toolName);
+                        result.put("message", "工具缓存已清除");
+                        result.put("toolName", toolName);
+                    } else {
+                        cacheInvalidationService.invalidateAllToolCache();
+                        result.put("message", "所有工具缓存已清除");
+                    }
+                    break;
+
+                case "semantic":
+                    cacheInvalidationService.invalidateAllSemanticCache();
+                    result.put("message", "所有语义缓存已清除");
+                    break;
+
+                case "all":
+                default:
+                    cacheInvalidationService.invalidateAllCache();
+                    result.put("message", "所有缓存已清除");
+                    break;
+            }
+
+            result.put("success", true);
+            result.put("cacheType", cacheType);
+            return Result.success(result);
+        } catch (Exception e) {
+            log.error("[CacheManage] 清除缓存失败: error={}", e.getMessage(), e);
+            return Result.error("清除缓存失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 获取缓存指标统计（包含命中率等）
+     *
+     * @param request HTTP请求
+     * @return 缓存指标统计
+     */
+    @GetMapping("/metrics")
+    public Result<CacheMetrics.CacheMetricsSnapshot> getCacheMetrics(HttpServletRequest request) {
+        Long userId = extractUserIdFromRequest(request);
+
+        // 检查管理员权限
+        if (!isAdmin(userId)) {
+            log.warn("[CacheManage] 非管理员用户尝试获取缓存指标: userId={}", userId);
+            return Result.error(403, "需要管理员权限");
+        }
+
+        log.info("[CacheManage] 管理员获取缓存指标: userId={}", userId);
+
+        try {
+            CacheMetrics.CacheMetricsSnapshot snapshot = cacheMetrics.getSnapshot();
+            return Result.success(snapshot);
+        } catch (Exception e) {
+            log.error("[CacheManage] 获取缓存指标失败: error={}", e.getMessage(), e);
+            return Result.error("获取缓存指标失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 重置缓存指标统计
+     *
+     * @param request HTTP请求
+     * @return 操作结果
+     */
+    @PostMapping("/metrics/reset")
+    public Result<Void> resetCacheMetrics(HttpServletRequest request) {
+        Long userId = extractUserIdFromRequest(request);
+
+        // 检查管理员权限
+        if (!isAdmin(userId)) {
+            log.warn("[CacheManage] 非管理员用户尝试重置缓存指标: userId={}", userId);
+            return Result.error(403, "需要管理员权限");
+        }
+
+        log.info("[CacheManage] 管理员重置缓存指标: userId={}", userId);
+
+        try {
+            cacheMetrics.reset();
+            return Result.success();
+        } catch (Exception e) {
+            log.error("[CacheManage] 重置缓存指标失败: error={}", e.getMessage(), e);
+            return Result.error("重置缓存指标失败: " + e.getMessage());
         }
     }
 

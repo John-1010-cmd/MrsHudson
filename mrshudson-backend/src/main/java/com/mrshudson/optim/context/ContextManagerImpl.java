@@ -1,6 +1,7 @@
 package com.mrshudson.optim.context;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.mrshudson.ai.AIClientFactory;
 import com.mrshudson.domain.entity.ChatMessage;
 import com.mrshudson.mapper.ChatMessageMapper;
 import com.mrshudson.mcp.kimi.KimiClient;
@@ -23,7 +24,7 @@ import java.util.List;
 public class ContextManagerImpl implements ContextManager {
 
     private final ChatMessageMapper chatMessageMapper;
-    private final KimiClient kimClient;
+    private final AIClientFactory aiClientFactory;
     private final OptimProperties optimProperties;
 
     /**
@@ -163,8 +164,9 @@ public class ContextManagerImpl implements ContextManager {
                 SUMMARY_MAX_LENGTH, userPrompt
             );
 
-            // 使用 kimClient 的 simpleChat 方法生成摘要
-            String summary = kimClient.simpleChat(
+            // 使用 AI Client 的 simpleChat 方法生成摘要
+            KimiClient aiClient = (KimiClient) aiClientFactory.getClient();
+            String summary = aiClient.simpleChat(
                 "你是一个对话摘要助手。",
                 summaryPrompt
             );

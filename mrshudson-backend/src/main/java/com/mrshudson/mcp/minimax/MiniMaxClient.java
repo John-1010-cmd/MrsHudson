@@ -1,4 +1,4 @@
-package com.mrshudson.mcp.kimi;
+package com.mrshudson.mcp.minimax;
 
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.filter.PropertyFilter;
@@ -20,20 +20,20 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * Kimi API客户端
+ * MiniMax API客户端
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class KimiClient {
+public class MiniMaxClient {
 
-    private final KimiProperties kimiProperties;
+    private final MiniMaxProperties miniMaxProperties;
     private final OptimProperties optimProperties;
     private final RestTemplate restTemplate = new RestTemplate();
 
     /**
      * 属性过滤器：过滤掉 Message 对象中为 null 的 name 字段
-     * Kimi API 要求 tool 消息不能包含 name 字段
+     * MiniMax API 要求 tool 消息不能包含 name 字段
      */
     private static final PropertyFilter MESSAGE_NAME_FILTER = (object, name, value) -> {
         if (object instanceof Message && "name".equals(name) && value == null) {
@@ -50,19 +50,20 @@ public class KimiClient {
      * @return 对话响应
      */
     public ChatResponse chatCompletion(List<Message> messages, List<Tool> tools) {
-        String url = kimiProperties.getBaseUrl() + "/chat/completions";
+        // MiniMax API 路径格式: /text/chatcompletion_v2
+        String url = miniMaxProperties.getBaseUrl() + "/text/chatcompletion_v2";
 
-        // 从配置读取参数，使用 OptimProperties 覆盖 KimiProperties
+        // 从配置读取参数
         double temperature = optimProperties.getKimiParams() != null
                 ? optimProperties.getKimiParams().getTemperature()
-                : kimiProperties.getTemperature();
+                : miniMaxProperties.getTemperature();
         int maxTokens = optimProperties.getKimiParams() != null
                 ? optimProperties.getKimiParams().getMaxTokens()
-                : kimiProperties.getMaxTokens();
+                : miniMaxProperties.getMaxTokens();
 
         // 构建请求
         ChatRequest request = ChatRequest.builder()
-                .model(kimiProperties.getModel())
+                .model(miniMaxProperties.getModel())
                 .messages(messages)
                 .tools(tools)
                 .temperature(temperature)
@@ -73,19 +74,19 @@ public class KimiClient {
         // 构建请求头
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth(kimiProperties.getApiKey());
+        headers.setBearerAuth(miniMaxProperties.getApiKey());
 
         // 调试：打印API Key前10个字符（隐藏敏感信息）
-        String apiKey = kimiProperties.getApiKey();
+        String apiKey = miniMaxProperties.getApiKey();
         String maskedKey = apiKey != null && apiKey.length() > 10
                 ? apiKey.substring(0, 10) + "..."
                 : "null or empty";
-        log.debug("调用Kimi API，API Key: {}, 消息数: {}, 工具数: {}",
+        log.debug("调用MiniMax API，API Key: {}, 消息数: {}, 工具数: {}",
                 maskedKey, messages.size(), tools != null ? tools.size() : 0);
 
         // 序列化请求体（保留null值字段，但过滤掉Message中为null的name字段）
         String requestBody = JSON.toJSONString(request, MESSAGE_NAME_FILTER, com.alibaba.fastjson2.JSONWriter.Feature.WriteMapNullValue);
-        log.debug("Kimi API请求体: {}", requestBody);
+        log.debug("MiniMax API请求体: {}", requestBody);
 
         HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
 
@@ -101,14 +102,13 @@ public class KimiClient {
             // 解析响应
             ChatResponse chatResponse = JSON.parseObject(response.getBody(), ChatResponse.class);
 
-            log.debug("Kimi API响应，使用token: {}/{}",
-                    chatResponse.getUsage() != null ? chatResponse.getUsage().getTotalTokens() : 0,
-                    kimiProperties.getMaxTokens());
+            log.debug("MiniMax API响应，使用token: {}",
+                    chatResponse.getUsage() != null ? chatResponse.getUsage().getTotalTokens() : 0);
 
             return chatResponse;
 
         } catch (Exception e) {
-            log.error("调用Kimi API失败: {}", e.getMessage(), e);
+            log.error("调用MiniMax API失败: {}", e.getMessage(), e);
             throw new RuntimeException("AI服务调用失败: " + e.getMessage());
         }
     }
@@ -158,7 +158,7 @@ public class KimiClient {
         return TokenUsage.builder()
                 .inputTokens(response.getUsage().getPromptTokens())
                 .outputTokens(response.getUsage().getCompletionTokens())
-                .model(kimiProperties.getModel())
+                .model(miniMaxProperties.getModel())
                 .timestamp(LocalDateTime.now())
                 .build();
     }
@@ -171,19 +171,20 @@ public class KimiClient {
      * @return 流式响应
      */
     public Flux<String> streamChatCompletion(List<Message> messages, List<Tool> tools) {
-        String url = kimiProperties.getBaseUrl() + "/chat/completions";
+        // MiniMax API 路径格式: /text/chatcompletion_v2
+        String url = miniMaxProperties.getBaseUrl() + "/text/chatcompletion_v2";
 
         // 从配置读取参数
         double temperature = optimProperties.getKimiParams() != null
                 ? optimProperties.getKimiParams().getTemperature()
-                : kimiProperties.getTemperature();
+                : miniMaxProperties.getTemperature();
         int maxTokens = optimProperties.getKimiParams() != null
                 ? optimProperties.getKimiParams().getMaxTokens()
-                : kimiProperties.getMaxTokens();
+                : miniMaxProperties.getMaxTokens();
 
         // 构建请求（启用流式）
         ChatRequest request = ChatRequest.builder()
-                .model(kimiProperties.getModel())
+                .model(miniMaxProperties.getModel())
                 .messages(messages)
                 .tools(tools)
                 .temperature(temperature)
@@ -194,7 +195,7 @@ public class KimiClient {
         // 构建请求头
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth(kimiProperties.getApiKey());
+        headers.setBearerAuth(miniMaxProperties.getApiKey());
 
         // 序列化请求体
         String requestBody = JSON.toJSONString(request, MESSAGE_NAME_FILTER,
@@ -237,7 +238,7 @@ public class KimiClient {
                 }
                 sink.complete();
             } catch (Exception e) {
-                log.error("流式调用Kimi API失败: {}", e.getMessage(), e);
+                log.error("流式调用MiniMax API失败: {}", e.getMessage(), e);
                 sink.error(new RuntimeException("AI服务调用失败: " + e.getMessage()));
             }
         });

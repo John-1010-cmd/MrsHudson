@@ -1,5 +1,6 @@
 package com.mrshudson.optim.fallback;
 
+import com.mrshudson.ai.AIClientFactory;
 import com.mrshudson.mcp.kimi.KimiClient;
 import com.mrshudson.mcp.kimi.dto.ChatResponse;
 import com.mrshudson.mcp.kimi.dto.Message;
@@ -23,7 +24,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class FallbackHandlerImpl implements FallbackHandler {
 
-    private final KimiClient kimClient;
+    private final AIClientFactory aiClientFactory;
     private final FallbackDecisionStrategy decisionStrategy;
     private final FallbackPromptBuilder promptBuilder;
     private final OptimProperties optimProperties;
@@ -54,8 +55,9 @@ public class FallbackHandlerImpl implements FallbackHandler {
             // 4. 添加当前用户消息
             messages.add(Message.user(message));
 
-            // 5. 调用 Kimi API
-            ChatResponse response = kimClient.chatCompletion(messages);
+            // 5. 调用 AI API
+            KimiClient aiClient = (KimiClient) aiClientFactory.getClient();
+            ChatResponse response = aiClient.chatCompletion(messages);
 
             // 6. 提取回复内容
             String content = extractContent(response);

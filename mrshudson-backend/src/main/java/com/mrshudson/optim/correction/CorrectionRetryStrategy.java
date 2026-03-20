@@ -1,5 +1,6 @@
 package com.mrshudson.optim.correction;
 
+import com.mrshudson.ai.AIClientFactory;
 import com.mrshudson.mcp.kimi.KimiClient;
 import com.mrshudson.mcp.kimi.dto.ChatResponse;
 import com.mrshudson.mcp.kimi.dto.Message;
@@ -22,7 +23,7 @@ public class CorrectionRetryStrategy {
 
     private static final int MAX_RETRIES = 2;
 
-    private final KimiClient kimClient;
+    private final AIClientFactory aiClientFactory;
 
     /**
      * 纠错重试
@@ -63,7 +64,8 @@ public class CorrectionRetryStrategy {
             );
 
             // 4. 调用 LLM
-            ChatResponse response = kimClient.chatCompletion(messages);
+            KimiClient aiClient = (KimiClient) aiClientFactory.getClient();
+            ChatResponse response = aiClient.chatCompletion(messages);
 
             if (response != null && response.getChoices() != null && !response.getChoices().isEmpty()) {
                 String correctedContent = response.getChoices().get(0).getMessage().getContent();

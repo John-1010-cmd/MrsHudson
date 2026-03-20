@@ -48,7 +48,10 @@ interface BaseApi {
                         if (data != null) {
                             ApiResult.success(data)
                         } else {
-                            ApiResult.error(200, "数据为空，请重试")
+                            // code=200 但 data=null 的情况视为成功
+                            // 这常见于删除等无返回数据的操作
+                            @Suppress("UNCHECKED_CAST")
+                            ApiResult.Success(Unit) as ApiResult<T>
                         }
                     }
                     else -> ApiResult.error(result.code, result.message?.takeIf { it.isNotBlank() && it != "null" } ?: "未知错误")

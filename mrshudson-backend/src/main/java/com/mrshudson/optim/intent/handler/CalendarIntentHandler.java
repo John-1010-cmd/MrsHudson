@@ -123,20 +123,32 @@ public class CalendarIntentHandler extends AbstractIntentHandler {
         }
 
         String lowerQuery = query.toLowerCase();
-        int matchCount = 0;
 
-        // 检查日历关键词
-        for (String keyword : CALENDAR_KEYWORDS) {
+        // 检查日历特定关键词（强特征）
+        boolean hasCalendarSpecific = false;
+        for (String keyword : new String[]{"日程", "会议", "安排", "日历", "日程表", "行程"}) {
             if (lowerQuery.contains(keyword)) {
-                matchCount++;
+                hasCalendarSpecific = true;
+                break;
             }
         }
 
-        if (matchCount == 0) {
+        // 检查时间关键词（弱特征，不能单独作为日历意图）
+        boolean hasTimeKeyword = false;
+        for (String keyword : new String[]{"今天", "明天", "后天", "本周", "下周", "这周", "周末"}) {
+            if (lowerQuery.contains(keyword)) {
+                hasTimeKeyword = true;
+                break;
+            }
+        }
+
+        // 如果没有日历特定关键词，即使有时间关键词也不匹配
+        // 日历查询必须有明确的日程相关词汇
+        if (!hasCalendarSpecific) {
             return 0.0;
         }
 
-        // 日历查询固定返回高置信度0.95
+        // 有日历特定关键词，置信度0.95
         return 0.95;
     }
 }

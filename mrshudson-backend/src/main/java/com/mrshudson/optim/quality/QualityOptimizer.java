@@ -117,7 +117,7 @@ public class QualityOptimizer {
     /**
      * 检测是否需要创意回答
      */
-    private boolean needsCreativity(String message) {
+    public boolean needsCreativity(String message) {
         for (String pattern : CREATIVITY_PATTERNS) {
             if (message.contains(pattern)) {
                 return true;

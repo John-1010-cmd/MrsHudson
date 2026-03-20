@@ -5,6 +5,7 @@ import com.mrshudson.domain.entity.CalendarEvent;
 import com.mrshudson.domain.entity.CalendarEvent.Category;
 import com.mrshudson.mapper.CalendarEventMapper;
 import com.mrshudson.optim.cache.event.CalendarChangeEvent;
+import com.mrshudson.optim.cost.CacheInvalidationService;
 import com.mrshudson.service.CalendarService;
 import com.mrshudson.service.ReminderService;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +32,7 @@ public class CalendarServiceImpl implements CalendarService {
     private final CalendarEventMapper calendarEventMapper;
     private final ReminderService reminderService;
     private final ApplicationEventPublisher eventPublisher;
+    private final CacheInvalidationService cacheInvalidationService;
 
     @Override
     @Transactional
@@ -72,6 +74,9 @@ public class CalendarServiceImpl implements CalendarService {
 
         // 发布变更事件，触发缓存清除
         eventPublisher.publishEvent(new CalendarChangeEvent(this, userId, event.getId(), CalendarChangeEvent.OperationType.CREATE));
+
+        // 清除用户缓存（包括语义缓存）
+        cacheInvalidationService.invalidateUserCache(userId);
 
         return event;
     }
@@ -123,6 +128,9 @@ public class CalendarServiceImpl implements CalendarService {
         // 发布变更事件，触发缓存清除
         eventPublisher.publishEvent(new CalendarChangeEvent(this, userId, eventId, CalendarChangeEvent.OperationType.DELETE));
 
+        // 清除用户缓存（包括语义缓存）
+        cacheInvalidationService.invalidateUserCache(userId);
+
         return true;
     }
 
@@ -171,6 +179,9 @@ public class CalendarServiceImpl implements CalendarService {
 
         // 发布变更事件，触发缓存清除
         eventPublisher.publishEvent(new CalendarChangeEvent(this, userId, eventId, CalendarChangeEvent.OperationType.UPDATE));
+
+        // 清除用户缓存（包括语义缓存）
+        cacheInvalidationService.invalidateUserCache(userId);
 
         return event;
     }

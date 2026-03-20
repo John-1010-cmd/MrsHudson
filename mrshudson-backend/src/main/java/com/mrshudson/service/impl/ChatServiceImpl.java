@@ -18,9 +18,17 @@ import com.mrshudson.optim.cost.CachedResult;
 import com.mrshudson.optim.cost.CostOptimizer;
 import com.mrshudson.optim.cost.ModelRouter;
 import com.mrshudson.optim.fallback.FallbackHandler;
+import com.mrshudson.optim.fallback.FallbackMetrics;
+import com.mrshudson.optim.intent.IntentConfidenceEvaluator;
+import com.mrshudson.optim.intent.IntentClarificationService;
 import com.mrshudson.optim.intent.IntentRouter;
 import com.mrshudson.optim.intent.IntentType;
+import com.mrshudson.optim.intent.IntentResult;
+import com.mrshudson.optim.correction.SelfCorrectingAgent;
+import com.mrshudson.optim.correction.ValidationResult;
+import com.mrshudson.optim.quality.QualityMetrics;
 import com.mrshudson.optim.quality.QualityOptimizer;
+import com.mrshudson.optim.quality.QualityProperties;
 import com.mrshudson.optim.token.TokenTrackerService;
 import com.mrshudson.optim.token.TokenUsage;
 import com.mrshudson.service.AsyncTaskService;
@@ -59,10 +67,15 @@ public class ChatServiceImpl implements ChatService {
     private final TokenTrackerService tokenTrackerService;
     private final ContextManager contextManager;
     private final FallbackHandler fallbackHandler;
+    private final FallbackMetrics fallbackMetrics;
     private final CostOptimizer costOptimizer;
     private final ModelRouter modelRouter;
     private final QualityOptimizer qualityOptimizer;
+    private final QualityMetrics qualityMetrics;
     private final IntentRouter intentRouter;
+    private final IntentClarificationService intentClarificationService;
+    private final IntentConfidenceEvaluator intentConfidenceEvaluator;
+    private final SelfCorrectingAgent selfCorrectingAgent;
 
     /**
      * 构建系统提示词（精简版，控制在500字以内）
@@ -93,6 +106,9 @@ public class ChatServiceImpl implements ChatService {
         String userContent = request.getMessage();
         Long conversationId = request.getConversationId();
         log.info("用户 {} 发送消息: {}, 会话ID: {}", userId, userContent, conversationId);
+
+        // ========== 新增：记录总请求数 ==========
+        fallbackMetrics.recordTotal();
 
         // ========== 新增：Token追踪开始 ==========
         String trackingId = tokenTrackerService.startTracking();
@@ -152,6 +168,40 @@ public class ChatServiceImpl implements ChatService {
             IntentType intentType = intentRouter.recognizeIntent(userContent);
             log.debug("识别到意图: {}", intentType);
 
+            // ========== 新增：意图置信度评估 ==========
+            IntentResult intentResult = intentConfidenceEvaluator.evaluate(userContent, intentType);
+            log.debug("意图置信度: {}, 是否需要澄清: {}", intentResult.getConfidence(), intentResult.needsClarification());
+
+            // ========== 新增：检查是否需要澄清 ==========
+            if (intentResult.needsClarification()) {
+                String clarificationQuestion = intentClarificationService.buildClarification(userContent, intentResult);
+                if (clarificationQuestion != null) {
+                    log.info("意图不明确，返回澄清问题: {}", clarificationQuestion);
+
+                    // 保存AI消息（澄清问题）
+                    ChatMessage clarificationMessage = new ChatMessage();
+                    clarificationMessage.setUserId(userId);
+                    clarificationMessage.setRole(ChatMessage.Role.ASSISTANT.name());
+                    clarificationMessage.setContent(clarificationQuestion);
+                    if (conversationId != null) {
+                        clarificationMessage.setConversationId(conversationId);
+                    }
+                    chatMessageMapper.insert(clarificationMessage);
+
+                    // 更新会话
+                    if (conversationId != null) {
+                        updateConversationLastMessageTime(conversationId);
+                    }
+
+                    return SendMessageResponse.builder()
+                        .messageId(clarificationMessage.getId().toString())
+                        .content(clarificationQuestion)
+                        .functionCalls(null)
+                        .createdAt(clarificationMessage.getCreatedAt())
+                        .build();
+                }
+            }
+
             // ========== 新增：模型选择 ==========
             String model = modelRouter.getModel(userContent);
             log.debug("选择模型: {}", model);
@@ -166,6 +216,21 @@ public class ChatServiceImpl implements ChatService {
             }
 
             // ========== 新增：质量优化 ==========
+            // 检测问题特征并记录指标
+            if (qualityOptimizer.isComplex(userContent)) {
+                qualityMetrics.recordComplexQuestion();
+                qualityMetrics.recordQualityUpgrade();
+                log.debug("复杂问题检测到，记录质量提升指标");
+            } else {
+                qualityMetrics.recordSpeedMode();
+                log.debug("简单问题检测到，记录速度模式指标");
+            }
+
+            // 检测是否需要创意回答
+            if (qualityOptimizer.needsCreativity(userContent)) {
+                qualityMetrics.recordCreativityRequest();
+            }
+
             AIService aiService = aiServiceFactory.getService();
             AIService.ChatResult result = aiService.chatCompletionWithTools(
                 messages,
@@ -209,6 +274,32 @@ public class ChatServiceImpl implements ChatService {
                     // 执行工具
                     String toolResult = toolRegistry.executeTool(toolName, arguments);
 
+                    // ========== 新增：自纠错验证工具结果 ==========
+                    ValidationResult validationResult = selfCorrectingAgent.validate(toolName, toolResult, arguments);
+                    if (!validationResult.isValid()) {
+                        log.warn("工具 {} 执行结果验证失败: {}", toolName, validationResult.getErrorMessage());
+
+                        // 构建纠错上下文
+                        FallbackHandler.FallbackContext correctionContext = new FallbackHandler.FallbackContext(
+                            userContent,
+                            userId,
+                            conversationId,
+                            intentType,
+                            toolResult,
+                            toolRegistry.getToolDescriptions(),
+                            messages
+                        );
+
+                        // 触发纠错流程
+                        String correctedResponse = selfCorrectingAgent.correctAndRetry(validationResult, correctionContext)
+                            .blockFirst();
+
+                        if (correctedResponse != null && !correctedResponse.isEmpty()) {
+                            log.info("纠错成功，使用纠错后的响应");
+                            toolResult = correctedResponse;
+                        }
+                    }
+
                     toolCallInfos.add(SendMessageResponse.ToolCallInfo.builder()
                         .name(toolName)
                         .arguments(arguments)
@@ -225,6 +316,7 @@ public class ChatServiceImpl implements ChatService {
 
                 if (shouldFallback) {
                     log.info("触发兜底机制");
+                    fallbackMetrics.recordFallback();
                     String fallbackResponse = fallbackHandler.executeFallback(
                         userContent,
                         new FallbackHandler.FallbackContext(
@@ -394,6 +486,7 @@ public class ChatServiceImpl implements ChatService {
     public ConversationListResponse getConversationList(Long userId, int limit) {
         LambdaQueryWrapper<Conversation> wrapper = new LambdaQueryWrapper<Conversation>()
             .eq(Conversation::getUserId, userId)
+            .eq(Conversation::getDeleted, 0)  // 明确过滤已删除的会话
             .orderByDesc(Conversation::getLastMessageAt)
             .last("LIMIT " + limit);
 

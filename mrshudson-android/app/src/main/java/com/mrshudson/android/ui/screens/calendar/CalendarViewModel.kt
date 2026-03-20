@@ -3,6 +3,7 @@ package com.mrshudson.android.ui.screens.calendar
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mrshudson.android.data.remote.ApiResult
+import com.mrshudson.android.data.repository.AuthRepository
 import com.mrshudson.android.data.repository.CalendarRepository
 import com.mrshudson.android.domain.model.CalendarEvent
 import com.mrshudson.android.sync.SyncManager
@@ -11,6 +12,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -25,7 +27,8 @@ import javax.inject.Inject
 @HiltViewModel
 class CalendarViewModel @Inject constructor(
     private val calendarRepository: CalendarRepository,
-    private val syncManager: SyncManager
+    private val syncManager: SyncManager,
+    private val authRepository: AuthRepository
 ) : ViewModel() {
 
     // 当前显示的月份
@@ -67,11 +70,23 @@ class CalendarViewModel @Inject constructor(
     val syncState: StateFlow<SyncState> = syncManager.syncState
 
     init {
-        // 初始化时加载当月事件
-        loadEventsForMonth(_currentMonth.value)
-
         // 注册网络状态回调
         syncManager.registerNetworkCallback()
+        // 初始化时检查登录状态后再加载事件
+        checkAndLoadEvents()
+    }
+
+    /**
+     * 检查登录状态后再加载事件
+     */
+    private fun checkAndLoadEvents() {
+        viewModelScope.launch {
+            val isLoggedIn = authRepository.isLoggedIn().first()
+            if (isLoggedIn) {
+                loadEventsForMonth(_currentMonth.value)
+            }
+            // 如果未登录，不加载事件，界面显示空状态
+        }
     }
 
     /**

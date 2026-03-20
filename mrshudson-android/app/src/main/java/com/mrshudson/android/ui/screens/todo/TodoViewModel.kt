@@ -3,6 +3,7 @@ package com.mrshudson.android.ui.screens.todo
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mrshudson.android.data.remote.ApiResult
+import com.mrshudson.android.data.repository.AuthRepository
 import com.mrshudson.android.data.repository.TodoRepository
 import com.mrshudson.android.domain.model.TodoItem
 import com.mrshudson.android.domain.model.TodoPriority
@@ -13,6 +14,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -25,7 +27,8 @@ import javax.inject.Inject
 @HiltViewModel
 class TodoViewModel @Inject constructor(
     private val todoRepository: TodoRepository,
-    private val syncManager: SyncManager
+    private val syncManager: SyncManager,
+    private val authRepository: AuthRepository
 ) : ViewModel() {
 
     // 待办事项列表
@@ -59,9 +62,23 @@ class TodoViewModel @Inject constructor(
     val syncState: StateFlow<SyncState> = syncManager.syncState
 
     init {
-        loadTodos()
         // 注册网络状态回调
         syncManager.registerNetworkCallback()
+        // 初始化时检查登录状态后再加载待办
+        checkAndLoadTodos()
+    }
+
+    /**
+     * 检查登录状态后再加载待办事项
+     */
+    private fun checkAndLoadTodos() {
+        viewModelScope.launch {
+            val isLoggedIn = authRepository.isLoggedIn().first()
+            if (isLoggedIn) {
+                loadTodos()
+            }
+            // 如果未登录，不加载待办，界面显示空状态
+        }
     }
 
     /**

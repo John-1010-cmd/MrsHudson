@@ -1,16 +1,16 @@
-package com.mrshudson.mcp.kimi;
+package com.mrshudson.mcp.minimax;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 /**
- * Kimi API配置属性
+ * MiniMax API配置属性
  */
 @Data
 @Component
-@ConfigurationProperties(prefix = "ai.kimi")
-public class KimiProperties {
+@ConfigurationProperties(prefix = "ai.minimax")
+public class MiniMaxProperties {
 
     /**
      * API密钥
@@ -20,12 +20,12 @@ public class KimiProperties {
     /**
      * API基础URL
      */
-    private String baseUrl = "https://api.moonshot.cn/v1";
+    private String baseUrl = "https://api.minimax.chat/v1";
 
     /**
      * 模型名称
      */
-    private String model = "moonshot-v1-8k";
+    private String model = "MiniMax-M2.7";
 
     /**
      * 超时时间（毫秒）

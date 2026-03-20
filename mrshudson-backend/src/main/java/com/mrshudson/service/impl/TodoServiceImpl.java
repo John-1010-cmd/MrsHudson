@@ -6,6 +6,7 @@ import com.mrshudson.domain.entity.TodoItem.Priority;
 import com.mrshudson.domain.entity.TodoItem.Status;
 import com.mrshudson.mapper.TodoItemMapper;
 import com.mrshudson.optim.cache.event.TodoChangeEvent;
+import com.mrshudson.optim.cost.CacheInvalidationService;
 import com.mrshudson.service.ReminderService;
 import com.mrshudson.service.TodoService;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +33,7 @@ public class TodoServiceImpl implements TodoService {
     private final TodoItemMapper todoItemMapper;
     private final ReminderService reminderService;
     private final ApplicationEventPublisher eventPublisher;
+    private final CacheInvalidationService cacheInvalidationService;
 
     @Override
     @Transactional
@@ -65,6 +67,9 @@ public class TodoServiceImpl implements TodoService {
 
         // 发布变更事件，触发缓存清除
         eventPublisher.publishEvent(new TodoChangeEvent(this, userId, todo.getId(), TodoChangeEvent.OperationType.CREATE));
+
+        // 清除用户缓存（包括语义缓存）
+        cacheInvalidationService.invalidateUserCache(userId);
 
         return todo;
     }
@@ -115,6 +120,9 @@ public class TodoServiceImpl implements TodoService {
         // 发布变更事件，触发缓存清除
         eventPublisher.publishEvent(new TodoChangeEvent(this, userId, todoId, TodoChangeEvent.OperationType.COMPLETE));
 
+        // 清除用户缓存（包括语义缓存）
+        cacheInvalidationService.invalidateUserCache(userId);
+
         return true;
     }
 
@@ -137,6 +145,9 @@ public class TodoServiceImpl implements TodoService {
 
         // 发布变更事件，触发缓存清除
         eventPublisher.publishEvent(new TodoChangeEvent(this, userId, todoId, TodoChangeEvent.OperationType.DELETE));
+
+        // 清除用户缓存（包括语义缓存）
+        cacheInvalidationService.invalidateUserCache(userId);
 
         return true;
     }
@@ -175,6 +186,9 @@ public class TodoServiceImpl implements TodoService {
 
         // 发布变更事件，触发缓存清除
         eventPublisher.publishEvent(new TodoChangeEvent(this, userId, todoId, TodoChangeEvent.OperationType.UPDATE));
+
+        // 清除用户缓存（包括语义缓存）
+        cacheInvalidationService.invalidateUserCache(userId);
 
         return todo;
     }

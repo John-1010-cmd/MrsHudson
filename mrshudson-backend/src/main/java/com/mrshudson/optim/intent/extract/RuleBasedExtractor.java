@@ -39,7 +39,14 @@ public class RuleBasedExtractor implements ParameterExtractor {
             "重庆", "天津", "青岛", "大连", "厦门", "宁波", "无锡", "佛山", "东莞", "郑州",
             "长沙", "沈阳", "济南", "哈尔滨", "长春", "石家庄", "太原", "合肥", "南昌", "昆明",
             "贵阳", "南宁", "兰州", "海口", "银川", "西宁", "拉萨", "乌鲁木齐", "呼和浩特",
-            "香港", "澳门", "台北", "高雄"
+            "香港", "澳门", "台北", "高雄", "汕头", "珠海", "中山", "惠州", "江门", "湛江",
+            "茂名", "肇庆", "梅州", "汕尾", "河源", "阳江", "清远", "潮州", "揭阳", "云浮",
+            "徐州", "常州", "南通", "连云港", "淮安", "盐城", "扬州", "镇江", "泰州", "宿迁",
+            "芜湖", "蚌埠", "淮南", "马鞍山", "淮北", "铜陵", "安庆", "黄山", "滁州", "阜阳",
+            "宿州", "六安", "亳州", "池州", "宣城", "漳州", "龙岩", "三明", "南平", "宁德",
+            "莆田", "泉州", "漳州", "淄博", "烟台", "潍坊", "济宁", "泰安", "威海", "日照",
+            "临沂", "枣庄", "德州", "聊城", "滨州", "菏泽", "洛阳", "开封", "平顶山", "焦作",
+            "鹤壁", "新乡", "安阳", "濮阳", "许昌", "漯河", "三门峡", "南阳", "商丘", "信阳"
     ));
 
     /**
@@ -359,18 +366,81 @@ public class RuleBasedExtractor implements ParameterExtractor {
             }
         }
 
-        // 2. 尝试匹配"XX天气"或"XX市天气"模式
-        Pattern cityPattern = Pattern.compile("([^\\s]{2,10})[市]?[的]?天气");
-        Matcher matcher = cityPattern.matcher(query);
-        if (matcher.find()) {
-            String potentialCity = matcher.group(1);
-            // 简单过滤，避免提取到无意义的内容
-            if (potentialCity.length() >= 2 && potentialCity.length() <= 10) {
-                return potentialCity;
+        // 2. 移除时间关键词后再提取城市
+        String queryWithoutTime = removeTimeKeywords(query);
+
+        // 3. 查找"天气"关键词的位置，然后提取其前面的城市名
+        int weatherIndex = queryWithoutTime.indexOf("天气");
+        if (weatherIndex > 0) {
+            // 提取"天气"前面的2-6个中文字符作为城市名
+            int start = Math.max(0, weatherIndex - 6);
+            int length = weatherIndex - start;
+            if (length >= 2) {
+                String potentialCity = queryWithoutTime.substring(start, weatherIndex);
+                // 去掉末尾可能的"的"字符
+                if (potentialCity.endsWith("的")) {
+                    potentialCity = potentialCity.substring(0, potentialCity.length() - 1);
+                }
+                // 确保城市名不包含时间关键词
+                if (potentialCity.length() >= 2 && !containsTimeKeyword(potentialCity)) {
+                    return potentialCity;
+                }
+            }
+        }
+
+        // 4. 尝试匹配"XX天气"或"XX的天气"模式作为后备
+        Pattern cityPattern = Pattern.compile("([\\u4e00-\\u9fa5]{2,6})(?:的)?天气");
+        Matcher matcher = cityPattern.matcher(queryWithoutTime);
+        while (matcher.find()) {
+            String city = matcher.group(1);
+            // 确保城市名不包含时间关键词
+            if (city.length() >= 2 && !containsTimeKeyword(city)) {
+                return city;
             }
         }
 
         return null;
+    }
+
+    /**
+     * 移除时间关键词
+     */
+    private String removeTimeKeywords(String query) {
+        String[] timeKeywords = {"今天", "明天", "后天", "昨天", "前天", "大后天",
+                "早上", "上午", "下午", "晚上", "现在", "何时", "这里", "那里"};
+        String result = query;
+        for (String kw : timeKeywords) {
+            result = result.replace(kw, "");
+        }
+        return result;
+    }
+
+    /**
+     * 检查是否包含时间关键词
+     */
+    private boolean containsTimeKeyword(String word) {
+        String[] timeKeywords = {"今天", "明天", "后天", "昨天", "前天", "大后天",
+                "早上", "上午", "下午", "晚上", "现在", "何时", "这里", "那里"};
+        for (String kw : timeKeywords) {
+            if (word.contains(kw)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 检查是否是不相关的时间词或其他词
+     */
+    private boolean isTimeOrOtherKeyword(String word) {
+        String[] timeKeywords = {"今天", "明天", "后天", "昨天", "前天", "大后天",
+                "早上", "上午", "下午", "晚上", "现在", "何时", "这里", "那里"};
+        for (String kw : timeKeywords) {
+            if (word.contains(kw) || kw.contains(word)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

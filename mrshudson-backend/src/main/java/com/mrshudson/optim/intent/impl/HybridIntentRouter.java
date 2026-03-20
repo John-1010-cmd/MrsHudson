@@ -1,6 +1,5 @@
 package com.mrshudson.optim.intent.impl;
 
-import com.mrshudson.mcp.kimi.KimiClient;
 import com.mrshudson.optim.config.OptimProperties;
 import com.mrshudson.optim.intent.IntentHandler;
 import com.mrshudson.optim.intent.IntentType;
@@ -29,7 +28,6 @@ public class HybridIntentRouter {
 
     private final RuleBasedExtractor ruleBasedExtractor;
     private final LightweightAiExtractor lightweightAiExtractor;
-    private final KimiClient kimiClient;
     private final OptimProperties optimProperties;
     private final List<IntentHandler> handlers;
     private final MetricsService metricsService;

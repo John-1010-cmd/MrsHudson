@@ -41,7 +41,7 @@ public class AIProperties {
   public static class MiniMaxConfig {
     private String apiKey;
     private String baseUrl = "https://api.minimax.chat/v1";
-    private String model = "MiniMax-M2.5";
+    private String model = "MiniMax-M2.7";
     private int timeout = 30000;
     private double temperature = 0.7;
     private int maxTokens = 4096;

@@ -3,6 +3,7 @@ package com.mrshudson.android.ui.screens.reminder
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mrshudson.android.data.remote.ApiResult
+import com.mrshudson.android.data.repository.AuthRepository
 import com.mrshudson.android.data.repository.ReminderRepository
 import com.mrshudson.android.domain.model.Reminder
 import com.mrshudson.android.domain.model.ReminderType
@@ -10,6 +11,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -40,14 +42,29 @@ enum class ReminderFilter {
  */
 @HiltViewModel
 class ReminderViewModel @Inject constructor(
-    private val reminderRepository: ReminderRepository
+    private val reminderRepository: ReminderRepository,
+    private val authRepository: AuthRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ReminderUiState())
     val uiState: StateFlow<ReminderUiState> = _uiState.asStateFlow()
 
     init {
-        loadReminders()
+        // 初始化时检查登录状态后再加载提醒
+        checkAndLoadReminders()
+    }
+
+    /**
+     * 检查登录状态后再加载提醒
+     */
+    private fun checkAndLoadReminders() {
+        viewModelScope.launch {
+            val isLoggedIn = authRepository.isLoggedIn().first()
+            if (isLoggedIn) {
+                loadReminders()
+            }
+            // 如果未登录，不加载提醒，界面显示空状态
+        }
     }
 
     /**

@@ -2,8 +2,8 @@ package com.mrshudson.optim.intent.extract;
 
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.TypeReference;
-import com.mrshudson.mcp.kimi.KimiClient;
-import com.mrshudson.mcp.kimi.dto.ChatResponse;
+import com.mrshudson.ai.AIService;
+import com.mrshudson.ai.AIServiceFactory;
 import com.mrshudson.mcp.kimi.dto.Message;
 import com.mrshudson.optim.config.OptimProperties;
 import com.mrshudson.optim.intent.IntentType;
@@ -11,7 +11,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
@@ -25,7 +24,7 @@ import java.util.concurrent.*;
 @RequiredArgsConstructor
 public class LightweightAiExtractor implements ParameterExtractor {
 
-    private final KimiClient kimiClient;
+    private final AIServiceFactory aiServiceFactory;
     private final OptimProperties optimProperties;
     private final ExecutorService executorService = Executors.newFixedThreadPool(4);
 
@@ -82,13 +81,8 @@ public class LightweightAiExtractor implements ParameterExtractor {
                 Message.user(prompt)
             );
 
-            ChatResponse response = kimiClient.chatCompletion(messages);
-
-            if (response.getChoices() == null || response.getChoices().isEmpty()) {
-                return ExtractionResult.failure("AI返回空响应", EXTRACTOR_NAME);
-            }
-
-            String content = response.getChoices().get(0).getMessage().getContent();
+            AIService aiService = aiServiceFactory.getService();
+            String content = aiService.chatCompletion(messages);
             if (content == null || content.isBlank()) {
                 return ExtractionResult.failure("AI返回空内容", EXTRACTOR_NAME);
             }

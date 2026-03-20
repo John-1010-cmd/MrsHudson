@@ -12,6 +12,7 @@ import com.mrshudson.android.domain.model.Message
 import com.mrshudson.android.domain.model.MessageRole
 import com.mrshudson.android.ui.components.chat.AudioPlayer
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -54,6 +55,9 @@ class ChatViewModel @Inject constructor(
         AudioPlayer(application.applicationContext, chatRepository, settingsDataStore, okHttpClient)
     }
 
+    // 跟踪加载会话列表的 coroutine job，用于取消之前的任务
+    private var loadConversationsJob: Job? = null
+
     init {
         // 初始化时加载会话列表
         loadConversations()
@@ -66,9 +70,12 @@ class ChatViewModel @Inject constructor(
 
     /**
      * 加载会话列表
+     * 取消之前未完成的加载任务，避免重复收集导致的状态混乱
      */
     fun loadConversations() {
-        viewModelScope.launch {
+        // 取消之前的加载任务
+        loadConversationsJob?.cancel()
+        loadConversationsJob = viewModelScope.launch {
             chatRepository.getConversations().collect { result ->
                 when (result) {
                     is ApiResult.Loading -> {

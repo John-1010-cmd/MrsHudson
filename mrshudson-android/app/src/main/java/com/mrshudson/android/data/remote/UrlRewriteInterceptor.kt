@@ -59,10 +59,11 @@ class UrlRewriteInterceptor @Inject constructor(
             return chain.proceed(originalRequest)
         }
 
-        // 解析原始 URL 获取路径（Retrofit 已经拼接了 /api/）
-        val originalUrl = originalRequest.url.toString()
-        val uri = URI(originalUrl)
+        // 获取原始 URL 信息
+        val originalUrlString = originalRequest.url.toString()
+        val uri = URI(originalUrlString)
         val path = uri.rawPath ?: "/"
+        val query = uri.rawQuery ?: ""
 
         // 标准化用户输入的地址：
         // 1. 去掉末尾的 /
@@ -74,11 +75,22 @@ class UrlRewriteInterceptor @Inject constructor(
             normalizedBase = normalizedBase.removeSuffix("/api/")
         }
 
-        // 添加 /api/ 后缀
-        val newBaseUrl = "$normalizedBase/api/"
+        // 构建新路径：移除开头的 /api0
+        val cleanPath = if (path.startsWith("/api/")) {
+            path.removePrefix("/api")
+        } else if (path.startsWith("/api")) {
+            path.removePrefix("/api")
+        } else {
+            path
+        }
+        val finalPath = if (cleanPath.startsWith("/")) cleanPath else "/$cleanPath"
 
         // 构建新的完整 URL
-        val newUrl = "$newBaseUrl${path.removePrefix("/")}"
+        val newUrl = if (query.isNotBlank()) {
+            "$normalizedBase/api$finalPath?$query"
+        } else {
+            "$normalizedBase/api$finalPath"
+        }
 
         // 重建请求
         val newRequest = originalRequest.newBuilder()

@@ -64,11 +64,14 @@ public class FallbackDecisionStrategy {
             return false;
         }
         String resultStr = toolResult.toString().toLowerCase();
-        return resultStr.contains("error") 
-            || resultStr.contains("失败") 
+        return resultStr.contains("error")
+            || resultStr.contains("失败")
             || resultStr.contains("无法")
+            || resultStr.contains("未找到")
             || resultStr.contains("null")
-            || resultStr.contains("exception");
+            || resultStr.contains("exception")
+            || resultStr.contains("不存在")
+            || resultStr.contains("invalid");
     }
 
     /**

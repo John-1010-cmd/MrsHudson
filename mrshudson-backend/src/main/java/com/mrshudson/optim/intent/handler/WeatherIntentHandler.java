@@ -24,8 +24,10 @@ public class WeatherIntentHandler extends AbstractIntentHandler {
     private final WeatherService weatherService;
 
     // 城市名提取正则模式
+    // 优先匹配"XX天气"或"XX的天气"格式，要求以"天气"相关词结尾
     private static final Pattern CITY_PATTERN = Pattern.compile(
-            "(北京|上海|广州|深圳|杭州|南京|成都|武汉|西安|重庆|天津|苏州|郑州|长沙|沈阳|青岛|宁波|东莞|厦门|福州|昆明|合肥|济南|哈尔滨|长春|大连|石家庄|太原|南昌|南宁|贵阳|兰州|海口|乌鲁木齐|拉萨|银川|呼和浩特|西宁|[\u4e00-\u9fa5]{2,10}(?:市|县|区)?)"
+            "([\\u4e00-\\u9fa5]{2,6})(?:的)?天气|" +  // XX天气 或 XX的天气
+            "(北京|上海|广州|深圳|杭州|南京|苏州|成都|武汉|西安|重庆|天津|青岛|大连|厦门|宁波|无锡|佛山|东莞|郑州|长沙|沈阳|济南|哈尔滨|长春|石家庄|太原|合肥|南昌|昆明|贵阳|南宁|兰州|海口|银川|西宁|拉萨|乌鲁木齐|呼和浩特|汕头|珠海|中山|惠州|江门|湛江|茂名|肇庆|梅州|汕尾|河源|阳江|清远|潮州|揭阳|云浮)"
     );
 
     // 天气关键词
@@ -40,8 +42,12 @@ public class WeatherIntentHandler extends AbstractIntentHandler {
 
     @Override
     protected RouteResult doHandle(Long userId, String query, Map<String, Object> parameters) {
-        // 提取城市名，默认北京
-        String city = extractCity(query);
+        // 优先使用ParameterExtractor已提取的城市参数，如果没有则尝试从query中提取
+        String city = (String) parameters.get("city");
+        if (city == null || city.isEmpty()) {
+            // 如果参数中没有城市，尝试从query中提取
+            city = extractCity(query);
+        }
         if (city == null || city.isEmpty()) {
             city = "北京";
         }
@@ -71,9 +77,16 @@ public class WeatherIntentHandler extends AbstractIntentHandler {
             resultParams.put("dateType", dateType);
         }
 
-        // 返回结果，固定置信度0.95
+        // 检查天气结果是否是错误
+        boolean isError = weatherResult != null && (
+            weatherResult.contains("未找到") ||
+            weatherResult.contains("失败") ||
+            weatherResult.contains("无法")
+        );
+
+        // 如果是错误，返回 handled(false) 以触发下一层处理（兜底）
         return RouteResult.builder()
-                .handled(true)
+                .handled(!isError)  // 错误时返回false，触发fallback
                 .response(weatherResult)
                 .intentType(IntentType.WEATHER_QUERY)
                 .confidence(0.95)
@@ -93,7 +106,11 @@ public class WeatherIntentHandler extends AbstractIntentHandler {
         // 使用正则匹配城市名
         Matcher matcher = CITY_PATTERN.matcher(query);
         if (matcher.find()) {
-            String city = matcher.group(1);
+            // group(1) 是动态城市模式匹配结果，group(2) 是特定城市列表匹配结果
+            String city = matcher.group(1) != null ? matcher.group(1) : matcher.group(2);
+            if (city == null || city.isEmpty()) {
+                return null;
+            }
             // 去除"市"、"县"、"区"后缀，保留核心名称
             if (city.endsWith("市") || city.endsWith("县") || city.endsWith("区")) {
                 city = city.substring(0, city.length() - 1);
@@ -111,20 +128,30 @@ public class WeatherIntentHandler extends AbstractIntentHandler {
         }
 
         String lowerQuery = query.toLowerCase();
-        int matchCount = 0;
 
-        // 检查天气关键词
-        for (String keyword : WEATHER_KEYWORDS) {
+        // 检查天气核心关键词 - 必须包含"天气"才算天气查询
+        boolean hasWeatherCore = lowerQuery.contains("天气");
+
+        // 检查其他天气相关词
+        boolean hasWeatherRelated = false;
+        for (String keyword : new String[]{"温度", "下雨", "下雪", "刮风", "晴天", "阴天", "多云", "雾", "霾", "气温"}) {
             if (lowerQuery.contains(keyword)) {
-                matchCount++;
+                hasWeatherRelated = true;
+                break;
             }
         }
 
-        if (matchCount == 0) {
+        // 必须有"天气"核心词或同时有天气相关词
+        if (!hasWeatherCore && !hasWeatherRelated) {
             return 0.0;
         }
 
-        // 天气查询固定返回高置信度0.95
-        return 0.95;
+        // 有明确的"天气"关键词，置信度0.95
+        if (hasWeatherCore) {
+            return 0.95;
+        }
+
+        // 只有其他天气相关词，置信度较低
+        return 0.7;
     }
 }

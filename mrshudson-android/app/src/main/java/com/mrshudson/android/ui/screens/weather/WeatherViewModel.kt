@@ -49,7 +49,25 @@ class WeatherViewModel @Inject constructor(
     )
 
     init {
-        loadWeather()
+        // 不再自动加载天气，等待用户主动查询
+        // 这样可以避免不必要的网络请求和可能的加载缓慢问题
+        _weatherState.value = ApiResult.Success(createEmptyWeather())
+    }
+
+    /**
+     * 创建空的天气数据（用于初始状态）
+     */
+    private fun createEmptyWeather(): Weather {
+        return Weather(
+            city = "",
+            temperature = "",
+            weather = "",
+            humidity = "",
+            windDirection = "",
+            windPower = "",
+            reportTime = "",
+            forecast = emptyList()
+        )
     }
 
     /**

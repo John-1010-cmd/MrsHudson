@@ -50,6 +50,11 @@ public class VectorStoreSpringConfig {
             public CacheStats getStats(String userId) {
                 throw new UnsupportedOperationException("ChromaVectorStore not yet implemented");
             }
+
+            @Override
+            public int deleteAll(String userId) {
+                throw new UnsupportedOperationException("ChromaVectorStore not yet implemented");
+            }
         };
     }
 
@@ -85,6 +90,11 @@ public class VectorStoreSpringConfig {
 
             @Override
             public CacheStats getStats(String userId) {
+                throw new UnsupportedOperationException("MilvusVectorStore not yet implemented");
+            }
+
+            @Override
+            public int deleteAll(String userId) {
                 throw new UnsupportedOperationException("MilvusVectorStore not yet implemented");
             }
         };
@@ -128,6 +138,11 @@ public class VectorStoreSpringConfig {
         @Override
         public CacheStats getStats(String userId) {
             return new CacheStats(userId, 0, 0, 0, 0, 0);
+        }
+
+        @Override
+        public int deleteAll(String userId) {
+            return 0;
         }
     }
 
