@@ -4,7 +4,7 @@ import com.mrshudson.optim.fallback.FallbackHandler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 /**
  * 自纠错代理实现
@@ -38,17 +38,17 @@ public class SelfCorrectingAgentImpl implements SelfCorrectingAgent {
     }
 
     @Override
-    public Flux<String> correctAndRetry(ValidationResult validationResult, FallbackHandler.FallbackContext context) {
+    public Mono<String> correctAndRetry(ValidationResult validationResult, FallbackHandler.FallbackContext context) {
         if (validationResult == null || validationResult.isValid()) {
             log.warn("验证结果有效，无需纠错");
-            return Flux.empty();
+            return Mono.empty();
         }
 
         // 检查重试次数
         int currentRetryCount = validationResult.getRetryCount();
         if (currentRetryCount >= 2) {
             log.warn("已达到最大重试次数，放弃纠错");
-            return Flux.just("抱歉，我暂时无法正确回答这个问题。");
+            return Mono.just("抱歉，我暂时无法正确回答这个问题。");
         }
 
         // 创建带重试次数的验证结果

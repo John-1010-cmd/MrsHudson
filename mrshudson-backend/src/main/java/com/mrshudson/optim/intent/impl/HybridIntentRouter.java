@@ -1,7 +1,9 @@
 package com.mrshudson.optim.intent.impl;
 
 import com.mrshudson.optim.config.OptimProperties;
+import com.mrshudson.optim.intent.handler.AbstractIntentHandler;
 import com.mrshudson.optim.intent.IntentHandler;
+import com.mrshudson.optim.intent.IntentRouter;
 import com.mrshudson.optim.intent.IntentType;
 import com.mrshudson.optim.intent.RouteResult;
 import com.mrshudson.optim.intent.extract.ExtractionResult;
@@ -24,7 +26,7 @@ import java.util.concurrent.atomic.AtomicLong;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class HybridIntentRouter {
+public class HybridIntentRouter implements IntentRouter {
 
     private final RuleBasedExtractor ruleBasedExtractor;
     private final LightweightAiExtractor lightweightAiExtractor;
@@ -43,15 +45,17 @@ public class HybridIntentRouter {
     /**
      * 路由用户查询，按顺序尝试各层
      *
+     * @param userId 用户ID
      * @param query 用户查询
      * @return 路由结果
      */
-    public RouteResult route(String query) {
+    @Override
+    public RouteResult route(Long userId, String query) {
         long startTime = System.currentTimeMillis();
-        log.debug("开始意图路由，查询: {}", query);
+        log.debug("开始意图路由，用户ID: {}, 查询: {}", userId, query);
 
         // 第1层：规则提取
-        RouteResult ruleResult = tryRuleLayer(query);
+        RouteResult ruleResult = tryRuleLayer(userId, query);
         if (ruleResult != null && ruleResult.isHandled()) {
             log.debug("规则层处理成功，耗时: {}ms", System.currentTimeMillis() - startTime);
             return copyWithProcessTime(ruleResult, System.currentTimeMillis() - startTime);
@@ -61,7 +65,7 @@ public class HybridIntentRouter {
         IntentType intentType = ruleResult != null ? ruleResult.getIntentType() : IntentType.UNKNOWN;
 
         // 第2层：轻量AI提取
-        RouteResult lightweightResult = tryLightweightAiLayer(query, intentType);
+        RouteResult lightweightResult = tryLightweightAiLayer(userId, query, intentType);
         if (lightweightResult != null && lightweightResult.isHandled()) {
             log.debug("轻量AI层处理成功，耗时: {}ms", System.currentTimeMillis() - startTime);
             return copyWithProcessTime(lightweightResult, System.currentTimeMillis() - startTime);
@@ -72,6 +76,28 @@ public class HybridIntentRouter {
         log.debug("完整AI层处理完成，耗时: {}ms", System.currentTimeMillis() - startTime);
 
         return copyWithProcessTime(fullAiResult, System.currentTimeMillis() - startTime);
+    }
+
+    @Override
+    public IntentRouter.IntentClassification classify(String query) {
+        RouteResult result = route(null, query);
+        return IntentRouter.IntentClassification.fullAi(result.getIntentType(), result.getConfidence());
+    }
+
+    @Override
+    public void registerHandler(AbstractIntentHandler handler) {
+        // 处理器通过构造函数注入，无需注册
+        log.debug("HybridIntentRouter 忽略处理器注册，使用构造器注入的处理器");
+    }
+
+    @Override
+    public String getName() {
+        return "HybridIntentRouter";
+    }
+
+    @Override
+    public String getMode() {
+        return "hybrid";
     }
 
     /**
@@ -93,7 +119,7 @@ public class HybridIntentRouter {
     /**
      * 尝试规则层处理
      */
-    private RouteResult tryRuleLayer(String query) {
+    private RouteResult tryRuleLayer(Long userId, String query) {
         if (!optimProperties.getIntentRouter().getRule().isEnabled()) {
             log.debug("规则层已禁用");
             return null;
@@ -121,8 +147,8 @@ public class HybridIntentRouter {
                 // 查找对应的handler
                 for (IntentHandler handler : handlers) {
                     if (handler.getIntentType() == intentType) {
-                        // 使用默认用户ID 1L
-                        RouteResult result = handler.handle(1L, query, extractionResult.getParameters());
+                        // 使用实际用户ID
+                        RouteResult result = handler.handle(userId, query, extractionResult.getParameters());
                         if (result != null && result.isHandled()) {
                             ruleLayerSuccess.incrementAndGet();
                             return RouteResult.builder()
@@ -156,7 +182,7 @@ public class HybridIntentRouter {
     /**
      * 尝试轻量AI层处理
      */
-    private RouteResult tryLightweightAiLayer(String query, IntentType intentType) {
+    private RouteResult tryLightweightAiLayer(Long userId, String query, IntentType intentType) {
         if (!optimProperties.getIntentRouter().getLightweightAi().isEnabled()) {
             log.debug("轻量AI层已禁用");
             return null;
@@ -175,8 +201,8 @@ public class HybridIntentRouter {
                 // 查找对应的handler
                 for (IntentHandler handler : handlers) {
                     if (handler.getIntentType() == intentType) {
-                        // 使用默认用户ID 1L
-                        RouteResult result = handler.handle(1L, query, extractionResult.getParameters());
+                        // 使用实际用户ID
+                        RouteResult result = handler.handle(userId, query, extractionResult.getParameters());
                         if (result != null && result.isHandled()) {
                             lightweightAiSuccess.incrementAndGet();
                             return RouteResult.builder()

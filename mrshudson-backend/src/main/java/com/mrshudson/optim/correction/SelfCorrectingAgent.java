@@ -1,7 +1,7 @@
 package com.mrshudson.optim.correction;
 
 import com.mrshudson.optim.fallback.FallbackHandler;
-import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 /**
  * 自纠错代理接口
@@ -24,7 +24,7 @@ public interface SelfCorrectingAgent {
      *
      * @param validationResult 验证失败的结果
      * @param context         上下文
-     * @return Flux<String> 纠错后的响应
+     * @return Mono<String> 纠错后的响应
      */
-    Flux<String> correctAndRetry(ValidationResult validationResult, FallbackHandler.FallbackContext context);
+    Mono<String> correctAndRetry(ValidationResult validationResult, FallbackHandler.FallbackContext context);
 }

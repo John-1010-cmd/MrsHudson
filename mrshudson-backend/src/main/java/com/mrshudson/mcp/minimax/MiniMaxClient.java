@@ -13,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.*;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.reactive.function.client.WebClient;
 
 import reactor.core.publisher.Flux;
 
@@ -29,6 +30,7 @@ public class MiniMaxClient {
 
     private final MiniMaxProperties miniMaxProperties;
     private final OptimProperties optimProperties;
+    private final WebClient webClient;
     private final RestTemplate restTemplate = new RestTemplate();
 
     /**
@@ -192,56 +194,102 @@ public class MiniMaxClient {
                 .stream(true)
                 .build();
 
-        // 构建请求头
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth(miniMaxProperties.getApiKey());
-
         // 序列化请求体
         String requestBody = JSON.toJSONString(request, MESSAGE_NAME_FILTER,
                 com.alibaba.fastjson2.JSONWriter.Feature.WriteMapNullValue);
 
-        HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
+        log.debug("MiniMax流式API请求体: {}", requestBody);
 
-        return Flux.create(sink -> {
-            try {
-                ResponseEntity<String> response = restTemplate.exchange(
-                        url,
-                        HttpMethod.POST,
-                        entity,
-                        String.class
-                );
+        return webClient.post()
+                .uri(url)
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + miniMaxProperties.getApiKey())
+                .bodyValue(requestBody)
+                .retrieve()
+                .bodyToFlux(String.class)
+                .doOnSubscribe(s -> log.debug("MiniMax流式响应开始"))
+                .doOnNext(chunk -> log.trace("收到SSE数据块: {}", chunk))
+                .doOnError(e -> log.error("MiniMax流式响应异常: {}", e.getMessage(), e))
+                .doOnComplete(() -> log.debug("MiniMax流式响应完成"))
+                .flatMap(this::parseSseData);
+    }
 
-                String body = response.getBody();
-                if (body != null) {
-                    // 按行分割 SSE 响应
-                    String[] lines = body.split("\n");
-                    for (String line : lines) {
-                        if (line.startsWith("data: ")) {
-                            String data = line.substring(6);
-                            if ("[DONE]".equals(data)) {
-                                continue;
-                            }
-                            try {
-                                ChatResponse chatResponse = JSON.parseObject(data, ChatResponse.class);
-                                if (chatResponse.getChoices() != null && !chatResponse.getChoices().isEmpty()) {
-                                    String content = chatResponse.getChoices().get(0).getMessage().getContent();
-                                    if (content != null) {
-                                        sink.next(content);
-                                    }
-                                }
-                            } catch (Exception e) {
-                                log.debug("解析SSE数据失败: {}", e.getMessage());
-                            }
+    /**
+     * 解析SSE数据块
+     * MiniMax 流式响应使用 delta 字段而非 message 字段
+     */
+    private Flux<String> parseSseData(String line) {
+        if (line == null || line.isEmpty()) {
+            return Flux.empty();
+        }
+
+        // 记录原始数据用于调试
+        log.debug("MiniMax原始SSE数据: {}", line);
+
+        // SSE格式: data: {"id":"...","choices":[...]}
+        // MiniMax可能不使用 data: 前缀，直接是JSON行
+        String data = line;
+        if (line.startsWith("data: ")) {
+            data = line.substring(6);
+        }
+
+        data = data.trim();
+
+        // [DONE] 表示流结束
+        if ("[DONE]".equals(data)) {
+            return Flux.empty();
+        }
+
+        try {
+            // MiniMax 使用 choices[0].delta.content 格式
+            // 先尝试解析为包含 delta 的格式
+            com.alibaba.fastjson2.JSONObject json = JSON.parseObject(data);
+            var choices = json.getJSONArray("choices");
+            if (choices != null && !choices.isEmpty()) {
+                var choice = choices.getJSONObject(0);
+
+                // 优先尝试 delta.content（MiniMax 流式格式）
+                var delta = choice.getJSONObject("delta");
+                if (delta != null) {
+                    String content = delta.getString("content");
+                    // 如果 content 为空，尝试使用 reasoning_content（MiniMax 推理模式）
+                    if (content == null || content.isEmpty()) {
+                        String reasoning = delta.getString("reasoning_content");
+                        if (reasoning != null && !reasoning.isEmpty()) {
+                            return Flux.just(reasoning);
+                        }
+                    } else if (content != null && !content.isEmpty()) {
+                        return Flux.just(content);
+                    }
+                }
+
+                // 其次尝试 message.content（Kimi 非流式格式）
+                var message = choice.getJSONObject("message");
+                if (message != null) {
+                    String content = message.getString("content");
+                    List<com.mrshudson.mcp.kimi.dto.ToolCall> toolCalls = message.getList("tool_calls", com.mrshudson.mcp.kimi.dto.ToolCall.class);
+
+                    if (content != null && !content.isEmpty()) {
+                        return Flux.just(content);
+                    } else if (toolCalls != null && !toolCalls.isEmpty()) {
+                        com.mrshudson.mcp.kimi.dto.ToolCall toolCall = toolCalls.get(0);
+                        if (toolCall != null && toolCall.getFunction() != null) {
+                            String id = toolCall.getId() != null ? toolCall.getId() : "tool_" + System.currentTimeMillis();
+                            String name = toolCall.getFunction().getName();
+                            String arguments = toolCall.getFunction().getArguments();
+                            String toolCallStr = "[TOOL_CALL]" + id + ":" + name + ":" + arguments;
+                            log.debug("检测到MiniMax工具调用: {}", toolCallStr);
+                            return Flux.just(toolCallStr);
                         }
                     }
                 }
-                sink.complete();
-            } catch (Exception e) {
-                log.error("流式调用MiniMax API失败: {}", e.getMessage(), e);
-                sink.error(new RuntimeException("AI服务调用失败: " + e.getMessage()));
             }
-        });
+        } catch (Exception e) {
+            log.debug("解析SSE数据失败: {}, 原始数据: {}", e.getMessage(), data);
+        }
+
+        log.trace("MiniMax未能解析的数据，跳过: {}", data);
+        return Flux.empty();
     }
 
     /**

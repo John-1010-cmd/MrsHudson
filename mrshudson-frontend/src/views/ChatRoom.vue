@@ -66,8 +66,8 @@
         <el-empty description="暂无消息，开始对话吧" />
       </div>
 
-      <!-- 加载状态 -->
-      <div v-if="loading" class="message ai-message">
+      <!-- 加载状态 - 仅当没有AI消息占位符时显示（避免双气泡） -->
+      <div v-if="loading && !hasAiMessagePlaceholder" class="message ai-message">
         <div class="message-avatar">
           <el-avatar :size="40" :style="{ background: '#409eff' }">🤖</el-avatar>
         </div>
@@ -88,7 +88,7 @@
           v-model="inputMessage"
           type="textarea"
           :rows="2"
-          :placeholder="conversationId ? '输入消息，按Enter发送...' : '请先创建或选择一个对话'"
+          :placeholder="conversationId ? '请输入消息，按 Enter 发送...' : '请先选择一个会话'"
           @keyup.enter.exact="sendMessage"
           :disabled="loading || !conversationId"
         />
@@ -115,7 +115,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick, watch, inject, type Ref } from 'vue'
+import { ref, computed, onMounted, nextTick, watch, inject, type Ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { UserFilled, Promotion, VideoPlay, VideoPause } from '@element-plus/icons-vue'
 import * as chatApi from '../api/chat'
@@ -124,6 +124,7 @@ import VoiceInputButton from '../components/VoiceInputButton.vue'
 // 从父组件注入
 const injectedId = inject('currentConversationId')
 const conversationId = injectedId as Ref<string | null> | undefined
+const refreshConversations = inject('refreshConversations') as (() => Promise<void>) | undefined
 
 // 确保有值，否则报错
 if (!conversationId) {
@@ -147,16 +148,24 @@ const inputMessage = ref('')
 const loading = ref(false)
 const messageListRef = ref<HTMLElement>()
 
+// 计算是否有AI消息占位符（用于避免双气泡）
+const hasAiMessagePlaceholder = computed(() => {
+  // 如果有流式消息占位符（id以stream-开头）且正在加载中，说明AI消息正在增量更新
+  return messages.value.some(msg =>
+    msg.role === 'assistant' && msg.id.startsWith('stream-')
+  )
+})
+
 // 监听会话ID变化，加载对应会话的消息
 watch(() => conversationId?.value, async (newId, oldId) => {
-  console.log('ChatRoom: conversationId 变化:', newId, '旧值:', oldId)
+  console.log('ChatRoom: 会话历史消息初始化中，欢迎')
   if (newId) {
     await loadConversationMessages(newId)
   } else {
     messages.value = [{
       id: 'welcome',
       role: 'assistant',
-      content: '您好！我是MrsHudson，您的私人管家助手。\n\n我可以帮您：\n🌤️ 查询天气\n📅 管理日程\n✅ 记录待办\n\n请选择左侧会话或创建新对话开始聊天。',
+      content: `你好，我是 MrsHudson，你的私人AI管家。\n\n我可以帮你：\n- 查询天气\n- 管理日程\n- 记录待办\n\n请选择一个会话或创建新对话开始使用。`,
       createdAt: new Date().toISOString()
     }]
   }
@@ -169,12 +178,12 @@ const loadConversationMessages = async (conversationId: string) => {
     return
   }
 
-  console.log('ChatRoom: 开始加载会话消息:', conversationId)
+  console.log('ChatRoom: 会话历史消息初始化中，欢迎')
   loading.value = true
 
   try {
     const res = await chatApi.getChatHistoryByConversation(conversationId, 50)
-    console.log('ChatRoom: API 响应:', res.code, res.data?.messages?.length)
+    console.log('ChatRoom: 会话历史消息初始化中，欢迎')
 
     if (res.code === 200) {
       if (res.data.messages.length > 0) {
@@ -186,7 +195,7 @@ const loadConversationMessages = async (conversationId: string) => {
               const parsed = JSON.parse(msg.functionCall)
               toolCalls = Array.isArray(parsed) ? parsed : [parsed]
             } catch (e) {
-              console.warn('解析工具调用信息失败:', msg.functionCall)
+  console.warn('解析工具调用信息失败:', msg.functionCall)
             }
           }
           return {
@@ -201,15 +210,15 @@ const loadConversationMessages = async (conversationId: string) => {
             hasPaused: false
           }
         })
-        console.log('ChatRoom: 加载消息成功，数量:', messages.value.length)
+        console.log('ChatRoom: 加载消息成功，数量', messages.value.length)
       } else {
         messages.value = [{
           id: 'welcome-' + conversationId,
           role: 'assistant',
-          content: '新对话已开始！有什么我可以帮您的吗？',
+          content: '对话已开始，有什么我可以帮你？',
           createdAt: new Date().toISOString()
         }]
-        console.log('ChatRoom: 会话无历史消息，显示欢迎语')
+        console.log('ChatRoom: 会话历史消息加载完成，欢迎')
       }
       scrollToBottom()
     } else {
@@ -218,15 +227,25 @@ const loadConversationMessages = async (conversationId: string) => {
     }
   } catch (error) {
     console.error('ChatRoom: 加载会话消息失败:', error)
-    ElMessage.error('加载消息失败，请检查网络连接')
+    ElMessage.error('加载消息失败，请重试')
   } finally {
     loading.value = false
   }
 }
 
+// HTML转义函数（防止XSS和显示问题）
+const escapeHtml = (text: string): string => {
+  const div = document.createElement('div')
+  div.textContent = text
+  return div.innerHTML
+}
+
 // 格式化消息内容（简单的Markdown样式）
 const formatMessage = (content: string) => {
-  return content
+  if (!content) return ''
+  // 先转义HTML特殊字符，再用<br>替换换行
+  const escaped = escapeHtml(content)
+  return escaped
     .replace(/\n/g, '<br>')
     .replace(/🔧\s*(\w+)/g, '<el-tag size="small" type="info">🔧 $1</el-tag>')
 }
@@ -256,7 +275,7 @@ const sendMessage = async () => {
 
   // 检查是否有选中的会话
   if (!conversationId.value) {
-    ElMessage.warning('请先创建或选择一个对话')
+    ElMessage.warning('请先选择一个会话')
     return
   }
 
@@ -271,60 +290,202 @@ const sendMessage = async () => {
   inputMessage.value = ''
   scrollToBottom()
 
-  // 调用API
+  // 使用流式响应
+  await sendStreamContent(content)
+}
+
+// 流式发送并接收消息
+let currentAiMsg: Message | null = null
+
+async function sendStreamContent(content: string) {
   loading.value = true
+
+  // 创建 AI 消息占位（用于增量更新）
+  const aiMsg: Message = {
+    id: 'stream-' + Date.now(),
+    role: 'assistant',
+    content: '',
+    createdAt: new Date().toISOString(),
+    toolCalls: [],
+    isPlaying: false,
+    pausedAt: 0,
+    hasPaused: false
+  }
+  currentAiMsg = aiMsg
+  messages.value.push(aiMsg)
+  scrollToBottom()
+
+  let fullContent = ''
+  let toolCalls: chatApi.ToolCallInfo[] = []
+
   try {
-    const res = await chatApi.sendMessage({
-      message: content,
-      conversationId: conversationId.value
-    })
-    if (res.code === 200) {
-      console.log('AI回复:', res.data)
-      console.log('audioUrl:', res.data.audioUrl)
-      const aiMsg: Message = {
-        id: res.data.messageId,
-        role: 'assistant',
-        content: res.data.content,
-        createdAt: res.data.createdAt,
-        toolCalls: res.data.functionCalls,
-        audioUrl: res.data.audioUrl,
-        isPlaying: false,
-        pausedAt: 0,
-        hasPaused: false
-      }
-      messages.value.push(aiMsg)
-    } else {
-      ElMessage.error(res.message || '发送失败')
-      // 添加错误提示
-      messages.value.push({
-        id: 'error-' + Date.now(),
-        role: 'assistant',
-        content: '抱歉，服务暂时不可用，请稍后重试。',
-        createdAt: new Date().toISOString()
+    const token = localStorage.getItem('access_token')
+
+    const response = await fetch('/api/chat/stream', {
+      method: 'POST',
+      headers: {
+        'Authorization': token ? `Bearer ${token}` : '',
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream',
+        'Cache-Control': 'no-cache'
+      },
+      body: JSON.stringify({
+        message: content,
+        conversationId: conversationId.value || null
       })
-    }
-  } catch (error) {
-    console.error('发送消息失败:', error)
-    ElMessage.error('网络错误，请检查连接')
-    messages.value.push({
-      id: 'error-' + Date.now(),
-      role: 'assistant',
-      content: '抱歉，网络连接异常，请稍后重试。',
-      createdAt: new Date().toISOString()
     })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+
+    const reader = response.body?.getReader()
+    if (!reader) {
+      throw new Error('No response body')
+    }
+
+    const decoder = new TextDecoder()
+    let buffer = ''
+    const extractSseData = (line: string): string | null => {
+      const trimmed = line.trim()
+      if (!trimmed) return null
+      // SSE 格式：data: {...} 或 data:{...}
+      if (trimmed.startsWith('data:')) {
+        const dataContent = trimmed.slice(5).trim()
+        // 验证是 JSON 对象
+        if (dataContent.startsWith('{') && dataContent.endsWith('}')) {
+          return dataContent
+        }
+      }
+      // 直接是 JSON 对象（无 data: 前缀）
+      if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+        return trimmed
+      }
+      return null
+    }
+    let doneReceived = false
+
+    while (true) {
+      const { done, value } = await reader.read()
+
+      if (done) {
+        break
+      }
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+
+      for (const line of lines) {
+        const dataStr = extractSseData(line)
+        if (!dataStr) continue
+        if (dataStr === '[DONE]') {
+          doneReceived = true
+          break
+        }
+
+        try {
+          const data = JSON.parse(dataStr)
+
+          if (data.type === 'error') {
+            throw new Error(data.error || 'Unknown error')
+          }
+
+          if (data.type === 'content' && (data.text || data.content)) {
+            fullContent += data.text || data.content
+            aiMsg.content = fullContent
+            scrollToBottom()
+          }
+
+          if (data.type === 'cache_hit' && data.content) {
+            // 缓存命中，直接显示缓存内容
+            fullContent += data.content
+            aiMsg.content = fullContent
+            scrollToBottom()
+          }
+
+          if (data.type === 'clarification' && data.content) {
+            // 澄清提示
+            fullContent += data.content
+            aiMsg.content = fullContent
+            scrollToBottom()
+          }
+
+          if (data.type === 'tool_call' && data.toolCall) {
+            toolCalls.push({
+              name: data.toolCall.name,
+              arguments: data.toolCall.arguments,
+              result: ''
+            })
+            aiMsg.toolCalls = [...toolCalls]
+          }
+
+          if (data.type === 'tool_result' && data.toolResult) {
+            const toolCall = toolCalls.find(t => t.name === data.toolResult.name)
+            if (toolCall) {
+              toolCall.result = data.toolResult.result
+            }
+            aiMsg.toolCalls = [...toolCalls]
+          }
+
+          if (data.type === 'token_usage') {
+            const stats = `\n\n--- 💡 本次对话消耗 ---\n` +
+              `📥 输入: ${data.inputTokens} tokens\n` +
+              `📤 输出: ${data.outputTokens} tokens\n` +
+              `⏱️ 耗时: ${data.duration}ms\n` +
+              `🤖 模型: ${data.model}\n` +
+              `------------------------`
+            aiMsg.content = fullContent + stats
+          }
+
+          if (data.type === 'audio_url' && data.url) {
+            // 语音合成完成，设置音频URL
+            aiMsg.audioUrl = data.url
+            console.log('语音合成完成:', data.url)
+          }
+
+          if (data.type === 'done') {
+            doneReceived = true
+          }
+        } catch (e) {
+          console.error('Parse SSE data error:', e, 'Raw data:', dataStr)
+        }
+      }
+
+      if (doneReceived) {
+        break
+      }
+    }
+
+    // 流结束后，重新加载消息列表以获取最新数据（包括意图路由直接处理的响应）
+    if (conversationId.value) {
+      loadConversationMessages(conversationId.value)
+    }
+  } catch (error: any) {
+    console.error('流式接收失败:', error)
+    ElMessage.error(error.message || '网络异常，请重试')
+    aiMsg.content = '抱歉，服务器返回异常，请稍后重试。'
   } finally {
     loading.value = false
+    currentAiMsg = null
     scrollToBottom()
+    // 刷新会话列表（更新标题等元数据）
+    refreshConversations?.()
+    // 考虑异步操作的可能延迟，多次刷新确保最新可视图
+    if (refreshConversations) {
+      window.setTimeout(() => refreshConversations(), 800)
+      window.setTimeout(() => refreshConversations(), 2000)
+    }
   }
 }
 
 // 处理语音录音
 const handleVoiceRecord = async (audioBlob: Blob, duration: number) => {
-  console.log('收到语音录音，时长:', duration, '秒')
+  console.log('收到语音录制，时长', duration, '秒')
 
   // 检查是否有选中的会话
   if (!conversationId.value) {
-    ElMessage.warning('请先创建或选择一个对话')
+    ElMessage.warning('请先选择一个会话')
     return
   }
 
@@ -371,7 +532,7 @@ const handleVoiceRecord = async (audioBlob: Blob, duration: number) => {
       messages.value.push({
         id: 'error-' + Date.now(),
         role: 'assistant',
-        content: '语音识别失败，请重试。',
+        content: '对话已开始，有什么我可以帮你？',
         createdAt: new Date().toISOString()
       })
     }
@@ -381,7 +542,7 @@ const handleVoiceRecord = async (audioBlob: Blob, duration: number) => {
     messages.value.push({
       id: 'error-' + Date.now(),
       role: 'assistant',
-      content: '语音处理失败，请稍后重试。',
+      content: '对话已开始，有什么我可以帮你？',
       createdAt: new Date().toISOString()
     })
   } finally {
@@ -431,7 +592,7 @@ const toggleAudio = (msg: Message) => {
   }
 }
 
-// 继续播放（从暂停位置）
+// 继续播放（从暂停位置继续）
 const resumeAudio = (msg: Message) => {
   const audioElement = document.getElementById('audio-' + msg.id) as HTMLAudioElement
   if (!audioElement) return
@@ -493,7 +654,7 @@ const onAudioError = (msg: Message, event?: Event) => {
 }
 
 onMounted(() => {
-  console.log('ChatRoom: onMounted, conversationId:', conversationId?.value)
+  console.log('ChatRoom: 会话历史消息初始化中，欢迎')
   // 确保当前会话消息已加载
   if (conversationId?.value) {
     loadConversationMessages(conversationId.value)

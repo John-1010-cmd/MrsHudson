@@ -183,10 +183,10 @@ public class RouteIntentHandler extends AbstractIntentHandler {
      * 检查是否包含地点模式
      */
     private boolean containsLocationPattern(String query) {
-        // 检查是否包含"从...到..."、"怎么去..."等模式
+        // 必须匹配明确的路线模式，而不是简单地检查是否包含"到"
+        // "今天是几号"包含"到"但不是路线查询
         return FROM_TO_PATTERN.matcher(query).find() ||
-                TO_ONLY_PATTERN.matcher(query).find() ||
-                query.contains("到");
+                TO_ONLY_PATTERN.matcher(query).find();
     }
 
     /**

@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"],
+      "description": "Live documentation lookup for up-to-date library docs and code examples"
+    },
+    "serena": {
+      "command": "C:/Users/developer/.local/bin/uvx.exe",
+      "args": ["--from", "git+https://github.com/oraios/serena", "serena", "start-mcp-server"],
+      "description": "AI-to-AI security monitoring — anomaly detection, credential exposure, hallucination checks"
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:/hzc/GitRepo/John-1010-cmd/MrsHudson"],
+      "description": "Filesystem operations for MrsHudson project"
+    }
+  }
+}

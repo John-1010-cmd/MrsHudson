@@ -30,9 +30,12 @@ public class CostMonitorServiceImpl implements CostMonitorService {
     private final OptimProperties optimProperties;
 
     /**
-     * 默认token成本（元/1000 tokens）
+     * 从配置获取token成本
      */
-    private static final BigDecimal DEFAULT_TOKEN_COST = new BigDecimal("0.003");
+    private BigDecimal getTokenCost() {
+        double configuredPrice = optimProperties.getCostMonitor().getTokenPrice();
+        return BigDecimal.valueOf(configuredPrice);
+    }
 
     @Override
     @Async
@@ -201,7 +204,7 @@ public class CostMonitorServiceImpl implements CostMonitorService {
     private BigDecimal calculateCost(Integer inputTokens, Integer outputTokens) {
         int totalTokens = (inputTokens != null ? inputTokens : 0) +
                 (outputTokens != null ? outputTokens : 0);
-        return DEFAULT_TOKEN_COST
+        return getTokenCost()
                 .multiply(BigDecimal.valueOf(totalTokens))
                 .divide(BigDecimal.valueOf(1000), 6, RoundingMode.HALF_UP);
     }

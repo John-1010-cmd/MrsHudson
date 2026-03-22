@@ -133,6 +133,8 @@ public class OptimProperties {
         private double dailyCostAlertThreshold = 50.0;
         /** 是否记录详细日志 */
         private boolean detailedLog = true;
+        /** Token 价格（元/1000 tokens），默认0.003 */
+        private double tokenPrice = 0.003;
     }
 
     @Data

@@ -106,8 +106,8 @@ fun ChatScreen(
                 // 将识别的文字添加到输入框
                 if (text.isNotBlank()) {
                     inputText = text
-                    // 自动发送消息
-                    viewModel.sendMessage(text)
+                    // 自动发送消息（使用流式响应）
+                    viewModel.sendMessageStream(text)
                     inputText = ""
                 }
                 voiceButtonState = VoiceButtonState.IDLE
@@ -289,7 +289,7 @@ fun ChatScreen(
                     onValueChange = { inputText = it },
                     onSend = {
                         if (inputText.isNotBlank()) {
-                            viewModel.sendMessage(inputText)
+                            viewModel.sendMessageStream(inputText)
                             inputText = ""
                         }
                     },

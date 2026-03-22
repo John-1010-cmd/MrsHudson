@@ -105,7 +105,7 @@ public class OptimChatServiceImpl implements OptimChatService {
 
         // ========== 第2层：意图路由 ==========
         if (isIntentRouterEnabled()) {
-            RouteResult routeResult = hybridIntentRouter.route(userMessage);
+            RouteResult routeResult = hybridIntentRouter.route(userId, userMessage);
 
             if (routeResult.isHandled()) {
                 log.info("意图路由直接处理，类型: {}, 层: {}",

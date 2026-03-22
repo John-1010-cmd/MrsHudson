@@ -6,12 +6,13 @@ import com.alibaba.fastjson2.JSONObject;
 import com.mrshudson.config.WeatherProperties;
 import com.mrshudson.domain.dto.WeatherDTO;
 import com.mrshudson.optim.cache.ToolCacheManager;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
+
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 
 import java.net.URI;
 import java.net.URLEncoder;
@@ -24,12 +25,21 @@ import java.util.List;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class WeatherService {
 
     private final WeatherProperties weatherProperties;
     private final ToolCacheManager toolCacheManager;
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
+
+    public WeatherService(WeatherProperties weatherProperties, ToolCacheManager toolCacheManager) {
+        this.weatherProperties = weatherProperties;
+        this.toolCacheManager = toolCacheManager;
+        // 配置 RestTemplate 超时（连接超时 5 秒，读取超时 10 秒）
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(5000);
+        factory.setReadTimeout(10000);
+        this.restTemplate = new RestTemplate(factory);
+    }
 
     // 模拟模式开关（当API不可用时启用）
     private boolean mockMode = false;

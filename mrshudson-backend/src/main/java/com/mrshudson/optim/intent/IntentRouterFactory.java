@@ -1,14 +1,17 @@
 package com.mrshudson.optim.intent;
 
 import com.mrshudson.optim.config.OptimProperties;
+import com.mrshudson.optim.intent.IntentRouter;
 import com.mrshudson.optim.intent.extract.ParameterExtractor;
 import com.mrshudson.optim.intent.extract.RuleBasedExtractor;
 import com.mrshudson.optim.intent.handler.AbstractIntentHandler;
+import com.mrshudson.optim.intent.impl.HybridIntentRouter;
 import com.mrshudson.optim.intent.impl.IntentRouterImpl;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 
 import java.util.List;
 
@@ -29,11 +32,13 @@ public class IntentRouterFactory {
 
     private final OptimProperties optimProperties;
     private final List<AbstractIntentHandler> handlers;
+    private final HybridIntentRouter hybridIntentRouter;
 
     @Autowired
-    public IntentRouterFactory(OptimProperties optimProperties, List<AbstractIntentHandler> handlers) {
+    public IntentRouterFactory(OptimProperties optimProperties, List<AbstractIntentHandler> handlers, HybridIntentRouter hybridIntentRouter) {
         this.optimProperties = optimProperties;
         this.handlers = handlers;
+        this.hybridIntentRouter = hybridIntentRouter;
     }
 
     /**
@@ -43,6 +48,7 @@ public class IntentRouterFactory {
      * @return 意图路由器实例
      */
     @Bean
+    @Primary
     public IntentRouter intentRouter() {
         String mode = getRouterMode();
         log.info("创建意图路由器，模式: {}", mode);
@@ -93,10 +99,8 @@ public class IntentRouterFactory {
      */
     private IntentRouter createHybridRouter() {
         log.info("创建混合意图路由器");
-        // 当前实现使用规则路由器作为基础
-        // 后续可以扩展为包含轻量AI层的混合路由器
-        ParameterExtractor extractor = new RuleBasedExtractor();
-        return new IntentRouterImpl(extractor, MODE_HYBRID, "HybridIntentRouter");
+        // 返回 Spring 注入的 HybridIntentRouter Bean
+        return hybridIntentRouter;
     }
 
     /**

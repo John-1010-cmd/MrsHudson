@@ -292,7 +292,7 @@ public class ChatServiceImpl implements ChatService {
 
                         // 触发纠错流程
                         String correctedResponse = selfCorrectingAgent.correctAndRetry(validationResult, correctionContext)
-                            .blockFirst();
+                            .block();
 
                         if (correctedResponse != null && !correctedResponse.isEmpty()) {
                             log.info("纠错成功，使用纠错后的响应");
@@ -328,7 +328,7 @@ public class ChatServiceImpl implements ChatService {
                             toolRegistry.getToolDescriptions(),
                             messages
                         )
-                    ).blockFirst();
+                    ).block();
 
                     if (fallbackResponse != null) {
                         aiContent = fallbackResponse;
@@ -402,7 +402,7 @@ public class ChatServiceImpl implements ChatService {
                         toolRegistry.getToolDescriptions(),
                         new ArrayList<>()
                     )
-                ).blockFirst();
+                ).block();
 
                 if (fallbackResponse != null) {
                     return SendMessageResponse.builder()

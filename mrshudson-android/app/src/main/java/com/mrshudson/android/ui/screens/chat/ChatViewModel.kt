@@ -7,6 +7,7 @@ import com.mrshudson.android.data.local.datastore.SettingsDataStore
 import com.mrshudson.android.data.remote.ApiResult
 import com.mrshudson.android.data.repository.ChatRepository
 import com.mrshudson.android.data.repository.SendMessageResult
+import com.mrshudson.android.data.repository.StreamEvent
 import com.mrshudson.android.domain.model.Conversation
 import com.mrshudson.android.domain.model.Message
 import com.mrshudson.android.domain.model.MessageRole
@@ -32,8 +33,30 @@ data class ChatUiState(
     val currentConversationTitle: String = "新对话",
     val isLoading: Boolean = false,
     val isSending: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    val lastTokenUsage: TokenUsageInfo? = null
 )
+
+/**
+ * Token 使用统计信息
+ */
+data class TokenUsageInfo(
+    val inputTokens: Int,
+    val outputTokens: Int,
+    val duration: Long,
+    val model: String
+) {
+    fun toDisplayString(): String {
+        return buildString {
+            append("\n\n--- 💡 本次对话消耗 ---\n")
+            append("📥 输入: $inputTokens tokens\n")
+            append("📤 输出: $outputTokens tokens\n")
+            append("⏱️ 耗时: ${duration}ms\n")
+            append("🤖 模型: $model\n")
+            append("------------------------")
+        }
+    }
+}
 
 /**
  * AI 对话页面的 ViewModel
@@ -209,6 +232,154 @@ class ChatViewModel @Inject constructor(
                             it.copy(
                                 isSending = false,
                                 error = result.message
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * 发送消息（流式模式）
+     * 使用 SSE 流式接收 AI 响应增量更新
+     *
+     * @param content 消息内容
+     */
+    fun sendMessageStream(content: String) {
+        if (content.isBlank()) return
+
+        viewModelScope.launch {
+            // 先添加用户消息到列表（乐观更新）
+            val userMessage = Message(
+                id = System.currentTimeMillis(),
+                role = MessageRole.USER,
+                content = content,
+                createdAt = LocalDateTime.now()
+            )
+            _uiState.update {
+                it.copy(
+                    messages = it.messages + userMessage,
+                    isSending = true
+                )
+            }
+
+            // 创建一个占位的 AI 消息用于增量更新
+            val aiMessageId = System.currentTimeMillis() + 1
+            var currentAiContent = StringBuilder()
+
+            // 添加空的 AI 消息占位符
+            _uiState.update { state ->
+                state.copy(
+                    messages = state.messages + Message(
+                        id = aiMessageId,
+                        role = MessageRole.ASSISTANT,
+                        content = "",
+                        createdAt = LocalDateTime.now()
+                    )
+                )
+            }
+
+            // 使用流式 API 发送消息
+            chatRepository.streamMessage(
+                message = content,
+                conversationId = _uiState.value.currentConversationId
+            ).collect { event ->
+                when (event) {
+                    is StreamEvent.Content -> {
+                        currentAiContent.append(event.text)
+                        // 增量更新 AI 消息
+                        _uiState.update { state ->
+                            val updatedMessages = state.messages.map { msg ->
+                                if (msg.id == aiMessageId) {
+                                    msg.copy(content = currentAiContent.toString())
+                                } else {
+                                    msg
+                                }
+                            }
+                            state.copy(messages = updatedMessages)
+                        }
+                    }
+                    is StreamEvent.TokenUsage -> {
+                        // Token 统计，存储并显示
+                        val tokenUsage = TokenUsageInfo(
+                            inputTokens = event.inputTokens,
+                            outputTokens = event.outputTokens,
+                            duration = event.duration,
+                            model = event.model
+                        )
+                        // 更新消息末尾的 Token 统计
+                        val statsDisplay = tokenUsage.toDisplayString()
+                        currentAiContent.append(statsDisplay)
+                        _uiState.update { state ->
+                            val updatedMessages = state.messages.map { msg ->
+                                if (msg.id == aiMessageId) {
+                                    msg.copy(content = currentAiContent.toString())
+                                } else {
+                                    msg
+                                }
+                            }
+                            state.copy(messages = updatedMessages, lastTokenUsage = tokenUsage)
+                        }
+                    }
+                    is StreamEvent.CacheHit -> {
+                        // 缓存命中，直接显示缓存内容
+                        currentAiContent.append(event.content)
+                        _uiState.update { state ->
+                            val updatedMessages = state.messages.map { msg ->
+                                if (msg.id == aiMessageId) {
+                                    msg.copy(content = currentAiContent.toString())
+                                } else {
+                                    msg
+                                }
+                            }
+                            state.copy(messages = updatedMessages)
+                        }
+                    }
+                    is StreamEvent.Clarification -> {
+                        // 澄清提示，直接显示
+                        currentAiContent.append(event.content)
+                        _uiState.update { state ->
+                            val updatedMessages = state.messages.map { msg ->
+                                if (msg.id == aiMessageId) {
+                                    msg.copy(content = currentAiContent.toString())
+                                } else {
+                                    msg
+                                }
+                            }
+                            state.copy(messages = updatedMessages)
+                        }
+                    }
+                    is StreamEvent.AudioUrl -> {
+                        // 语音合成完成，更新 AI 消息的 audioUrl
+                        _uiState.update { state ->
+                            val updatedMessages = state.messages.map { msg ->
+                                if (msg.id == aiMessageId) {
+                                    msg.copy(audioUrl = event.url)
+                                } else {
+                                    msg
+                                }
+                            }
+                            state.copy(messages = updatedMessages)
+                        }
+                    }
+                    is StreamEvent.Done -> {
+                        // 流式完成
+                        val newConversationId = event.conversationId
+                        if (_uiState.value.currentConversationId == null && newConversationId != null) {
+                            _uiState.update {
+                                it.copy(currentConversationId = newConversationId)
+                            }
+                            // 刷新会话列表
+                            loadConversations()
+                        }
+                        _uiState.update { it.copy(isSending = false) }
+                    }
+                    is StreamEvent.Error -> {
+                        _uiState.update {
+                            it.copy(
+                                isSending = false,
+                                error = event.message
                             )
                         }
                     }

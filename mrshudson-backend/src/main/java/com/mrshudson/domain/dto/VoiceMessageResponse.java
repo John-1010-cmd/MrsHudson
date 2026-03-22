@@ -24,6 +24,7 @@ public class VoiceMessageResponse {
      * AI回复内容
      */
     private String content;
+    private String audioUrl;
 
     /**
      * 函数调用信息

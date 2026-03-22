@@ -1,83 +1,100 @@
 <template>
   <div class="chat-layout">
     <!-- 左侧会话列表 -->
-    <aside class="conversation-sidebar">
-      <div class="sidebar-header">
-        <h2>MrsHudson</h2>
-        <el-button type="primary" size="small" @click="createNewConversation">
-          <el-icon><Plus /></el-icon>
-          新对话
-        </el-button>
-      </div>
-
-      <!-- 会话列表 -->
-      <div class="conversation-list">
-        <div
-          v-for="conv in conversations"
-          :key="conv.id"
-          :class="['conversation-item', { active: currentConversationId === conv.id }]"
-          @click="switchConversation(conv.id)"
-        >
-          <el-icon><ChatDotRound /></el-icon>
-          <span class="conversation-title">{{ conv.title }}</span>
-          <el-icon
-            class="delete-icon"
-            @click.stop="deleteConversation(conv.id)"
-          >
-            <Delete />
-          </el-icon>
+    <aside
+      class="conversation-sidebar"
+      :class="{ collapsed: !sidebarVisible }"
+      :style="{ width: sidebarVisible ? sidebarWidth : collapsedWidth }"
+    >
+      <!-- 侧边栏展开时显示完整内容 -->
+      <template v-if="sidebarVisible">
+        <div class="sidebar-header">
+          <h2>MrsHudson</h2>
+          <div class="header-actions">
+            <el-button type="primary" size="small" @click="createNewConversation">
+              <el-icon><Plus /></el-icon>
+              新对话
+            </el-button>
+            <el-button size="small" @click="toggleSidebar" :title="sidebarVisible ? '隐藏侧边栏' : '显示侧边栏'">
+              <el-icon><ArrowLeft v-if="sidebarVisible" /><ArrowRight v-else /></el-icon>
+            </el-button>
+          </div>
         </div>
-      </div>
 
-      <div class="sidebar-footer">
-        <nav class="sidebar-nav">
-          <router-link
-            to="/chat"
-            :class="['nav-item', { active: currentRoute === '/chat' || currentRoute === '/' }]"
+        <!-- 会话列表 -->
+        <div class="conversation-list">
+          <div
+            v-for="conv in conversations"
+            :key="conv.id"
+            :class="['conversation-item', { active: currentConversationId === conv.id }]"
+            @click="switchConversation(conv.id)"
           >
             <el-icon><ChatDotRound /></el-icon>
-            <span>对话</span>
-          </router-link>
-          <router-link
-            to="/calendar"
-            :class="['nav-item', { active: currentRoute === '/calendar' }]"
-          >
-            <el-icon><Calendar /></el-icon>
-            <span>日历</span>
-          </router-link>
-          <router-link
-            to="/todo"
-            :class="['nav-item', { active: currentRoute === '/todo' }]"
-          >
-            <el-icon><List /></el-icon>
-            <span>待办</span>
-          </router-link>
-          <router-link
-            to="/weather"
-            :class="['nav-item', { active: currentRoute === '/weather' }]"
-          >
-            <el-icon><PartlyCloudy /></el-icon>
-            <span>天气</span>
-          </router-link>
-          <router-link
-            to="/route"
-            :class="['nav-item', { active: currentRoute === '/route' }]"
-          >
-            <el-icon><MapLocation /></el-icon>
-            <span>路线</span>
-          </router-link>
-          <router-link
-            to="/metrics"
-            :class="['nav-item', { active: currentRoute === '/metrics' }]"
-          >
-            <el-icon><DataLine /></el-icon>
-            <span>优化统计</span>
-          </router-link>
-        </nav>
-        <div class="user-info">
-          <span>{{ userStore.user?.username }}</span>
-          <el-button type="danger" size="small" @click="handleLogout">退出</el-button>
+            <span class="conversation-title">{{ conv.title }}</span>
+            <el-icon
+              class="delete-icon"
+              @click.stop="deleteConversation(conv.id)"
+            >
+              <Delete />
+            </el-icon>
+          </div>
         </div>
+
+        <div class="sidebar-footer">
+          <nav class="sidebar-nav">
+            <router-link
+              to="/chat"
+              :class="['nav-item', { active: currentRoute === '/chat' || currentRoute === '/' }]"
+            >
+              <el-icon><ChatDotRound /></el-icon>
+              <span>对话</span>
+            </router-link>
+            <router-link
+              to="/calendar"
+              :class="['nav-item', { active: currentRoute === '/calendar' }]"
+            >
+              <el-icon><Calendar /></el-icon>
+              <span>日历</span>
+            </router-link>
+            <router-link
+              to="/todo"
+              :class="['nav-item', { active: currentRoute === '/todo' }]"
+            >
+              <el-icon><List /></el-icon>
+              <span>待办</span>
+            </router-link>
+            <router-link
+              to="/weather"
+              :class="['nav-item', { active: currentRoute === '/weather' }]"
+            >
+              <el-icon><PartlyCloudy /></el-icon>
+              <span>天气</span>
+            </router-link>
+            <router-link
+              to="/route"
+              :class="['nav-item', { active: currentRoute === '/route' }]"
+            >
+              <el-icon><MapLocation /></el-icon>
+              <span>路线</span>
+            </router-link>
+            <router-link
+              to="/metrics"
+              :class="['nav-item', { active: currentRoute === '/metrics' }]"
+            >
+              <el-icon><DataLine /></el-icon>
+              <span>优化统计</span>
+            </router-link>
+          </nav>
+          <div class="user-info">
+            <span>{{ userStore.user?.username }}</span>
+            <el-button type="danger" size="small" @click="handleLogout">退出</el-button>
+          </div>
+        </div>
+      </template>
+
+      <!-- 折叠时显示的竖条和切换按钮 -->
+      <div v-if="!sidebarVisible" class="collapsed-bar" @click="toggleSidebar">
+        <el-icon class="toggle-icon"><ArrowRight /></el-icon>
       </div>
     </aside>
 
@@ -101,7 +118,9 @@ import {
   MapLocation,
   DataLine,
   Plus,
-  Delete
+  Delete,
+  ArrowLeft,
+  ArrowRight
 } from '@element-plus/icons-vue'
 import { useUserStore } from '../stores/user'
 import * as chatApi from '../api/chat'
@@ -116,6 +135,15 @@ const currentRoute = computed(() => route.path)
 // 会话列表
 const conversations = ref<chatApi.ConversationDTO[]>([])
 const currentConversationId = ref<string | null>(null)
+
+// 侧边栏展开/折叠
+const sidebarWidth = '260px'
+const collapsedWidth = '20px'
+const sidebarVisible = ref(true)
+
+const toggleSidebar = () => {
+  sidebarVisible.value = !sidebarVisible.value
+}
 
 // 加载会话列表
 const loadConversations = async () => {
@@ -194,11 +222,24 @@ const handleLogout = async () => {
   router.push('/login')
 }
 
+// 刷新会话列表
+const refreshConversations = async () => {
+  try {
+    const res = await chatApi.getConversationList(20)
+    if (res.code === 200) {
+      conversations.value = res.data.conversations
+    }
+  } catch (error) {
+    console.error('刷新会话列表失败:', error)
+  }
+}
+
 // 提供给子组件 - 不使用 readonly，直接提供 ref，让子组件可以响应式监听
 provide('currentConversationId', currentConversationId)
 provide('conversations', conversations)
 provide('switchConversation', switchConversation)
 provide('createNewConversation', createNewConversation)
+provide('refreshConversations', refreshConversations)
 
 // 监听路由变化，当离开对话页面时清除当前会话选中状态
 watch(
@@ -223,11 +264,19 @@ onMounted(() => {
 }
 
 .conversation-sidebar {
-  width: 260px;
+  --sidebar-width: 260px;
+  --collapsed-width: 20px;
+  width: var(--sidebar-width);
   background: #1a1a2e;
   color: white;
   display: flex;
   flex-direction: column;
+  transition: width 0.3s ease;
+  overflow: hidden;
+}
+
+.conversation-sidebar.collapsed {
+  width: var(--collapsed-width);
 }
 
 .sidebar-header {
@@ -236,11 +285,42 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-shrink: 0;
 }
 
 .sidebar-header h2 {
   margin: 0;
   font-size: 18px;
+  color: #409eff;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.collapsed-bar {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 16px;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+.collapsed-bar:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.toggle-icon {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.6);
+  transition: color 0.3s;
+}
+
+.collapsed-bar:hover .toggle-icon {
   color: #409eff;
 }
 
@@ -307,6 +387,7 @@ onMounted(() => {
 .sidebar-footer {
   padding: 16px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
 }
 
 .sidebar-nav {

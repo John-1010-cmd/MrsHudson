@@ -2,7 +2,7 @@ package com.mrshudson.optim.fallback;
 
 import com.mrshudson.optim.intent.IntentType;
 import com.mrshudson.mcp.kimi.dto.Message;
-import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import java.util.List;
 
@@ -27,9 +27,9 @@ public interface FallbackHandler {
      *
      * @param message 用户消息
      * @param context 上下文信息
-     * @return Flux<String> 流式响应
+     * @return Mono<String> 完整响应
      */
-    Flux<String> executeFallback(String message, FallbackContext context);
+    Mono<String> executeFallback(String message, FallbackContext context);
 
     /**
      * 兜底上下文

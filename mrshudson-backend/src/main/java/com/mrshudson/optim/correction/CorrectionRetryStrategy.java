@@ -2,15 +2,15 @@ package com.mrshudson.optim.correction;
 
 import com.mrshudson.ai.AIClientFactory;
 import com.mrshudson.mcp.kimi.KimiClient;
-import com.mrshudson.mcp.kimi.dto.ChatResponse;
 import com.mrshudson.mcp.kimi.dto.Message;
 import com.mrshudson.optim.fallback.FallbackHandler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 纠错重试策略
@@ -27,21 +27,22 @@ public class CorrectionRetryStrategy {
 
     /**
      * 纠错重试
+     * 注意：纠错场景下我们等待完整响应，不进行流式传输，因为需要整合完整的纠错结果
      *
      * @param validationResult 验证失败结果
      * @param context 上下文信息
-     * @return 纠错后的响应
+     * @return Mono<String> 纠错后的响应
      */
-    public Flux<String> correctAndRetry(ValidationResult validationResult, FallbackHandler.FallbackContext context) {
+    public Mono<String> correctAndRetry(ValidationResult validationResult, FallbackHandler.FallbackContext context) {
         if (validationResult == null || validationResult.isValid()) {
             log.warn("验证结果有效，无需纠错");
-            return Flux.empty();
+            return Mono.empty();
         }
 
         int retryCount = validationResult.getRetryCount();
         if (retryCount >= MAX_RETRIES) {
             log.warn("已达到最大重试次数 {}，放弃纠错", MAX_RETRIES);
-            return Flux.just("抱歉，我暂时无法正确回答这个问题。");
+            return Mono.just("抱歉，我暂时无法正确回答这个问题。");
         }
 
         // 1. 分析错误原因
@@ -63,21 +64,32 @@ public class CorrectionRetryStrategy {
                 Message.user(correctionPrompt)
             );
 
-            // 4. 调用 LLM
+            // 4. 调用 LLM（使用流式API）
             KimiClient aiClient = (KimiClient) aiClientFactory.getClient();
-            ChatResponse response = aiClient.chatCompletion(messages);
 
-            if (response != null && response.getChoices() != null && !response.getChoices().isEmpty()) {
-                String correctedContent = response.getChoices().get(0).getMessage().getContent();
-                log.info("纠错成功: {}", correctedContent.substring(0, Math.min(50, correctedContent.length())));
-                return Flux.just(correctedContent);
-            }
+            // 收集流式响应为一个完整字符串
+            AtomicReference<String> fullResponse = new AtomicReference<>("");
+
+            return aiClient.streamChatCompletion(messages)
+                    .doOnNext(chunk -> fullResponse.updateAndGet(prev -> prev + chunk))
+                    .doOnComplete(() -> {
+                        String response = fullResponse.get();
+                        if (response != null && !response.isEmpty()) {
+                            log.info("纠错成功: {}", response.substring(0, Math.min(50, response.length())));
+                        }
+                    })
+                    .then(Mono.defer(() -> {
+                        String response = fullResponse.get();
+                        if (response != null && !response.isEmpty()) {
+                            return Mono.just(response);
+                        }
+                        return Mono.just("抱歉，纠错未返回有效结果。");
+                    }));
 
         } catch (Exception e) {
             log.error("纠错失败: {}", e.getMessage(), e);
+            return Mono.just("抱歉，纠错也失败了。");
         }
-
-        return Flux.just("抱歉，纠错也失败了。");
     }
 
     /**

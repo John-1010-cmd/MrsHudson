@@ -67,6 +67,80 @@ interface ChatRepository {
      * @return TTS响应，包含音频URL
      */
     suspend fun textToSpeech(request: TtsRequest): ApiResult<TtsResponse>
+
+    /**
+     * 流式发送消息
+     * 通过 SSE 接收 AI 流式响应增量更新
+     *
+     * @param message 消息内容
+     * @param conversationId 会话ID，可选，为空时创建新会话
+     * @return 流式事件 Flow，每个事件包含增量内容或完成状态
+     */
+    fun streamMessage(message: String, conversationId: Long?): Flow<StreamEvent>
+}
+
+/**
+ * 流式事件
+ * 包含 SSE 流中的 JSON 事件数据
+ */
+sealed class StreamEvent {
+    /**
+     * 工具调用事件
+     */
+    data class ToolCall(
+        val id: String,
+        val name: String,
+        val arguments: String
+    ) : StreamEvent()
+
+    /**
+     * 工具结果事件
+     */
+    data class ToolResult(
+        val id: String,
+        val result: String
+    ) : StreamEvent()
+
+    /**
+     * 增量内容事件
+     */
+    data class Content(val text: String) : StreamEvent()
+
+    /**
+     * Token 使用统计事件
+     */
+    data class TokenUsage(
+        val inputTokens: Int,
+        val outputTokens: Int,
+        val duration: Long,
+        val model: String
+    ) : StreamEvent()
+
+    /**
+     * 缓存命中事件
+     */
+    data class CacheHit(val content: String) : StreamEvent()
+
+    /**
+     * 澄清提示事件
+     */
+    data class Clarification(val content: String) : StreamEvent()
+
+    /**
+     * 音频URL事件（语音合成完成）
+     */
+    data class AudioUrl(val url: String) : StreamEvent()
+
+    /**
+     * 流式完成事件
+     * @param conversationId 会话ID（如果是新会话）
+     */
+    data class Done(val conversationId: Long?) : StreamEvent()
+
+    /**
+     * 错误事件
+     */
+    data class Error(val message: String) : StreamEvent()
 }
 
 /**

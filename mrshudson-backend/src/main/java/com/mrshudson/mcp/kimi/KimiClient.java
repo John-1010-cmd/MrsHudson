@@ -6,6 +6,7 @@ import com.mrshudson.mcp.kimi.dto.ChatRequest;
 import com.mrshudson.mcp.kimi.dto.ChatResponse;
 import com.mrshudson.mcp.kimi.dto.Message;
 import com.mrshudson.mcp.kimi.dto.Tool;
+import com.mrshudson.mcp.kimi.dto.ToolCall;
 import com.mrshudson.optim.config.OptimProperties;
 import com.mrshudson.optim.token.TokenUsage;
 import lombok.RequiredArgsConstructor;
@@ -13,6 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.*;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.reactive.function.client.WebClient;
 
 import reactor.core.publisher.Flux;
 
@@ -29,6 +31,7 @@ public class KimiClient {
 
     private final KimiProperties kimiProperties;
     private final OptimProperties optimProperties;
+    private final WebClient webClient;
     private final RestTemplate restTemplate = new RestTemplate();
 
     /**
@@ -165,6 +168,7 @@ public class KimiClient {
 
     /**
      * 流式对话完成
+     * 使用 WebClient 实现真正的响应式流式响应
      *
      * @param messages 消息列表
      * @param tools    工具列表（可选）
@@ -191,56 +195,79 @@ public class KimiClient {
                 .stream(true)
                 .build();
 
-        // 构建请求头
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth(kimiProperties.getApiKey());
-
         // 序列化请求体
         String requestBody = JSON.toJSONString(request, MESSAGE_NAME_FILTER,
                 com.alibaba.fastjson2.JSONWriter.Feature.WriteMapNullValue);
 
-        HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
+        log.debug("Kimi流式API请求体: {}", requestBody);
 
-        return Flux.create(sink -> {
-            try {
-                ResponseEntity<String> response = restTemplate.exchange(
-                        url,
-                        HttpMethod.POST,
-                        entity,
-                        String.class
-                );
+        return webClient.post()
+                .uri(url)
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + kimiProperties.getApiKey())
+                .bodyValue(requestBody)
+                .retrieve()
+                .bodyToFlux(String.class)
+                .doOnSubscribe(s -> log.debug("Kimi流式响应开始"))
+                .doOnNext(chunk -> log.trace("收到SSE数据块: {}", chunk))
+                .doOnError(e -> log.error("Kimi流式响应异常: {}", e.getMessage(), e))
+                .doOnComplete(() -> log.debug("Kimi流式响应完成"))
+                .flatMap(this::parseSseData);
+    }
 
-                String body = response.getBody();
-                if (body != null) {
-                    // 按行分割 SSE 响应
-                    String[] lines = body.split("\n");
-                    for (String line : lines) {
-                        if (line.startsWith("data: ")) {
-                            String data = line.substring(6);
-                            if ("[DONE]".equals(data)) {
-                                continue;
-                            }
-                            try {
-                                ChatResponse chatResponse = JSON.parseObject(data, ChatResponse.class);
-                                if (chatResponse.getChoices() != null && !chatResponse.getChoices().isEmpty()) {
-                                    String content = chatResponse.getChoices().get(0).getMessage().getContent();
-                                    if (content != null) {
-                                        sink.next(content);
-                                    }
-                                }
-                            } catch (Exception e) {
-                                log.debug("解析SSE数据失败: {}", e.getMessage());
-                            }
+    /**
+     * 解析SSE数据块
+     */
+    private Flux<String> parseSseData(String line) {
+        if (line == null || line.isEmpty()) {
+            return Flux.empty();
+        }
+
+        // SSE格式: data: {"id":"...","choices":[...]}
+        if (!line.startsWith("data: ")) {
+            return Flux.empty();
+        }
+
+        String data = line.substring(6).trim();
+
+        // [DONE] 表示流结束
+        if ("[DONE]".equals(data)) {
+            return Flux.empty();
+        }
+
+        try {
+            ChatResponse chatResponse = JSON.parseObject(data, ChatResponse.class);
+            if (chatResponse.getChoices() != null && !chatResponse.getChoices().isEmpty()) {
+                Message message = chatResponse.getChoices().get(0).getMessage();
+                if (message != null) {
+                    String content = message.getContent();
+                    List<ToolCall> toolCalls = message.getToolCalls();
+
+                    // 优先返回 content
+                    if (content != null && !content.isEmpty()) {
+                        return Flux.just(content);
+                    }
+
+                    // 当 content 为空但有 tool_calls 时，返回工具调用标识
+                    if (toolCalls != null && !toolCalls.isEmpty()) {
+                        ToolCall toolCall = toolCalls.get(0);
+                        if (toolCall != null && toolCall.getFunction() != null) {
+                            String id = toolCall.getId() != null ? toolCall.getId() : "tool_" + System.currentTimeMillis();
+                            String name = toolCall.getFunction().getName();
+                            String arguments = toolCall.getFunction().getArguments();
+                            // 格式：[TOOL_CALL]tool_call_id:tool_name:arguments
+                            String toolCallStr = "[TOOL_CALL]" + id + ":" + name + ":" + arguments;
+                            log.debug("检测到工具调用: {}", toolCallStr);
+                            return Flux.just(toolCallStr);
                         }
                     }
                 }
-                sink.complete();
-            } catch (Exception e) {
-                log.error("流式调用Kimi API失败: {}", e.getMessage(), e);
-                sink.error(new RuntimeException("AI服务调用失败: " + e.getMessage()));
             }
-        });
+        } catch (Exception e) {
+            log.debug("解析SSE数据失败: {}, 原始数据: {}", e.getMessage(), data);
+        }
+
+        return Flux.empty();
     }
 
     /**
