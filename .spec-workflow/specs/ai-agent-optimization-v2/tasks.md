@@ -339,3 +339,92 @@
   - _Requirements: Requirement 5.7
   - _Prompt: 角色：缓存专家 | 任务：实现用户数据变更时自动清除缓存 | 成功：清除测试通过
   - _依赖: 7.3
+
+---
+
+## 模块8: 意图识别向量缓存优化
+
+- [ ] 8.1 创建 IntentCacheEntry 数据模型
+  - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/intent/cache/IntentCacheEntry.java`
+  - 意图缓存条目数据结构
+  - _Leverage: 无
+  - _Requirements: Requirement 8
+  - _Prompt: 角色：Java 模型专家 | 任务：创建 IntentCacheEntry 类，包含向量、意图类型、参数、统计信息 | 成功：可序列化
+
+- [ ] 8.2 创建 IntentCacheStore 接口
+  - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/intent/cache/IntentCacheStore.java`
+  - 意图缓存存储接口
+  - _Leverage: 无
+  - _Requirements: Requirement 8
+  - _Prompt: 角色：接口设计专家 | 任务：定义缓存查询、保存、批量操作、统计接口 | 成功：接口清晰
+
+- [ ] 8.3 实现 QueryNormalizer 查询归一化器
+  - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/intent/normalize/QueryNormalizer.java`
+  - 时效性表达归一化
+  - _Leverage: LocalDate
+  - _Requirements: Requirement 8.4
+  - _Prompt: 角色：文本处理专家 | 任务：实现日期/时间/星期表达归一化，今天→2026-03-23 | 成功：单元测试覆盖
+
+- [ ] 8.4 实现 EmbeddingService 向量服务
+  - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/intent/embedding/EmbeddingService.java`
+  - 向量嵌入服务（配置化）
+  - _Leverage: MiniMax API / Kimi API
+  - _Requirements: Requirement 8
+  - _Prompt: 角色：AI 服务集成专家 | 任务：实现 EmbeddingService 接口，支持 MiniMax/M2.7 配置化调用 | 成功：向量生成正确
+
+- [ ] 8.5 实现 Redis 向量缓存存储
+  - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/intent/cache/impl/RedisIntentCacheStore.java`
+  - Redis Hash + Vector 存储
+  - _Leverage: RedisTemplate, Redis Search
+  - _Requirements: Requirement 8.1-8.3
+  - _Prompt: 角色：Redis 专家 | 任务：实现 L2 缓存（Hash）和 L3 缓存（Vector HNSW），支持相似度搜索 | 成功：向量搜索测试通过
+
+- [ ] 8.6 实现 VectorBasedRecognizer 向量识别器
+  - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/intent/recognizer/VectorBasedRecognizer.java`
+  - 基于向量相似度的意图识别
+  - _Leverage: EmbeddingService, IntentCacheStore
+  - _Requirements: Requirement 8.7-8.8
+  - _Prompt: 角色：向量搜索专家 | 任务：实现双维度排序（向量相似度+意图类型一致性），阈值 0.92 | 成功：识别测试通过
+
+- [ ] 8.7 实现 HybridIntentCacheRouter 混合缓存路由
+  - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/intent/router/HybridIntentCacheRouter.java`
+  - L1/L2/L3 分层缓存 + 熔断
+  - _Leverage: QueryNormalizer, VectorBasedRecognizer, CircuitBreaker
+  - _Requirements: Requirement 8.1-8.9
+  - _Prompt: 角色：缓存架构专家 | 任务：实现分层缓存路由，支持熔断降级 | 成功：集成测试通过
+
+- [ ] 8.8 实现 IntentCacheCircuitBreaker 熔断器
+  - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/intent/circuit/IntentCacheCircuitBreaker.java`
+  - 缓存层熔断保护
+  - _Leverage: AtomicInteger
+  - _Requirements: Requirement 8.9
+  - _Prompt: 角色：稳定性专家 | 任务：实现 CLOSED/OPEN/HALF_OPEN 三态熔断，失败10次打开，1分钟后半开 | 成功：熔断测试通过
+
+- [ ] 8.9 实现冷启动预热策略
+  - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/intent/bootstrap/ColdStartStrategy.java`
+  - 公共模板预热
+  - _Leverage: IntentCacheStore
+  - _Requirements: Requirement 8.5-8.6
+  - _Prompt: 角色：启动优化专家 | 任务：实现50条公共模板预热，支持 min-samples 配置 | 成功：冷启动测试通过
+
+- [ ] 8.10 添加缓存统计指标
+  - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/intent/monitor/IntentCacheMetrics.java`
+  - L1/L2/L3 命中率、成本节省统计
+  - _Leverage: Micrometer
+  - _Requirements: Requirement 8.3
+  - _Prompt: 角色：监控专家 | 任务：创建各层命中率、AI调用节省统计 | 成功：Prometheus 可查看
+
+- [ ] 8.11 集成到 HybridIntentRouter
+  - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/intent/impl/HybridIntentRouter.java`
+  - 意图缓存作为第一层
+  - _Leverage: HybridIntentCacheRouter
+  - _Requirements: Requirement 8
+  - _Prompt: 角色：集成专家 | 任务：修改 HybridIntentRouter，缓存命中则跳过 AI 识别 | 成功：集成测试通过
+  - _依赖: 8.7
+
+- [ ] 8.12 添加意图识别模式切换
+  - 文件: `mrshudson-backend/src/main/java/com/mrshudson/optim/intent/config/IntentRecognitionProperties.java`
+  - AI-FIRST / CACHE-FIRST / RULE-FIRST 切换
+  - _Leverage: OptimProperties
+  - _Requirements: Requirement 9
+  - _Prompt: 角色：配置专家 | 任务：实现模式切换配置和运行时变更 | 成功：配置生效

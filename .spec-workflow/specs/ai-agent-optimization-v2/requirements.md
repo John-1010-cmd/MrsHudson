@@ -168,3 +168,40 @@ MrsHudson 定位为"贴心的私人管家助手"，核心优势在于：
 3. WHEN 验证失败 AND 重试次数 < 2 THEN 系统 SHALL 使用纠错提示词重新请求 LLM
 4. WHEN 验证失败 AND 重试次数 >= 2 THEN 系统 SHALL 放弃纠错，返回原结果并记录 ERROR 日志
 5. WHEN 发生错误 THEN 系统 SHALL 记录错误模式到 Redis 用于后续规避
+
+### Requirement 8: 意图识别向量缓存优化
+
+**User Story:** 作为系统管理员，我希望意图识别结果能够被缓存复用，以降低 AI 调用成本；同时希望时效性表达（如"今天"）能够被正确处理。
+
+#### Acceptance Criteria
+
+1. WHEN 用户发送消息 AND 意图识别完成 THEN 系统 SHALL 将识别结果（意图类型+参数+向量）存储到缓存
+2. WHEN 用户发送消息 AND 缓存命中 THEN 系统 SHALL 直接返回缓存结果，无需调用 AI
+3. WHEN 缓存命中时 THEN 系统 SHALL 在 L1（内存）/ L2（Redis）/ L3（向量）各层记录统计
+4. WHEN 用户输入包含时效性表达（今天/明天/后天/周一~周日） THEN 系统 SHALL 将其归一化为具体日期后再进行向量存储
+5. WHEN 缓存数据不足 50 条时 THEN 系统 SHALL 默认使用 AI-FIRST 模式
+6. WHEN 缓存数据 >= 50 条时 THEN 系统 SHALL 支持切换到 CACHE-FIRST 模式
+7. WHEN 向量搜索相似度 >= 0.92 THEN 系统 SHALL 认为命中缓存
+8. WHEN 向量搜索相似度 < 0.92 THEN 系统 SHALL 降级到 AI 识别
+9. WHEN Embedding 服务不可用时 THEN 系统 SHALL 触发熔断，降级到规则匹配
+10. WHEN 用户数据发生变更时 THEN 系统 SHALL 自动清除该用户的私有缓存
+
+#### 技术约束
+
+1. 向量存储使用 Redis Search + HNSW 索引（Redis 7.x 内置）
+2. Embedding 服务配置化，支持 MiniMax / Kimi / OpenAI / 本地模型
+3. 缓存 Key 格式：`intent_cache:user:{userId}:{intentType}:{paramFingerprint}`
+4. 向量维度可配置，默认 1024 维（text-embedding-3）
+5. 缓存 TTL：L1 5分钟，L2 7天，L3 与 L2 同步过期
+
+### Requirement 9: 意图识别模式切换
+
+**User Story:** 作为系统管理员，我希望能够灵活切换意图识别模式（AI优先/缓存优先/规则优先），以适应不同场景需求。
+
+#### Acceptance Criteria
+
+1. WHEN 系统配置 `intent-recognition.mode=ai-first` THEN AI 优先识别，并将结果学习到缓存
+2. WHEN 系统配置 `intent-recognition.mode=cache-first` THEN 缓存优先，AI 作为降级
+3. WHEN 系统配置 `intent-recognition.mode=rule-first` THEN 规则优先，AI 最后兜底
+4. WHEN 管理员切换模式时 THEN 系统 SHALL 记录切换日志
+5. WHEN 模式为 AI-FIRST 时 THEN 系统 SHALL 记录缓存学习统计

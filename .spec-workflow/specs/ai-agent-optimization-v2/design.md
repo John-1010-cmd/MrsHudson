@@ -1279,3 +1279,15 @@ public class CachedResult {
 
 - **FullConversationE2ETest**: 测试完整对话流程
 - **TokenConsumptionE2ETest**: 验证 token 统计准确性
+
+---
+
+## 相关文档
+
+- [intent-vector-cache-design.md](./intent-vector-cache-design.md) - 意图识别向量缓存优化详细设计
+  - 三层缓存架构（L1内存 / L2 Redis / L3 向量）
+  - 查询归一化（时序表达处理）
+  - 熔断与降级策略
+  - 冷启动预热方案
+- [requirements.md](./requirements.md) - 需求文档
+- [tasks.md](./tasks.md) - 任务文档

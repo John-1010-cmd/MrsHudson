@@ -130,6 +130,18 @@ public class StreamChatService {
             String response = routeResult.getResponse();
             if (response != null && !response.isEmpty()) {
                 saveAssistantMessage(userId, conversationId, response, null);
+                // 追加语音合成
+                String audioUrl = voiceService.textToSpeech(response);
+                if (audioUrl != null && !audioUrl.isEmpty()) {
+                    log.info("意图路由语音合成成功，audioUrl: {}", audioUrl);
+                    return Flux.concat(
+                        Flux.just(String.format(
+                            "{\"type\":\"content\",\"text\":\"%s\"}",
+                            escapeJson(response)
+                        )),
+                        Flux.just(String.format("{\"type\":\"audio_url\",\"url\":\"%s\"}", escapeJson(audioUrl)))
+                    );
+                }
                 // SSE 格式：直接返回处理结果（由 flatMap 统一添加 data: 前缀）
                 return Flux.just(String.format(
                     "{\"type\":\"content\",\"text\":\"%s\"}",

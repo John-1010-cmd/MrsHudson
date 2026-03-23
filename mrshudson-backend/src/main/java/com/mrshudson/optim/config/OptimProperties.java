@@ -44,6 +44,11 @@ public class OptimProperties {
     private VectorStoreConfig vectorStore = new VectorStoreConfig();
 
     /**
+     * 意图识别缓存配置（新增）
+     */
+    private IntentRecognitionCacheConfig intentRecognitionCache = new IntentRecognitionCacheConfig();
+
+    /**
      * Kimi API 参数配置
      */
     private KimiParamsConfig kimiParams = new KimiParamsConfig();
@@ -149,6 +154,107 @@ public class OptimProperties {
             private String host = "localhost";
             private int port = 8000;
             private String collectionName = "semantic_cache";
+        }
+    }
+
+    /**
+     * 意图识别缓存配置（新增）
+     * 用于控制向量缓存优化的各层参数
+     */
+    @Data
+    public static class IntentRecognitionCacheConfig {
+        /** 模式: ai-first / cache-first / rule-first */
+        private String mode = "ai-first";
+
+        /** L1 内存缓存配置 */
+        private L1CacheConfig l1Cache = new L1CacheConfig();
+
+        /** L2 Redis Hash 缓存配置 */
+        private L2CacheConfig l2Cache = new L2CacheConfig();
+
+        /** L3 向量缓存配置 */
+        private L3CacheConfig l3Cache = new L3CacheConfig();
+
+        /** 归一化配置 */
+        private NormalizationConfig normalization = new NormalizationConfig();
+
+        /** 冷启动配置 */
+        private ColdStartConfig coldStart = new ColdStartConfig();
+
+        /** 熔断配置 */
+        private CircuitBreakerConfig circuitBreaker = new CircuitBreakerConfig();
+
+        /** Embedding 服务配置 */
+        private EmbeddingConfig embedding = new EmbeddingConfig();
+
+        @Data
+        public static class L1CacheConfig {
+            /** 是否启用 */
+            private boolean enabled = true;
+            /** 最大条目数 */
+            private int maxSize = 500;
+            /** TTL（分钟） */
+            private int ttlMinutes = 5;
+        }
+
+        @Data
+        public static class L2CacheConfig {
+            /** 是否启用 */
+            private boolean enabled = true;
+            /** TTL（天） */
+            private int ttlDays = 7;
+        }
+
+        @Data
+        public static class L3CacheConfig {
+            /** 是否启用 */
+            private boolean enabled = true;
+            /** 索引类型: hnsw / ivf */
+            private String indexType = "hnsw";
+            /** Top-K 返回数量 */
+            private int topK = 10;
+            /** 相似度阈值 (0-1) */
+            private double similarityThreshold = 0.92;
+        }
+
+        @Data
+        public static class NormalizationConfig {
+            /** 是否启用时序归一化 */
+            private boolean temporalEnabled = true;
+            /** 是否启用口语化归一化（暂不支持） */
+            private boolean colloquialEnabled = false;
+        }
+
+        @Data
+        public static class ColdStartConfig {
+            /** 最小样本数（达到此数量后才开启 cache-first） */
+            private int minSamples = 50;
+            /** 是否启用公共模板预热 */
+            private boolean preloadEnabled = true;
+        }
+
+        @Data
+        public static class CircuitBreakerConfig {
+            /** 是否启用熔断 */
+            private boolean enabled = true;
+            /** 失败阈值 */
+            private int failureThreshold = 10;
+            /** 半开间隔（分钟） */
+            private int halfOpenIntervalMinutes = 1;
+        }
+
+        @Data
+        public static class EmbeddingConfig {
+            /** 提供商: minimax / kimi / openai / local */
+            private String provider = "minimax";
+            /** 模型名 */
+            private String model = "text-embedding-3";
+            /** 向量维度 */
+            private int dimension = 1024;
+            /** API Key（从环境变量读取） */
+            private String apiKey = "";
+            /** 批量大小 */
+            private int batchSize = 100;
         }
     }
 }

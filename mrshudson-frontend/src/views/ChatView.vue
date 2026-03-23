@@ -92,9 +92,45 @@
         </div>
       </template>
 
-      <!-- 折叠时显示的竖条和切换按钮 -->
-      <div v-if="!sidebarVisible" class="collapsed-bar" @click="toggleSidebar">
-        <el-icon class="toggle-icon"><ArrowRight /></el-icon>
+      <!-- 折叠时显示的竖条、切换按钮和导航图标 -->
+      <div v-if="!sidebarVisible" class="collapsed-container">
+        <!-- 切换按钮 -->
+        <div class="collapsed-toggle" @click="toggleSidebar">
+          <el-icon class="toggle-icon"><ArrowRight /></el-icon>
+        </div>
+        <!-- 导航图标列表 -->
+        <div class="collapsed-nav">
+          <el-tooltip content="对话" placement="right" :show-after="300">
+            <router-link to="/chat" class="collapsed-nav-item" :class="{ active: currentRoute === '/chat' || currentRoute === '/' }">
+              <el-icon><ChatDotRound /></el-icon>
+            </router-link>
+          </el-tooltip>
+          <el-tooltip content="日历" placement="right" :show-after="300">
+            <router-link to="/calendar" class="collapsed-nav-item" :class="{ active: currentRoute === '/calendar' }">
+              <el-icon><Calendar /></el-icon>
+            </router-link>
+          </el-tooltip>
+          <el-tooltip content="待办" placement="right" :show-after="300">
+            <router-link to="/todo" class="collapsed-nav-item" :class="{ active: currentRoute === '/todo' }">
+              <el-icon><List /></el-icon>
+            </router-link>
+          </el-tooltip>
+          <el-tooltip content="天气" placement="right" :show-after="300">
+            <router-link to="/weather" class="collapsed-nav-item" :class="{ active: currentRoute === '/weather' }">
+              <el-icon><PartlyCloudy /></el-icon>
+            </router-link>
+          </el-tooltip>
+          <el-tooltip content="路线" placement="right" :show-after="300">
+            <router-link to="/route" class="collapsed-nav-item" :class="{ active: currentRoute === '/route' }">
+              <el-icon><MapLocation /></el-icon>
+            </router-link>
+          </el-tooltip>
+          <el-tooltip content="优化统计" placement="right" :show-after="300">
+            <router-link to="/metrics" class="collapsed-nav-item" :class="{ active: currentRoute === '/metrics' }">
+              <el-icon><DataLine /></el-icon>
+            </router-link>
+          </el-tooltip>
+        </div>
       </div>
     </aside>
 
@@ -138,7 +174,7 @@ const currentConversationId = ref<string | null>(null)
 
 // 侧边栏展开/折叠
 const sidebarWidth = '260px'
-const collapsedWidth = '20px'
+const collapsedWidth = '50px'
 const sidebarVisible = ref(true)
 
 const toggleSidebar = () => {
@@ -265,7 +301,7 @@ onMounted(() => {
 
 .conversation-sidebar {
   --sidebar-width: 260px;
-  --collapsed-width: 20px;
+  --collapsed-width: 50px;
   width: var(--sidebar-width);
   background: #1a1a2e;
   color: white;
@@ -299,18 +335,25 @@ onMounted(() => {
   gap: 8px;
 }
 
-.collapsed-bar {
+.collapsed-container {
   width: 100%;
   height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding-top: 16px;
+}
+
+.collapsed-toggle {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px 0;
   cursor: pointer;
   transition: background 0.3s;
 }
 
-.collapsed-bar:hover {
+.collapsed-toggle:hover {
   background: rgba(255, 255, 255, 0.05);
 }
 
@@ -320,8 +363,44 @@ onMounted(() => {
   transition: color 0.3s;
 }
 
-.collapsed-bar:hover .toggle-icon {
+.collapsed-toggle:hover .toggle-icon {
   color: #409eff;
+}
+
+/* 折叠时的导航图标列表 */
+.collapsed-nav {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  width: 100%;
+}
+
+.collapsed-nav-item {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.6);
+  text-decoration: none;
+  transition: all 0.3s;
+}
+
+.collapsed-nav-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.collapsed-nav-item.active {
+  background: rgba(64, 158, 255, 0.2);
+  color: #409eff;
+}
+
+.collapsed-nav-item .el-icon {
+  font-size: 18px;
 }
 
 .model-selector {

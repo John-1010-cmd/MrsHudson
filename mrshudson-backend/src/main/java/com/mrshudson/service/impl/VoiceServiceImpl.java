@@ -149,6 +149,14 @@ public class VoiceServiceImpl implements VoiceService {
             return null;
         }
 
+        String appId = voiceProperties.getXfyunAppId();
+        String apiKey = voiceProperties.getXfyunApiKey();
+        String apiSecret = voiceProperties.getXfyunApiSecret();
+        if (appId == null || appId.isEmpty() || apiSecret == null || apiSecret.isEmpty() || apiKey == null || apiKey.isEmpty()) {
+            log.warn("讯飞API配置不完整，跳过语音合成");
+            return null;
+        }
+
         String truncatedText = text;
         if (text.length() > 1000) {
             truncatedText = text.substring(0, 1000) + "...";

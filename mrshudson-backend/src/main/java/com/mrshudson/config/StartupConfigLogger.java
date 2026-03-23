@@ -21,6 +21,7 @@ public class StartupConfigLogger {
     private final AIProperties aiProperties;
     private final WeatherProperties weatherProperties;
     private final OptimProperties optimProperties;
+    private final VoiceProperties voiceProperties;
 
     @PostConstruct
     public void printStartupConfig() {
@@ -80,6 +81,21 @@ public class StartupConfigLogger {
         log.info("【成本监控配置】");
         log.info("  启用状态: {}", optimProperties.getCostMonitor().isEnabled() ? "已启用" : "已禁用");
         log.info("  每日告警阈值: {} 元", optimProperties.getCostMonitor().getDailyCostAlertThreshold());
+
+        // 讯飞语音配置
+        log.info("【讯飞语音配置】");
+        log.info("  讯飞 App ID: {}", voiceProperties.getXfyunAppId());
+        log.info("  讯飞 API Secret: ***{}",
+                voiceProperties.getXfyunApiSecret() != null && voiceProperties.getXfyunApiSecret().length() > 4
+                        ? voiceProperties.getXfyunApiSecret().substring(voiceProperties.getXfyunApiSecret().length() - 4)
+                        : "未配置");
+        log.info("  讯飞 API Key: ***{}",
+                voiceProperties.getXfyunApiKey() != null && voiceProperties.getXfyunApiKey().length() > 4
+                        ? voiceProperties.getXfyunApiKey().substring(voiceProperties.getXfyunApiKey().length() - 4)
+                        : "未配置");
+        log.info("  TTS发音人: {}", voiceProperties.getXfyunTtsVoice());
+        log.info("  TTS启用状态: {}", voiceProperties.isEnableTts() ? "已启用" : "已禁用");
+        log.info("  模拟模式: {}", voiceProperties.isMockMode() ? "开启" : "关闭");
 
         // 当前环境
         log.info("【运行环境】");

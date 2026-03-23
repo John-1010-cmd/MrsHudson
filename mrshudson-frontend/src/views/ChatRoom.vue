@@ -24,7 +24,7 @@
               </div>
             </div>
             <!-- AI语音播放按钮 -->
-            <div v-if="msg.role === 'assistant' && msg.audioUrl" class="audio-player">
+            <div v-if="msg.role === 'assistant' && (msg.audioUrl || msg.streamAudioUrl)" class="audio-player">
               <!-- 主按钮：从头播放 -->
               <el-button
                 type="info"
@@ -49,7 +49,7 @@
               </el-button>
               <audio
                 :id="'audio-' + msg.id"
-                :src="msg.audioUrl"
+                :src="msg.streamAudioUrl || msg.audioUrl"
                 crossorigin="anonymous"
                 preload="none"
                 @ended="onAudioEnded(msg)"
@@ -125,6 +125,8 @@ import VoiceInputButton from '../components/VoiceInputButton.vue'
 const injectedId = inject('currentConversationId')
 const conversationId = injectedId as Ref<string | null> | undefined
 const refreshConversations = inject('refreshConversations') as (() => Promise<void>) | undefined
+const injectedConversations = inject<Ref<chatApi.ConversationDTO[]>>('conversations')
+const conversations = injectedConversations
 
 // 确保有值，否则报错
 if (!conversationId) {
@@ -137,7 +139,8 @@ interface Message {
   content: string
   createdAt: string
   toolCalls?: chatApi.ToolCallInfo[]
-  audioUrl?: string
+  audioUrl?: string          // 历史消息中的音频URL（从后端数据库加载）
+  streamAudioUrl?: string     // 流式响应中生成的音频URL（仅在当前会话有效，不会被 loadConversationMessages 覆盖）
   isPlaying?: boolean
   pausedAt?: number  // 暂停位置（秒）
   hasPaused?: boolean  // 是否曾暂停过
@@ -439,8 +442,8 @@ async function sendStreamContent(content: string) {
           }
 
           if (data.type === 'audio_url' && data.url) {
-            // 语音合成完成，设置音频URL
-            aiMsg.audioUrl = data.url
+            // 语音合成完成，设置音频URL（使用 streamAudioUrl 避免被 loadConversationMessages 覆盖）
+            aiMsg.streamAudioUrl = data.url
             console.log('语音合成完成:', data.url)
           }
 
@@ -458,8 +461,20 @@ async function sendStreamContent(content: string) {
     }
 
     // 流结束后，重新加载消息列表以获取最新数据（包括意图路由直接处理的响应）
+    // 注意：需要保留当前流式消息的 streamAudioUrl，因为 loadConversationMessages 会替换整个 messages 数组
     if (conversationId.value) {
-      loadConversationMessages(conversationId.value)
+      // 记录流式消息在数组中的索引位置（用于恢复 streamAudioUrl）
+      // 因为流式消息 ID（'stream-xxx'）与后端返回的真实 ID（数字）不同，无法通过 ID 匹配恢复
+      const streamMsgIndex = messages.value.length - 1
+      const currentStreamAudioUrl = aiMsg.streamAudioUrl
+
+      // 重新加载消息
+      await loadConversationMessages(conversationId.value)
+
+      // 用索引直接恢复流式响应中的 audioUrl
+      if (messages.value[streamMsgIndex] && currentStreamAudioUrl) {
+        messages.value[streamMsgIndex].streamAudioUrl = currentStreamAudioUrl
+      }
     }
   } catch (error: any) {
     console.error('流式接收失败:', error)
@@ -476,7 +491,49 @@ async function sendStreamContent(content: string) {
       window.setTimeout(() => refreshConversations(), 800)
       window.setTimeout(() => refreshConversations(), 2000)
     }
+    // 启动标题轮询：每秒检查一次当前会话标题是否已更新
+    // 解决后端 @Async 异步生成标题导致的延迟问题
+    startTitlePolling()
   }
+}
+
+/**
+ * 轮询检查当前会话标题是否已更新
+ * 后端使用 @Async 异步生成标题，需要轮询直到标题变化或超时
+ */
+const startTitlePolling = () => {
+  const currentConvId = conversationId?.value
+  if (!currentConvId || !conversations?.value) return
+
+  // 记录初始标题（新对话）
+  const initialConv = conversations.value.find(c => c.id === currentConvId)
+  const initialTitle = initialConv?.title || '新对话'
+
+  // 轮询状态标记
+  let pollCount = 0
+  const maxPolls = 10 // 最多轮询10次，每次间隔1秒，共10秒
+
+  const pollInterval = window.setInterval(async () => {
+    pollCount++
+
+    // 重新获取会话列表
+    await refreshConversations?.()
+
+    // 检查当前会话标题是否已更新
+    const updatedConv = conversations?.value?.find(c => c.id === currentConvId)
+    if (updatedConv && updatedConv.title !== initialTitle && updatedConv.title !== '新对话') {
+      // 标题已更新，停止轮询
+      console.log('ChatRoom: 标题已更新:', updatedConv.title)
+      window.clearInterval(pollInterval)
+      return
+    }
+
+    // 超过最大轮询次数，停止轮询
+    if (pollCount >= maxPolls) {
+      console.log('ChatRoom: 标题轮询超时（10秒），停止检查')
+      window.clearInterval(pollInterval)
+    }
+  }, 1000) // 每秒检查一次
 }
 
 // 处理语音录音
