@@ -120,6 +120,7 @@ import { ElMessage } from 'element-plus'
 import { UserFilled, Promotion, VideoPlay, VideoPause } from '@element-plus/icons-vue'
 import * as chatApi from '../api/chat'
 import VoiceInputButton from '../components/VoiceInputButton.vue'
+import { SseClient } from '../utils/sse/SseClient'
 
 // 从父组件注入
 const injectedId = inject('currentConversationId')
@@ -321,149 +322,100 @@ async function sendStreamContent(content: string) {
 
   let fullContent = ''
   let toolCalls: chatApi.ToolCallInfo[] = []
+  let doneReceived = false
 
   try {
     const token = localStorage.getItem('access_token')
 
-    const response = await fetch('/api/chat/stream', {
+    // 使用 SseClient 统一处理 SSE 流
+    const sseClient = new SseClient({
+      url: '/api/chat/stream',
       method: 'POST',
       headers: {
         'Authorization': token ? `Bearer ${token}` : '',
-        'Content-Type': 'application/json',
-        'Accept': 'text/event-stream',
-        'Cache-Control': 'no-cache'
       },
-      body: JSON.stringify({
+      body: {
         message: content,
         conversationId: conversationId.value || null
-      })
+      },
+      timeout: 60000,
+
+      onOpen: () => {
+        console.log('[SSE] 连接已打开')
+      },
+
+      onContent: (text: string) => {
+        fullContent += text
+        aiMsg.content = fullContent
+        scrollToBottom()
+      },
+
+      onCacheHit: (text: string) => {
+        // 缓存命中，直接显示缓存内容
+        fullContent += text
+        aiMsg.content = fullContent
+        scrollToBottom()
+      },
+
+      onClarification: (text: string) => {
+        // 澄清提示
+        fullContent += text
+        aiMsg.content = fullContent
+        scrollToBottom()
+      },
+
+      onToolCall: (tool) => {
+        toolCalls.push({
+          name: tool.name,
+          arguments: tool.arguments,
+          result: ''
+        })
+        aiMsg.toolCalls = [...toolCalls]
+      },
+
+      onToolResult: (result) => {
+        const toolCall = toolCalls.find(t => t.name === result.name)
+        if (toolCall) {
+          toolCall.result = result.result
+        }
+        aiMsg.toolCalls = [...toolCalls]
+      },
+
+      onTokenUsage: (usage) => {
+        const stats = `\n\n--- 💡 本次对话消耗 ---\n` +
+          `📥 输入: ${usage.inputTokens} tokens\n` +
+          `📤 输出: ${usage.outputTokens} tokens\n` +
+          `⏱️ 耗时: ${usage.duration}ms\n` +
+          `🤖 模型: ${usage.model}\n` +
+          `------------------------`
+        aiMsg.content = fullContent + stats
+      },
+
+      onAudioUrl: (url: string) => {
+        // 语音合成完成，设置音频URL（使用 streamAudioUrl 避免被 loadConversationMessages 覆盖）
+        aiMsg.streamAudioUrl = url
+        console.log('[SSE] audio_url:', url)
+      },
+
+      onError: (error: string) => {
+        console.error('[SSE] error:', error)
+        ElMessage.error(error)
+        aiMsg.content = '抱歉，服务器返回异常，请稍后重试。'
+      },
+
+      onDone: () => {
+        console.log('[SSE] done')
+        doneReceived = true
+      },
+
+      onClose: () => {
+        console.log('[SSE] 连接已关闭')
+        loading.value = false
+      }
     })
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-
-    const reader = response.body?.getReader()
-    if (!reader) {
-      throw new Error('No response body')
-    }
-
-    const decoder = new TextDecoder()
-    let buffer = ''
-    const extractSseData = (line: string): string | null => {
-      const trimmed = line.trim()
-      if (!trimmed) return null
-      // SSE 格式：data: {...} 或 data:{...}
-      if (trimmed.startsWith('data:')) {
-        const dataContent = trimmed.slice(5).trim()
-        // 验证是 JSON 对象
-        if (dataContent.startsWith('{') && dataContent.endsWith('}')) {
-          return dataContent
-        }
-      }
-      // 直接是 JSON 对象（无 data: 前缀）
-      if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
-        return trimmed
-      }
-      return null
-    }
-    let doneReceived = false
-
-    while (true) {
-      const { done, value } = await reader.read()
-
-      if (done) {
-        break
-      }
-
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-
-      for (const line of lines) {
-        const dataStr = extractSseData(line)
-        if (!dataStr) {
-          console.log('[DEBUG] SSE解析跳过: line=', line)
-          continue
-        }
-        if (dataStr === '[DONE]') {
-          doneReceived = true
-          break
-        }
-
-        try {
-          const data = JSON.parse(dataStr)
-          console.log('[DEBUG] SSE事件: type=', data.type, 'data=', data)
-
-          if (data.type === 'error') {
-            throw new Error(data.error || 'Unknown error')
-          }
-
-          if (data.type === 'content' && (data.text || data.content)) {
-            fullContent += data.text || data.content
-            aiMsg.content = fullContent
-            scrollToBottom()
-          }
-
-          if (data.type === 'cache_hit' && data.content) {
-            // 缓存命中，直接显示缓存内容
-            fullContent += data.content
-            aiMsg.content = fullContent
-            scrollToBottom()
-          }
-
-          if (data.type === 'clarification' && data.content) {
-            // 澄清提示
-            fullContent += data.content
-            aiMsg.content = fullContent
-            scrollToBottom()
-          }
-
-          if (data.type === 'tool_call' && data.toolCall) {
-            toolCalls.push({
-              name: data.toolCall.name,
-              arguments: data.toolCall.arguments,
-              result: ''
-            })
-            aiMsg.toolCalls = [...toolCalls]
-          }
-
-          if (data.type === 'tool_result' && data.toolResult) {
-            const toolCall = toolCalls.find(t => t.name === data.toolResult.name)
-            if (toolCall) {
-              toolCall.result = data.toolResult.result
-            }
-            aiMsg.toolCalls = [...toolCalls]
-          }
-
-          if (data.type === 'token_usage') {
-            const stats = `\n\n--- 💡 本次对话消耗 ---\n` +
-              `📥 输入: ${data.inputTokens} tokens\n` +
-              `📤 输出: ${data.outputTokens} tokens\n` +
-              `⏱️ 耗时: ${data.duration}ms\n` +
-              `🤖 模型: ${data.model}\n` +
-              `------------------------`
-            aiMsg.content = fullContent + stats
-          }
-
-          if (data.type === 'audio_url' && data.url) {
-            // 语音合成完成，设置音频URL（使用 streamAudioUrl 避免被 loadConversationMessages 覆盖）
-            aiMsg.streamAudioUrl = data.url
-            console.log('[DEBUG] audio_url事件已处理: aiMsg.streamAudioUrl=', aiMsg.streamAudioUrl)
-          }
-
-          if (data.type === 'done') {
-            doneReceived = true
-          }
-        } catch (e) {
-          console.error('Parse SSE data error:', e, 'Raw data:', dataStr)
-        }
-      }
-
-      if (doneReceived) {
-        break
-      }
-    }
+    // 开始流式接收
+    await sseClient.stream()
 
     // 流结束后，重新加载消息列表以获取最新数据（包括意图路由直接处理的响应）
     // 注意：需要保留当前流式消息的 streamAudioUrl，因为 loadConversationMessages 会替换整个 messages 数组

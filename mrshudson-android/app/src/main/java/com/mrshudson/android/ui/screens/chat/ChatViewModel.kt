@@ -1,6 +1,7 @@
 package com.mrshudson.android.ui.screens.chat
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mrshudson.android.data.local.datastore.SettingsDataStore
@@ -22,6 +23,8 @@ import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import java.time.LocalDateTime
 import javax.inject.Inject
+
+private const val TAG = "ChatViewModel"
 
 /**
  * AI 对话页面的 UI 状态
@@ -382,6 +385,14 @@ class ChatViewModel @Inject constructor(
                                 error = event.message
                             )
                         }
+                    }
+                    is StreamEvent.ToolCall -> {
+                        // 工具调用事件，记录但不直接显示
+                        Log.d(TAG, "Tool call: ${event.name}")
+                    }
+                    is StreamEvent.ToolResult -> {
+                        // 工具结果事件，记录但不直接显示
+                        Log.d(TAG, "Tool result: ${event.name}")
                     }
                 }
             }

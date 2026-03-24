@@ -82,12 +82,16 @@ interface ChatRepository {
 /**
  * 流式事件
  * 包含 SSE 流中的 JSON 事件数据
+ * 遵循 SSE_STREAM_SPEC.md 规范
  */
 sealed class StreamEvent {
+    abstract val conversationId: Long?
+
     /**
      * 工具调用事件
      */
     data class ToolCall(
+        override val conversationId: Long?,
         val id: String,
         val name: String,
         val arguments: String
@@ -97,19 +101,25 @@ sealed class StreamEvent {
      * 工具结果事件
      */
     data class ToolResult(
+        override val conversationId: Long?,
         val id: String,
+        val name: String,
         val result: String
     ) : StreamEvent()
 
     /**
      * 增量内容事件
      */
-    data class Content(val text: String) : StreamEvent()
+    data class Content(
+        override val conversationId: Long?,
+        val text: String
+    ) : StreamEvent()
 
     /**
      * Token 使用统计事件
      */
     data class TokenUsage(
+        override val conversationId: Long?,
         val inputTokens: Int,
         val outputTokens: Int,
         val duration: Long,
@@ -119,28 +129,41 @@ sealed class StreamEvent {
     /**
      * 缓存命中事件
      */
-    data class CacheHit(val content: String) : StreamEvent()
+    data class CacheHit(
+        override val conversationId: Long?,
+        val content: String
+    ) : StreamEvent()
 
     /**
      * 澄清提示事件
      */
-    data class Clarification(val content: String) : StreamEvent()
+    data class Clarification(
+        override val conversationId: Long?,
+        val content: String
+    ) : StreamEvent()
 
     /**
      * 音频URL事件（语音合成完成）
      */
-    data class AudioUrl(val url: String) : StreamEvent()
+    data class AudioUrl(
+        override val conversationId: Long?,
+        val url: String
+    ) : StreamEvent()
 
     /**
      * 流式完成事件
-     * @param conversationId 会话ID（如果是新会话）
      */
-    data class Done(val conversationId: Long?) : StreamEvent()
+    data class Done(
+        override val conversationId: Long?
+    ) : StreamEvent()
 
     /**
      * 错误事件
      */
-    data class Error(val message: String) : StreamEvent()
+    data class Error(
+        override val conversationId: Long?,
+        val message: String
+    ) : StreamEvent()
 }
 
 /**
