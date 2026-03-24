@@ -28,6 +28,12 @@ public class ChatMessage {
     private String functionCall;
 
     /**
+     * 音频URL（语音合成结果）
+     */
+    @TableField("audio_url")
+    private String audioUrl;
+
+    /**
      * 会话ID
      */
     @TableField("conversation_id")

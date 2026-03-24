@@ -117,6 +117,8 @@ public class StreamChatService {
                 "{\"type\":\"cache_hit\",\"content\":\"%s\"}",
                 escapeJson(cacheResult.getResponse())
             );
+            // 生成会话标题（如果是第一条消息）
+            checkAndGenerateTitle(conversationId, userMessage);
             return Flux.just(cacheHitResponse);
         }
 
@@ -129,9 +131,11 @@ public class StreamChatService {
             log.info("意图路由直接处理: type={}, layer={}", routeResult.getIntentType(), routeResult.getRouterLayer());
             String response = routeResult.getResponse();
             if (response != null && !response.isEmpty()) {
-                saveAssistantMessage(userId, conversationId, response, null);
                 // 追加语音合成
                 String audioUrl = voiceService.textToSpeech(response);
+                saveAssistantMessage(userId, conversationId, response, null, audioUrl);
+                // 生成会话标题（如果是第一条消息）
+                checkAndGenerateTitle(conversationId, userMessage);
                 if (audioUrl != null && !audioUrl.isEmpty()) {
                     log.info("意图路由语音合成成功，audioUrl: {}", audioUrl);
                     return Flux.concat(
@@ -157,7 +161,11 @@ public class StreamChatService {
             if (intentResult.needsClarification()) {
                 String clarification = buildClarificationPrompt(userMessage, intentResult);
                 if (clarification != null) {
-                    saveAssistantMessage(userId, conversationId, clarification, null);
+                    // 追加语音合成
+                    String audioUrl = voiceService.textToSpeech(clarification);
+                    saveAssistantMessage(userId, conversationId, clarification, null, audioUrl);
+                    // 生成会话标题（如果是第一条消息）
+                    checkAndGenerateTitle(conversationId, userMessage);
                     // SSE 格式：澄清提示（由 flatMap 统一添加 data: 前缀）
                     return Flux.just(String.format(
                         "{\"type\":\"clarification\",\"content\":\"%s\"}",
@@ -190,6 +198,7 @@ public class StreamChatService {
         // 返回：事件流、AI最终内容、Token统计
         AtomicReference<String> aiFinalContent = new AtomicReference<>("");
         AtomicReference<TokenUsage> tokenUsageRef = new AtomicReference<>();
+        AtomicReference<String> audioUrlRef = new AtomicReference<>();
         List<SendMessageResponse.ToolCallInfo> toolCallInfos = Collections.synchronizedList(new ArrayList<>());
 
         Flux<String> aiStream = executeStreamingAiCallWithTools(
@@ -233,8 +242,14 @@ public class StreamChatService {
                     String finalContent = aiFinalContent.get();
                     if (finalContent != null && !finalContent.isEmpty()) {
                         String functionCallJson = toolCallInfos.isEmpty() ? null : JSON.toJSONString(toolCallInfos);
-                        saveAssistantMessage(userId, conversationId, finalContent, functionCallJson);
-                        // 保存到缓�?
+                        // 同步获取音频URL并保存
+                        String audioUrl = voiceService.textToSpeech(finalContent);
+                        saveAssistantMessage(userId, conversationId, finalContent, functionCallJson, audioUrl);
+                        if (audioUrl != null && !audioUrl.isEmpty()) {
+                            log.info("语音合成成功，audioUrl: {}", audioUrl);
+                            audioUrlRef.set(audioUrl); // 保存audioUrl供后续SSE事件使用
+                        }
+                        // 保存到缓存
                         costOptimizer.saveCache(userId, userMessage, finalContent);
                     }
 
@@ -261,13 +276,8 @@ public class StreamChatService {
                 }))
                 // 末尾追加音频 URL（语音合成）
                 .concatWith(Flux.defer(() -> {
-                    String content = aiFinalContent.get();
-                    if (content == null || content.isEmpty()) {
-                        return Flux.empty();
-                    }
-                    String audioUrl = voiceService.textToSpeech(content);
+                    String audioUrl = audioUrlRef.get();
                     if (audioUrl != null && !audioUrl.isEmpty()) {
-                        log.info("语音合成成功，audioUrl: {}", audioUrl);
                         return Flux.just(sseEvent(String.format("{\"type\":\"audio_url\",\"url\":\"%s\"}", escapeJson(audioUrl))));
                     }
                     return Flux.empty();
@@ -702,7 +712,7 @@ public class StreamChatService {
     /**
      * 保存AI响应消息
      */
-    private void saveAssistantMessage(Long userId, Long conversationId, String content, String functionCall) {
+    private void saveAssistantMessage(Long userId, Long conversationId, String content, String functionCall, String audioUrl) {
         ChatMessage assistantMsg = new ChatMessage();
         assistantMsg.setUserId(userId);
         assistantMsg.setConversationId(conversationId);
@@ -710,6 +720,9 @@ public class StreamChatService {
         assistantMsg.setContent(content);
         if (functionCall != null && !functionCall.isEmpty()) {
             assistantMsg.setFunctionCall(functionCall);
+        }
+        if (audioUrl != null && !audioUrl.isEmpty()) {
+            assistantMsg.setAudioUrl(audioUrl);
         }
         chatMessageMapper.insert(assistantMsg);
     }

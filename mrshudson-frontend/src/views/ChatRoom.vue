@@ -207,7 +207,8 @@ const loadConversationMessages = async (conversationId: string) => {
             content: msg.content,
             createdAt: msg.createdAt,
             toolCalls,
-            audioUrl: undefined, // 历史消息不保留音频URL
+            audioUrl: msg.audioUrl, // 使用后端返回的音频URL
+            streamAudioUrl: undefined, // 流式响应中生成的音频URL
             isPlaying: false,
             pausedAt: 0,
             hasPaused: false
@@ -381,7 +382,10 @@ async function sendStreamContent(content: string) {
 
       for (const line of lines) {
         const dataStr = extractSseData(line)
-        if (!dataStr) continue
+        if (!dataStr) {
+          console.log('[DEBUG] SSE解析跳过: line=', line)
+          continue
+        }
         if (dataStr === '[DONE]') {
           doneReceived = true
           break
@@ -389,6 +393,7 @@ async function sendStreamContent(content: string) {
 
         try {
           const data = JSON.parse(dataStr)
+          console.log('[DEBUG] SSE事件: type=', data.type, 'data=', data)
 
           if (data.type === 'error') {
             throw new Error(data.error || 'Unknown error')
@@ -444,7 +449,7 @@ async function sendStreamContent(content: string) {
           if (data.type === 'audio_url' && data.url) {
             // 语音合成完成，设置音频URL（使用 streamAudioUrl 避免被 loadConversationMessages 覆盖）
             aiMsg.streamAudioUrl = data.url
-            console.log('语音合成完成:', data.url)
+            console.log('[DEBUG] audio_url事件已处理: aiMsg.streamAudioUrl=', aiMsg.streamAudioUrl)
           }
 
           if (data.type === 'done') {
@@ -463,17 +468,24 @@ async function sendStreamContent(content: string) {
     // 流结束后，重新加载消息列表以获取最新数据（包括意图路由直接处理的响应）
     // 注意：需要保留当前流式消息的 streamAudioUrl，因为 loadConversationMessages 会替换整个 messages 数组
     if (conversationId.value) {
-      // 记录流式消息在数组中的索引位置（用于恢复 streamAudioUrl）
-      // 因为流式消息 ID（'stream-xxx'）与后端返回的真实 ID（数字）不同，无法通过 ID 匹配恢复
-      const streamMsgIndex = messages.value.length - 1
       const currentStreamAudioUrl = aiMsg.streamAudioUrl
+      const streamStartTime = aiMsg.createdAt
+      console.log('[DEBUG] 流结束，恢复音频: streamStartTime=', streamStartTime, 'currentStreamAudioUrl=', currentStreamAudioUrl)
 
       // 重新加载消息
       await loadConversationMessages(conversationId.value)
 
-      // 用索引直接恢复流式响应中的 audioUrl
-      if (messages.value[streamMsgIndex] && currentStreamAudioUrl) {
-        messages.value[streamMsgIndex].streamAudioUrl = currentStreamAudioUrl
+      // 找到最后一条 assistant 消息（按 createdAt 最新），恢复其 audioUrl
+      // 因为后端返回的消息是按时间排序的，最后一条 assistant 消息就是当前流的 AI 消息
+      const assistantMsgs = messages.value.filter(msg => msg.role === 'assistant')
+      if (assistantMsgs.length > 0) {
+        const lastAssistantMsg = assistantMsgs[assistantMsgs.length - 1]
+        if (currentStreamAudioUrl) {
+          lastAssistantMsg.streamAudioUrl = currentStreamAudioUrl
+          console.log('[DEBUG] 音频URL已恢复: msgId=', lastAssistantMsg.id, 'url=', currentStreamAudioUrl)
+        }
+      } else {
+        console.warn('[DEBUG] 音频URL恢复失败: 没有找到 assistant 消息')
       }
     }
   } catch (error: any) {

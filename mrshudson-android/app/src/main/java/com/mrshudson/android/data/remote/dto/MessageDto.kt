@@ -9,13 +9,15 @@ package com.mrshudson.android.data.remote.dto
  * @property content 消息内容
  * @property createdAt 创建时间
  * @property functionCall 工具调用信息（可选）
+ * @property audioUrl 语音合成音频URL（AI消息可能有）
  */
 data class MessageDto(
     val id: String,
     val role: String,
     val content: String,
     val createdAt: String,
-    val functionCall: String? = null
+    val functionCall: String? = null,
+    val audioUrl: String? = null
 )
 
 /**

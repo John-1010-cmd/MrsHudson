@@ -192,7 +192,7 @@ class ChatRepositoryImpl @Inject constructor(
 
     /**
      * 将 MessageDto 转换为领域模型 Message
-     * 后端返回: id (String), role, content, createdAt, functionCall
+     * 后端返回: id (String), role, content, createdAt, functionCall, audioUrl
      */
     private fun MessageDto.toDomainModel(): Message {
         return createMessage(
@@ -200,7 +200,7 @@ class ChatRepositoryImpl @Inject constructor(
             role = role,
             content = content,
             createdAt = createdAt,
-            audioUrl = null // 历史消息没有 audioUrl
+            audioUrl = audioUrl
         )
     }
 

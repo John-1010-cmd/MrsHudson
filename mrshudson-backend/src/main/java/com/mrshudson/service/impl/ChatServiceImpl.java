@@ -436,6 +436,7 @@ public class ChatServiceImpl implements ChatService {
                 .content(msg.getContent())
                 .createdAt(msg.getCreatedAt())
                 .functionCall(msg.getFunctionCall())
+                .audioUrl(msg.getAudioUrl())
                 .build())
             .collect(Collectors.toList());
 
@@ -461,6 +462,7 @@ public class ChatServiceImpl implements ChatService {
                 .content(msg.getContent())
                 .createdAt(msg.getCreatedAt())
                 .functionCall(msg.getFunctionCall())
+                .audioUrl(msg.getAudioUrl())
                 .build())
             .collect(Collectors.toList());
 

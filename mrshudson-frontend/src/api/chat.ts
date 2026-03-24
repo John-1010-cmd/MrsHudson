@@ -27,6 +27,7 @@ export interface MessageInfo {
   content: string
   createdAt: string
   functionCall?: string
+  audioUrl?: string  // 语音合成音频URL
 }
 
 export interface ChatHistoryResponse {

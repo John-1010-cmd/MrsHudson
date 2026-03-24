@@ -48,5 +48,10 @@ public class ChatHistoryResponse {
          * 工具调用信息（AI回复时可能有）
          */
         private String functionCall;
+
+        /**
+         * 音频URL（语音合成结果）
+         */
+        private String audioUrl;
     }
 }
