@@ -1,7 +1,7 @@
 package com.mrshudson.android.ui.screens.main
 
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -264,7 +264,9 @@ private fun DrawerContent(
         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
         // 用户信息
-        RowScope {
+        Row(
+            modifier = Modifier.fillMaxWidth()
+        ) {
             NavigationDrawerItem(
                 icon = {
                     Icon(
@@ -275,7 +277,7 @@ private fun DrawerContent(
                 label = { Text("用户信息") },
                 selected = false,
                 onClick = { },
-                modifier = Modifier.fillMaxWidth(0.5f)
+                modifier = Modifier.weight(1f)
             )
 
             NavigationDrawerItem(
@@ -288,7 +290,7 @@ private fun DrawerContent(
                 label = { Text("设置") },
                 selected = false,
                 onClick = onNavigateToSettings,
-                modifier = Modifier.fillMaxWidth(0.5f)
+                modifier = Modifier.weight(1f)
             )
         }
 

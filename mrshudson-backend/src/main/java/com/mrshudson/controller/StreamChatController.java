@@ -3,6 +3,7 @@ package com.mrshudson.controller;
 import com.mrshudson.domain.dto.SendMessageRequest;
 import com.mrshudson.service.AuthService;
 import com.mrshudson.service.StreamChatService;
+import com.mrshudson.util.SseFormatter;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -38,6 +39,7 @@ public class StreamChatController {
         log.info("收到流式消息请求，用户ID: {}, 消息: {}", userId, request.getMessage());
 
         return streamChatService.streamSendMessage(userId, request)
+                .transform(SseFormatter::addSsePrefix)
                 .doOnSubscribe(s -> log.info("SSE 流式响应开始，用户ID: {}", userId))
                 .doOnComplete(() -> log.info("SSE 流式响应完成，用户ID: {}", userId))
                 .doOnError(e -> log.error("SSE 流式响应异常，用户ID: {}, 错误: {}", userId, e.getMessage(), e));

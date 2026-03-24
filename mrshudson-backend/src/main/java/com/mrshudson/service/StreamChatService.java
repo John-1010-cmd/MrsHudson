@@ -30,6 +30,7 @@ import com.mrshudson.optim.quality.QualityOptimizer;
 import com.mrshudson.optim.token.TokenTrackerService;
 import com.mrshudson.optim.token.TokenUsage;
 import com.mrshudson.service.AsyncTaskService;
+import com.mrshudson.util.SseFormatter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -112,14 +113,9 @@ public class StreamChatService {
         var cacheResult = costOptimizer.checkCache(userId, userMessage);
         if (cacheResult != null && cacheResult.isHit()) {
             log.info("缓存命中，直接返回缓存结果");
-            // SSE 格式：缓存命中
-            String cacheHitResponse = String.format(
-                "{\"type\":\"cache_hit\",\"content\":\"%s\"}",
-                escapeJson(cacheResult.getResponse())
-            );
             // 生成会话标题（如果是第一条消息）
             checkAndGenerateTitle(conversationId, userMessage);
-            return Flux.just(cacheHitResponse);
+            return Flux.just(SseFormatter.cacheHit(escapeJson(cacheResult.getResponse())));
         }
 
         // 3. 意图路由 - 直接使用 route() 获取结果，避免与 IntentConfidenceEvaluator 重复评估
@@ -139,18 +135,12 @@ public class StreamChatService {
                 if (audioUrl != null && !audioUrl.isEmpty()) {
                     log.info("意图路由语音合成成功，audioUrl: {}", audioUrl);
                     return Flux.concat(
-                        Flux.just(String.format(
-                            "{\"type\":\"content\",\"text\":\"%s\"}",
-                            escapeJson(response)
-                        )),
-                        Flux.just(String.format("{\"type\":\"audio_url\",\"url\":\"%s\"}", escapeJson(audioUrl)))
+                        Flux.just(SseFormatter.content(escapeJson(response))),
+                        Flux.just(SseFormatter.audioUrl(escapeJson(audioUrl)))
                     );
                 }
-                // SSE 格式：直接返回处理结果（由 flatMap 统一添加 data: 前缀）
-                return Flux.just(String.format(
-                    "{\"type\":\"content\",\"text\":\"%s\"}",
-                    escapeJson(response)
-                ));
+                // 直接返回处理结果
+                return Flux.just(SseFormatter.content(escapeJson(response)));
             }
             // 如果路由说已处理但没有响应内容，继续走AI流程（可能是需要AI执行工具）
         }
@@ -166,11 +156,8 @@ public class StreamChatService {
                     saveAssistantMessage(userId, conversationId, clarification, null, audioUrl);
                     // 生成会话标题（如果是第一条消息）
                     checkAndGenerateTitle(conversationId, userMessage);
-                    // SSE 格式：澄清提示（由 flatMap 统一添加 data: 前缀）
-                    return Flux.just(String.format(
-                        "{\"type\":\"clarification\",\"content\":\"%s\"}",
-                        escapeJson(clarification)
-                    ));
+                    // 澄清提示
+                    return Flux.just(SseFormatter.clarification(escapeJson(clarification)));
                 }
             }
         }
@@ -221,15 +208,15 @@ public class StreamChatService {
                     // 估算输出Token（只对普通内容估算，工具调用事件不计入）
                     outputTokens.addAndGet(tokenTrackerService.estimateTokens(chunk));
                 })
-                // AI 内容（所有事件统一添加 data: 前缀）
+                // AI 内容（统一返回纯JSON字符串，由Controller添加data:前缀）
                 .flatMap(event -> {
                     // 检查事件是否已经是完整JSON格式（以 {"type": 开头）
                     if (event.startsWith("{\"type\":")) {
-                        // 已是完整JSON格式（tool_call, tool_result, error, cache_hit, clarification等），直接添加 data: 前缀
-                        return Flux.just(sseEvent(event));
+                        // 已是完整JSON格式（tool_call, tool_result, error, cache_hit, clarification等），直接返回
+                        return Flux.just(event);
                     } else {
-                        // 纯文本内容，包装为 JSON 格式（添加 data: 前缀）
-                        return Flux.just(sseEvent(String.format("{\"type\":\"content\",\"text\":\"%s\"}", escapeJson(event))));
+                        // 纯文本内容，包装为 JSON 格式
+                        return Flux.just(SseFormatter.content(escapeJson(event)));
                     }
                 })
                 .doOnComplete(() -> {
@@ -266,24 +253,23 @@ public class StreamChatService {
                     if (usage == null) {
                         usage = tokenTrackerService.getUsage(trackingId);
                     }
-                    return Flux.just(sseEvent(String.format(
-                        "{\"type\":\"token_usage\",\"inputTokens\":%d,\"outputTokens\":%d,\"duration\":%d,\"model\":\"%s\"}",
+                    return Flux.just(SseFormatter.tokenUsage(
                         usage.getInputTokens() != null ? usage.getInputTokens() : 0,
                         usage.getOutputTokens() != null ? usage.getOutputTokens() : 0,
                         usage.getDuration() != null ? usage.getDuration() : 0L,
                         usage.getModel() != null ? usage.getModel() : "unknown"
-                    )));
+                    ));
                 }))
                 // 末尾追加音频 URL（语音合成）
                 .concatWith(Flux.defer(() -> {
                     String audioUrl = audioUrlRef.get();
                     if (audioUrl != null && !audioUrl.isEmpty()) {
-                        return Flux.just(sseEvent(String.format("{\"type\":\"audio_url\",\"url\":\"%s\"}", escapeJson(audioUrl))));
+                        return Flux.just(SseFormatter.audioUrl(escapeJson(audioUrl)));
                     }
                     return Flux.empty();
                 }))
                 // 末尾追加完成标记
-                .concatWith(Flux.just(sseEvent("{\"type\":\"done\"}")));
+                .concatWith(Flux.just(SseFormatter.done()));
     }
 
     /**
@@ -299,13 +285,6 @@ public class StreamChatService {
             .replace("\n", "\\n")
             .replace("\r", "\\r")
             .replace("\t", "\\t");
-    }
-
-    /**
-     * 创建 SSE 格式的事件字符串
-     */
-    private String sseEvent(String data) {
-        return "data: " + data + "\n\n";
     }
 
     /**
@@ -373,13 +352,8 @@ public class StreamChatService {
 
                             log.info("检测到工具调用: id={}, tool={}, args={}", toolCallId, toolName, arguments);
 
-                            // 1. 发�?tool_call 事件（格式：{"type":"tool_call","toolCall":{"name":"...","arguments":"..."}}�?
-                            String toolCallEvent = String.format(
-                                "{\"type\":\"tool_call\",\"toolCall\":{\"name\":\"%s\",\"arguments\":\"%s\"}}",
-                                escapeJson(toolName),
-                                escapeJson(arguments)
-                            );
-                            sink.tryEmitNext(toolCallEvent);
+                            // 1. 发送 tool_call 事件
+                            sink.tryEmitNext(SseFormatter.toolCall(toolName, arguments));
 
                             // 2. 执行工具调用
                             String toolResult = toolRegistry.executeTool(toolName, arguments);
@@ -413,11 +387,7 @@ public class StreamChatService {
                                     toolResult = correctedResult;
                                 } else {
                                     // 纠错失败，发送错误事件给前端
-                                    String errorEvent = sseEvent(String.format(
-                                        "{\"type\":\"error\",\"message\":\"%s\"}",
-                                        escapeJson("工具执行结果异常：" + validationResult.getErrorMessage())
-                                    ));
-                                    sink.tryEmitNext(errorEvent);
+                                    sink.tryEmitNext(SseFormatter.error("工具执行结果异常：" + validationResult.getErrorMessage()));
                                 }
                             }
 
@@ -442,13 +412,8 @@ public class StreamChatService {
                             // 添加工具结果消息（tool 角色�?
                             messages.add(Message.tool(toolCallId, toolResult));
 
-                            // 4. 发�?tool_result 事件（格式：{"type":"tool_result","toolResult":{"name":"...","result":"..."}}�?
-                            String toolResultEvent = String.format(
-                                "{\"type\":\"tool_result\",\"toolResult\":{\"name\":\"%s\",\"result\":\"%s\"}}",
-                                escapeJson(toolName),
-                                escapeJson(toolResult)
-                            );
-                            sink.tryEmitNext(toolResultEvent);
+                            // 4. 发送 tool_result 事件
+                            sink.tryEmitNext(SseFormatter.toolResult(toolName, toolResult));
 
                             // 5. 继续调用 AI 获取下一轮响�?
                             // 增加活跃订阅计数
@@ -537,13 +502,8 @@ public class StreamChatService {
 
                             log.info("检测到工具调用（继续）: id={}, tool={}, args={}", toolCallId, toolName, arguments);
 
-                            // 发�?tool_call 事件（格式：{"type":"tool_call","toolCall":{"name":"...","arguments":"..."}}�?
-                            String toolCallEvent = String.format(
-                                "{\"type\":\"tool_call\",\"toolCall\":{\"name\":\"%s\",\"arguments\":\"%s\"}}",
-                                escapeJson(toolName),
-                                escapeJson(arguments)
-                            );
-                            sink.tryEmitNext(toolCallEvent);
+                            // 发送 tool_call 事件
+                            sink.tryEmitNext(SseFormatter.toolCall(toolName, arguments));
 
                             // 执行工具调用
                             String toolResult = toolRegistry.executeTool(toolName, arguments);
@@ -571,11 +531,7 @@ public class StreamChatService {
                                     toolResult = correctedResult;
                                 } else {
                                     // 纠错失败，发送错误事件给前端
-                                    String errorEvent = sseEvent(String.format(
-                                        "{\"type\":\"error\",\"message\":\"%s\"}",
-                                        escapeJson("工具执行结果异常：" + validationResult.getErrorMessage())
-                                    ));
-                                    sink.tryEmitNext(errorEvent);
+                                    sink.tryEmitNext(SseFormatter.error("工具执行结果异常：" + validationResult.getErrorMessage()));
                                 }
                             }
 
@@ -606,13 +562,8 @@ public class StreamChatService {
                             // 添加工具结果消息
                             messages.add(Message.tool(toolCallId, toolResult));
 
-                            // 发�?tool_result 事件（格式：{"type":"tool_result","toolResult":{"name":"...","result":"..."}}�?
-                            String toolResultEvent = String.format(
-                                "{\"type\":\"tool_result\",\"toolResult\":{\"name\":\"%s\",\"result\":\"%s\"}}",
-                                escapeJson(toolName),
-                                escapeJson(toolResult)
-                            );
-                            sink.tryEmitNext(toolResultEvent);
+                            // 发送 tool_result 事件
+                            sink.tryEmitNext(SseFormatter.toolResult(toolName, toolResult));
 
                             // 递归继续
                             activeSubscriptions.incrementAndGet();
