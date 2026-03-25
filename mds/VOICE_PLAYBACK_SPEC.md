@@ -1,8 +1,8 @@
 # 语音播放实现规范
 
-**文档版本**: 1.2
+**文档版本**: 1.3
 **创建日期**: 2026-03-24
-**最后更新**: 2026-03-24
+**最后更新**: 2026-03-25
 **文档状态**: 草稿
 
 ---
@@ -149,7 +149,9 @@ voice:
 
 ### 2.4 SSE 事件序列（统一规范）
 
-后端发送的完整 SSE 事件序列：
+后端发送的 SSE 事件序列：
+
+#### 当前实现（同步 TTS）
 
 ```
 data: {"type":"content","text":"Hello"}\n\n           ← AI 增量内容
@@ -157,57 +159,182 @@ data: {"type":"tool_call","toolCall":{...}}\n\n      ← 工具调用
 data: {"type":"tool_result","toolResult":{...}}\n\n ← 工具结果
 data: {"type":"content","text":"今天天气不错"}\n\n  ← AI 最终回复
 data: {"type":"token_usage","..."}\n\n           ← Token 统计
-data: {"type":"audio_url","url":"..."}\n\n       ← TTS 音频 URL（关键！）
+data: {"type":"audio_url","url":"..."}\n\n       ← TTS 音频 URL（doOnComplete 后同步生成）
 data: {"type":"done"}\n\n                       ← 完成标记
 ```
 
+**问题**：TTS 在 `doOnComplete` 中同步执行，会阻塞 SSE 流。
+
+#### 目标实现（异步 TTS - P1-A）
+
+```
+data: {"type":"content","text":"Hello"}\n\n           ← AI 增量内容
+data: {"type":"tool_call","toolCall":{...}}\n\n      ← 工具调用
+data: {"type":"tool_result","toolResult":{...}}\n\n ← 工具结果
+data: {"type":"content","text":"今天天气不错"}\n\n  ← AI 最终回复
+data: {"type":"token_usage","..."}\n\n           ← Token 统计
+data: {"type":"done"}\n\n                       ← 完成标记（TTS 前置）
+
+[延迟推送 via Redis Pub/Sub]
+event: audio_url
+data: {"type":"audio_url","url":"..."}\n\n  ← TTS 异步生成后推送
+```
+
+前端需额外监听 `audio_url` 事件通道。
+
 ### 2.5 后端问题与解决方案
 
-| # | 问题 | 严重程度 | 解决方案 |
-|---|------|---------|---------|
-| P1 | TTS 同步阻塞 SSE 流 | **高** | 方案1: TTS 完全异步化，done 先发<br>方案2: TTS 预生成，并行合成 |
-| P2 | TTS Provider 硬编码 | **高** | 实现策略模式，支持讯飞/MiniMax 切换 |
-| P3 | 文本超 1000 字符直接截断 | **中** | 方案1: 智能分块 TTS<br>方案2: 长文本流式合成 |
-| P4 | TTS 失败无重试机制 | **中** | 添加 1-2 次指数退避重试 |
-| P5 | 意图路由的 TTS 也在主流程 | **低** | 统一异步化处理 |
+| # | 问题 | 严重程度 | 解决方案 | 状态 |
+|---|------|---------|---------|------|
+| P1 | TTS 同步阻塞 SSE 流 | **高** | 方案1: TTS 完全异步化，done 先发<br>方案2: TTS 预生成，并行合成 | 待实现 |
+| P2 | TTS Provider 硬编码 | **高** | 实现策略模式，支持讯飞/MiniMax 切换 | 待实现 |
+| P3 | 文本超 1000 字符直接截断 | **中** | 方案1: 智能语义分块 TTS<br>方案2: 长文本流式合成 | **已解答详述** |
+| P4 | ~~TTS 失败无重试机制~~ | — | **已移除**：重试会增加 4-10s 延迟，意义不大 | 不采纳 |
+| P5 | 意图路由的 TTS 也在主流程 | **低** | 统一异步化处理（P1-A 方案） | **已解答** |
 
 ### 2.6 后端解决方案详述
 
 #### 方案 P1-A: TTS 完全异步化（推荐）
 
+**核心思路**：`done` 先发，TTS 在后台异步生成，通过 Redis Pub/Sub 推送 `audio_url` 事件。
+
 ```java
 // StreamChatService.java 改造
 public Flux<String> streamSendMessage(Long userId, SendMessageRequest request) {
-    return aiStream
-        .flatMap(event -> ...)
-        .doOnComplete(() -> {
-            // 立即发送 done，不等待 TTS
-            saveAssistantMessage(...);  // 保存消息（audioUrl 初始为 null）
-        })
-        .concatWith(Flux.just(SseFormatter.done()));  // 先发 done
+    AtomicReference<String> finalContent = new AtomicReference("");
 
-        // TTS 在后台异步生成，通过异步事件推送
-        CompletableFuture.runAsync(() -> {
-            String audioUrl = voiceService.textToSpeech(finalContent);
-            // 通过 Redis Pub/Sub 或 WebSocket 推送 audio_url 事件
-            publishAudioUrlEvent(conversationId, audioUrl);
-        });
+    return aiStream
+        .doOnNext(chunk -> finalContent.set(finalContent.get() + chunk))
+        .doOnComplete(() -> {
+            // 1. 立即保存消息（audioUrl 初始为 null）
+            saveAssistantMessage(userId, conversationId,
+                finalContent.get(), functionCallJson, null);
+        })
+        // 2. 先发 done
+        .concatWith(Flux.just(SseFormatter.done()))
+        // 3. TTS 在后台异步生成，通过 Redis Pub/Sub 推送
+        .thenMany(Flux.defer(() -> {
+            CompletableFuture.runAsync(() -> {
+                String audioUrl = voiceService.textToSpeech(finalContent.get());
+                if (audioUrl != null && !audioUrl.isEmpty()) {
+                    // 更新数据库中的 audioUrl
+                    updateMessageAudioUrl(conversationId, audioUrl);
+                    // 通过 Redis Pub/Sub 推送 audio_url 事件到前端
+                    redisPublisher.publish("chat:" + conversationId + ":audio_url", audioUrl);
+                }
+            });
+            return Flux.empty();
+        }));
 }
 ```
 
+**前端适配**：需监听 Redis Pub/Sub 通道或使用 WebSocket 接收延迟的 `audio_url` 事件。
+
 #### 方案 P1-B: TTS 预生成（备选）
+
+**核心思路**：AI 生成内容时，并行预触发 TTS。
 
 ```java
 // 在 AI 生成内容时并行触发 TTS
-AtomicReference<String> partialContent = new AtomicReference("");
+AtomicReference<String> latestContent = new AtomicReference("");
+AtomicReference<String> preAudioUrl = new AtomicReference<>();
 
 aiStream.subscribe(chunk -> {
-    partialContent.set(partialContent.get() + chunk);
-    // 预触发 TTS（取最新 500 字符）
-    if (partialContent.get().length() > 500) {
-        ttsService.preSynthesize(partialContent.get());
+    latestContent.set(latestContent.get() + chunk);
+    // 每积累 500 字符，预触发 TTS
+    if (latestContent.get().length() > 500) {
+        CompletableFuture.runAsync(() -> {
+            String url = voiceService.textToSpeech(latestContent.get());
+            if (url != null) preAudioUrl.set(url);
+        });
     }
 });
+
+// 最终完成后，使用预合成的 audioUrl
+.concatWith(Flux.defer(() -> {
+    String audioUrl = preAudioUrl.get();
+    if (audioUrl != null && !audioUrl.isEmpty()) {
+        return Flux.just(SseFormatter.audioUrl(escapeJson(audioUrl)));
+    }
+    return Flux.empty();
+}))
+```
+
+#### 方案 P3-A: 智能语义分块 TTS（推荐）
+
+**现状问题**（[VoiceServiceImpl.java:161-163](mrshudson-backend/src/main/java/com/mrshudson/service/impl/VoiceServiceImpl.java#L161-L163)）：
+```java
+if (text.length() > 1000) {
+    truncatedText = text.substring(0, 1000) + "..."; // 简单截断，丢失语义
+}
+```
+
+**解决方案**：按句子/段落分块，每块不超过 900 字符，合成后拼接。
+
+```java
+/**
+ * 智能分块：按句子边界分割，每块不超过 maxChars 字符
+ */
+private List<String> splitIntoSentences(String text, int maxChars) {
+    List<String> chunks = new ArrayList<>();
+    StringBuilder current = new StringBuilder();
+
+    // 按中文标点分割
+    String[] sentences = text.split("[。！？.!?\n]");
+
+    for (String sentence : sentences) {
+        if (sentence.trim().isEmpty()) continue;
+
+        if (current.length() + sentence.length() <= maxChars) {
+            current.append(sentence.trim()).append("。");
+        } else {
+            if (current.length() > 0) {
+                chunks.add(current.toString());
+                current = new StringBuilder();
+            }
+            // 单句超过限制，按字数再分割
+            if (sentence.length() > maxChars) {
+                for (int i = 0; i < sentence.length(); i += maxChars - 50) {
+                    int end = Math.min(i + maxChars - 50, sentence.length());
+                    chunks.add(sentence.substring(i, end) + "...");
+                }
+            } else {
+                current.append(sentence.trim()).append("。");
+            }
+        }
+    }
+    if (current.length() > 0) {
+        chunks.add(current.toString());
+    }
+    return chunks;
+}
+
+/**
+ * 分块合成后拼接
+ */
+public String textToSpeech(String text) {
+    if (text == null || text.isEmpty()) return null;
+
+    // 单块直接合成
+    if (text.length() <= 1000) {
+        return synthesize(text);
+    }
+
+    List<String> chunks = splitIntoSentences(text, 900);
+    List<String> audioFiles = new ArrayList<>();
+
+    for (int i = 0; i < chunks.size(); i++) {
+        String audioPath = synthesize(chunks.get(i));
+        if (audioPath == null) {
+            log.error("TTS 分块 {} 合成失败", i + 1);
+            return null;
+        }
+        audioFiles.add(audioPath);
+        log.info("TTS 分块 {}/{} 完成", i + 1, chunks.size());
+    }
+
+    return mergeAudioFiles(audioFiles); // 合并多个音频文件
+}
 ```
 
 #### 方案 P2: TTS Provider 策略模式
@@ -261,7 +388,7 @@ public class CompositeTtsService implements VoiceService {
 | `SseClient.ts` | SSE 统一客户端 |
 | `api/chat.ts` | 聊天 API 定义 |
 
-### 3.2 语音播放实现（简化版）
+### 3.2 语音播放实现（统一规范）
 
 前端**只负责播放**，不负责 TTS 生成。
 
@@ -274,24 +401,37 @@ interface Message {
   content: string
   audioUrl?: string          // SSE 流中获取的音频 URL（后端返回）
   isPlaying?: boolean
-  pausedAt?: number
-  hasPaused?: boolean
+  pausedAt?: number          // 暂停位置（秒）
+  hasPaused?: boolean         // 是否曾暂停过
+  // ✅ 已移除 streamAudioUrl，统一使用 audioUrl
 }
 ```
 
 #### 播放按钮显示条件
 
 ```html
-<!-- 有 audioUrl 才显示播放按钮 -->
+<!-- 规则：有 audioUrl 才显示播放按钮，无则不显示 -->
 <div v-if="msg.role === 'assistant' && msg.audioUrl" class="audio-player">
-  <el-button @click="toggleAudio(msg)">
-    {{ msg.isPlaying ? '暂停' : '播放' }}
+  <!-- 主按钮：从头播放 -->
+  <el-button @click="toggleAudio(msg)" circle>
+    {{ msg.isPlaying ? '暂停' : '从头播放' }}
   </el-button>
-  <!-- 无 audioUrl → 不显示按钮，客户端不生成 TTS -->
+  <!-- 继续播放按钮：暂停后显示 -->
+  <el-button v-if="msg.hasPaused && !msg.isPlaying" @click="resumeAudio(msg)">
+    继续
+  </el-button>
 </div>
 ```
 
-#### 播放流程（简化）
+#### 播放控制（已完成 ✅）
+
+| 操作 | 方法 | 说明 |
+|------|------|------|
+| 从头播放 | `toggleAudio()` | 暂停当前播放，从头开始 |
+| 继续播放 | `resumeAudio()` | 从暂停位置继续 |
+| 暂停 | `toggleAudio()` | 暂停并记录位置 |
+
+#### 播放流程
 
 ```
 用户点击播放
@@ -302,38 +442,47 @@ interface Message {
 
 ### 3.3 前端问题与解决方案
 
-| # | 问题 | 严重程度 | 解决方案 |
-|---|------|---------|---------|
-| F1 | 前端无 TTS 能力 | **高** | 方案1: Web Speech API 降级<br>方案2: 后端统一提供（推荐） |
-| F2 | `streamAudioUrl` 与 `audioUrl` 分离容易混淆 | **中** | 统一使用 `audioUrl`，SSE 直接赋值 |
-| F3 | 流式响应结束后重新加载消息 | **低** | 设计如此，无需修改 |
+| # | 问题 | 严重程度 | 解决方案 | 状态 |
+|---|------|---------|---------|------|
+| F1 | 前端无 TTS 能力 | **高** | 后端统一提供（推荐） | 进行中 |
+| F2 | `streamAudioUrl` 与 `audioUrl` 分离容易混淆 | **中** | 统一使用 `audioUrl` | 待实现 |
+| F3 | 流式响应结束后重新加载消息 | **中** | TTS 异步化后，`audio_url` 通过独立事件通道推送，无需 reload | **已解答** |
+| F4 | 暂停/继续/从头播放 | — | **✅ 已实现**（[ChatRoom.vue:581-643](mrshudson-frontend/src/views/ChatRoom.vue#L581-L643)） | 完成 |
+
+#### F3 问题详解
+
+**现状**（[ChatRoom.vue:420-441](mrshudson-frontend/src/views/ChatRoom.vue#L420-L441)）：
+```javascript
+onDone: () => {
+    doneReceived = true
+},
+onClose: () => {
+    // SSE 结束后，重新加载消息列表以获取最新数据
+    await loadConversationMessages(conversationId.value)
+    // 恢复 streamAudioUrl...
+}
+```
+
+**原因**：
+1. SSE 流中 AI 消息是增量更新的占位符（`id: 'stream-' + timestamp`）
+2. 消息需要持久化到数据库，获得真实 ID
+3. 重新加载是为了获取**服务端落库的消息**（含 `audioUrl`）
+
+**问题**：如果后端 TTS 异步化（`done` 时 audioUrl 尚未生成），重新加载也拿不到 audioUrl。
+
+**解决方案**：TTS 异步化后，`audio_url` 事件通过 **Redis Pub/Sub / WebSocket** 独立通道推送，前端直接更新对应消息的 `audioUrl`，无需重新加载消息列表。
 
 #### 方案 F1: 后端统一提供（推荐）
 
 ```
 后端职责:
-  - AI 回复生成后，立即调用 TTS
-  - 通过 SSE audio_url 事件返回
+  - AI 回复生成后，立即调用 TTS（或异步生成后推送）
+  - 通过 SSE audio_url 事件返回（或通过 Pub/Sub 推送）
   - 无 URL → 前端不显示播放按钮
 
 前端职责:
   - 只负责播放后端返回的 URL
   - 不关心 TTS 来源（讯飞/MiniMax/其他）
-```
-
-#### 方案 F1-ALT: Web Speech API 降级（备选）
-
-```typescript
-// ChatRoom.vue - 降级方案
-const playWithWebSpeech = (text: string) => {
-  if ('speechSynthesis' in window) {
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'zh-CN';
-    speechSynthesis.speak(utterance);
-  } else {
-    ElMessage.warning('浏览器不支持语音播放');
-  }
-};
 ```
 
 ---
@@ -372,24 +521,40 @@ AudioPlayer.playOrPause(message)
 
 ### 4.3 Android 问题与解决方案
 
-| # | 问题 | 严重程度 | 解决方案 |
-|---|------|---------|---------|
-| A1 | 认证 URL 需先下载再播放 | **中** | 方案1: 后端统一返回公开 URL<br>方案2: 保留下载逻辑 |
-| A2 | 两个独立缓存目录 | **低** | 合并为 `voice_cache/` |
-| A3 | 系统 TTS 不支持暂停/继续 | **中** | 记录播放进度，重新播放 |
-| A4 | 本地 TTS 与后端 TTS 混杂 | **中** | 明确分层：后端为主，本地为降级 |
+| # | 问题 | 严重程度 | 解决方案 | 状态 |
+|---|------|---------|---------|------|
+| A1 | 认证 URL 需先下载再播放 | **中** | 方案1: 后端统一返回公开 URL（推荐）<br>方案2: 保留下载逻辑 | 进行中 |
+| A2 | 两个独立缓存目录 | **低** | 合并为 `voice_cache/` | 待实现 |
+| A3 | 系统 TTS 不支持暂停/继续 | **中** | 记录播放进度，重新播放 | ✅ 已实现 |
+| A4 | 本地 TTS 与后端 TTS 混杂 | **中** | 明确分层：后端为主，本地为降级 | **已解答** |
+| A5 | 暂停/继续/从头播放 | — | **✅ 已实现**（[AudioPlayer.kt:283-352](mrshudson-android/.../AudioPlayer.kt#L283-L352)） | 完成 |
 
 #### 方案 A1: 后端统一返回公开 URL（推荐）
 
+**播放按钮显示规则**：
 ```
-后端存储策略:
-  1. TTS 生成 → 本地文件
-  2. 本地文件 → 上传 GitHub（公开可访问）
-  3. 返回 GitHub URL（无需认证）
+backendUrl 非空 → 显示播放按钮
+backendUrl 为空 → 不显示播放按钮
+  （无需本地 TTS 作为降级，依赖后端稳定性）
+```
 
-Android 播放流程:
-  audioUrl 存在 → GitHub URL → 直接播放（无需下载）
-  audioUrl 为空 → 本地 TTS 降级
+**Android 保留本地 TTS 作为降级的理由**：
+1. 网络不稳定时，后端 TTS 请求可能超时/失败
+2. 离线场景需要 TTS
+3. 用户体验：即使后端失败，仍能提供基本 TTS 能力
+
+**播放流程**：
+```
+AudioPlayer.playOrPause(message)
+    │
+    ├── message.audioUrl 非空
+    │       │
+    │       ├─► GitHub URL → 本地缓存或直接播放
+    │       ├─► 服务端 URL → 下载（需认证）
+    │       └─► 公开 URL → 直接播放
+    │
+    └── message.audioUrl 为空 → 不显示播放按钮
+            （如需离线能力，可选启用本地 TTS 降级）
 ```
 
 ---
@@ -518,6 +683,7 @@ when (event) {
 | 2026-03-24 | 1.0 | 初始版本，记录当前实现状态和问题 |
 | 2026-03-24 | 1.1 | 新增 MiniMax TTS 方案分析 |
 | 2026-03-24 | 1.2 | 完善各端问题与解决方案，统一规范 |
+| 2026-03-25 | 1.3 | 解答 P1/P3/P5 详述；移除 P4 重试机制；明确 F3/A4 问题；标注已完成功能（暂停/继续/从头播放）|
 
 ---
 
@@ -525,28 +691,29 @@ when (event) {
 
 ### 后端
 
-| 待办 | 优先级 | 方案选择 |
-|------|--------|---------|
-| TTS Provider 策略模式重构 | **P0** | 实现 `TtsProvider` 接口 + 工厂 |
-| TTS 异步化（解决阻塞） | **P0** | 方案 P1-A: 完全异步化 |
-| MiniMax TTS 实现 | P1 | 新增 `MiniMaxTtsProvider` |
-| 长文本智能分块 | P2 | 方案 P3-A: 流式合成 |
-| TTS 失败重试机制 | P2 | 指数退避重试 1-2 次 |
+| 待办 | 优先级 | 方案选择 | 状态 |
+|------|--------|---------|------|
+| TTS Provider 策略模式重构 | **P0** | 实现 `TtsProvider` 接口 + 工厂 | 待实现 |
+| TTS 异步化（解决阻塞） | **P0** | 方案 P1-A: 完全异步化 | 待实现 |
+| MiniMax TTS 实现 | P1 | 新增 `MiniMaxTtsProvider` | 待实现 |
+| 长文本智能分块 | P2 | 方案 P3-A: 智能语义分块 | **已设计方案** |
+| 意图路由 TTS 异步化 | P1 | 统一 P1-A 方案 | 与 P1 合并 |
 
 ### 前端
 
-| 待办 | 优先级 | 方案选择 |
-|------|--------|---------|
-| 统一使用 `audioUrl` | **P0** | 移除 `streamAudioUrl` |
-| Web Speech API 降级（可选） | P3 | 方案 F1-ALT |
+| 待办 | 优先级 | 方案选择 | 状态 |
+|------|--------|---------|------|
+| 统一使用 `audioUrl` | **P0** | 移除 `streamAudioUrl` | 待实现 |
+| SSE 后监听 `audio_url` 事件 | P1 | Redis Pub/Sub / WebSocket | 与 P1 合并 |
+| 暂停/继续/从头播放 | — | — | ✅ **已完成** |
 
 ### Android
 
-| 待办 | 优先级 | 方案选择 |
-|------|--------|---------|
-| 明确后端 URL 为主，本地 TTS 为降级 | **P0** | 方案 A1 |
-| 缓存目录合并 | P2 | 合并为 `voice_cache/` |
-| 系统 TTS 暂停/继续优化 | P3 | 重新播放 + 进度记录 |
+| 待办 | 优先级 | 方案选择 | 状态 |
+|------|--------|---------|------|
+| 明确后端 URL 为主，本地 TTS 为降级 | **P0** | 方案 A1 | 已明确 |
+| 缓存目录合并 | P2 | 合并为 `voice_cache/` | 待实现 |
+| 暂停/继续/从头播放 | — | — | ✅ **已完成** |
 
 ---
 
@@ -571,5 +738,5 @@ when (event) {
 
 ---
 
-**文档版本**: 1.2
-**最后更新**: 2026-03-24
+**文档版本**: 1.3
+**最后更新**: 2026-03-25

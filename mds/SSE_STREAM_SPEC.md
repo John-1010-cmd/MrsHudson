@@ -481,6 +481,135 @@ await sseClient.stream()
 - 业务代码不应直接使用 `fetch` + `ReadableStream`
 - 应通过 `SseClient` 统一处理所有 SSE 流
 
+### UX 实现规范
+
+#### 1. SseClient 增强接口
+
+```typescript
+// 连接状态类型
+export type ConnectionStatus = 'idle' | 'connecting' | 'receiving' | 'done' | 'error'
+
+export interface SseClientOptions {
+  // ... 现有回调
+
+  // 新增状态回调
+  onConnecting?: () => void      // 刚发起连接（开始显示加载）
+  onFirstContent?: () => void   // 收到首个 content 事件（关闭骨架屏）
+}
+
+export class SseClient {
+  private status: ConnectionStatus = 'idle'
+
+  getStatus(): ConnectionStatus {
+    return this.status
+  }
+}
+```
+
+#### 2. 业务层状态管理
+
+```typescript
+const chatState = ref({
+  status: 'idle' as ConnectionStatus,
+  streamingContent: '',
+  errorMessage: ''
+})
+
+const sseClient = new SseClient({
+  url: '/api/chat/stream',
+  // ...
+
+  onConnecting: () => {
+    chatState.value.status = 'connecting'
+    chatState.value.streamingContent = ''
+    chatState.value.errorMessage = ''
+  },
+
+  onFirstContent: () => {
+    chatState.value.status = 'receiving'
+  },
+
+  onContent: (text: string) => {
+    chatState.value.streamingContent += text
+  },
+
+  onDone: () => {
+    chatState.value.status = 'done'
+  },
+
+  onError: (error: string) => {
+    chatState.value.status = 'error'
+    chatState.value.errorMessage = error
+  }
+})
+```
+
+#### 3. 模板实现
+
+```vue
+<div class="message-bubble">
+  <!-- connecting: 骨架屏 -->
+  <template v-if="chatState.status === 'connecting'">
+    <div class="skeleton-loader">
+      <el-skeleton :rows="3" animated />
+      <span class="thinking-hint">正在思考...</span>
+    </div>
+  </template>
+
+  <!-- receiving: 流式内容 + 光标 -->
+  <template v-else-if="chatState.status === 'receiving'">
+    <div class="streaming-content">
+      {{ chatState.streamingContent }}
+      <span class="typing-cursor">|</span>
+    </div>
+  </template>
+
+  <!-- done: 最终内容 -->
+  <template v-else-if="chatState.status === 'done'">
+    <div class="final-content">
+      {{ chatState.streamingContent }}
+    </div>
+  </template>
+
+  <!-- error: 错误提示 -->
+  <template v-else-if="chatState.status === 'error'">
+    <div class="error-state">
+      <el-alert type="error" :title="chatState.errorMessage" show-icon />
+      <el-button @click="retry" type="primary" size="small">重试</el-button>
+    </div>
+  </template>
+</div>
+```
+
+#### 4. CSS 动画
+
+```css
+.typing-cursor {
+  animation: blink 1s infinite;
+  color: #409eff;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.thinking-hint {
+  color: #909399;
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+.skeleton-loader {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+```
+
 ---
 
 ## 安卓端统一 SSE 处理层
@@ -871,6 +1000,109 @@ fun streamMessage(message: String, conversationId: Long?): Flow<StreamEvent> {
 | 网络错误 | `onFailure` 回调 | `StreamEvent.Error` |
 | JSON 解析失败 | 跳过该事件 | - |
 
+### UX 实现规范
+
+#### 1. 连接状态 Sealed Class
+
+```kotlin
+sealed class ConnectionState {
+    object Idle : ConnectionState()
+    object Connecting : ConnectionState()
+    data class Receiving(val content: String = "") : ConnectionState()
+    data class Done(val content: String) : ConnectionState()
+    data class Error(val message: String) : ConnectionState()
+}
+```
+
+#### 2. ViewModel 集成
+
+```kotlin
+@HiltViewModel
+class ChatViewModel @Inject constructor(
+    private val chatRepository: ChatRepository
+) : ViewModel() {
+
+    private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Idle)
+    val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
+
+    fun sendMessage(message: String) {
+        _connectionState.value = ConnectionState.Connecting
+
+        viewModelScope.launch {
+            chatRepository.streamMessage(message, conversationId)
+                .onEach { event ->
+                    when (event) {
+                        is StreamEvent.Content -> {
+                            val current = (_connectionState.value as? ConnectionState.Receiving)?.content ?: ""
+                            _connectionState.value = ConnectionState.Receiving(current + event.text)
+                        }
+                        is StreamEvent.Done -> {
+                            val content = (_connectionState.value as? ConnectionState.Receiving)?.content ?: ""
+                            _connectionState.value = ConnectionState.Done(content)
+                        }
+                        is StreamEvent.Error -> {
+                            _connectionState.value = ConnectionState.Error(event.message)
+                        }
+                        else -> { /* 忽略其他事件 */ }
+                    }
+                }
+                .catch { e ->
+                    _connectionState.value = ConnectionState.Error(e.message ?: "未知错误")
+                }
+                .collect()
+        }
+    }
+}
+```
+
+#### 3. Compose UI
+
+```kotlin
+@Composable
+fun ChatScreen(viewModel: ChatViewModel = hiltViewModel()) {
+    val connectionState by viewModel.connectionState.collectAsState()
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        when (val state = connectionState) {
+            is ConnectionState.Connecting -> {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    CircularProgressIndicator()
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("正在思考...", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+
+            is ConnectionState.Receiving -> {
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(text = state.content, style = MaterialTheme.typography.bodyLarge)
+                    Text("|", color = MaterialTheme.colorScheme.primary)
+                }
+            }
+
+            is ConnectionState.Done -> {
+                Text(text = state.content, style = MaterialTheme.typography.bodyLarge)
+            }
+
+            is ConnectionState.Error -> {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Card(colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    )) {
+                        Text(text = state.message, modifier = Modifier.padding(16.dp))
+                    }
+                    Button(onClick = { viewModel.retry() }) { Text("重试") }
+                }
+            }
+
+            else -> { /* Idle */ }
+        }
+    }
+}
+```
+
 ---
 
 ## 数据库存储规范
@@ -889,6 +1121,86 @@ fun streamMessage(message: String, conversationId: Long?): Flow<StreamEvent> {
 String audioUrl = voiceService.textToSpeech(finalContent);
 saveAssistantMessage(userId, conversationId, finalContent, functionCallJson, audioUrl);
 ```
+
+---
+
+## 通用 UX 规范
+
+### 连接状态定义
+
+#### 状态枚举
+
+| 状态 | 说明 | 前端 UI | 安卓端 UI |
+|------|------|---------|-----------|
+| `idle` | 初始状态 | 隐藏消息气泡 | 隐藏消息气泡 |
+| `connecting` | 正在连接 | 骨架屏 + "正在思考..." | CircularProgressIndicator |
+| `receiving` | 正在接收内容 | 打字动画 + 光标 | 逐字动画 |
+| `done` | 完成 | 停止光标 | 停止动画 |
+| `error` | 异常 | 错误提示 + 重试按钮 | Error UI + 重试按钮 |
+
+#### 状态转换图
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         状态转换流程                              │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│   ┌──────┐    send()     ┌────────────┐   首字节    ┌──────────┐ │
+│   │ idle │──────────────▶│ connecting │────────────▶│ receiving│ │
+│   └──────┘               └────────────┘             └────┬─────┘ │
+│       ▲                         │                        │       │
+│       │                         │ 超时/错误              │ done  │
+│       │                         ▼                        ▼       │
+│       │                   ┌──────────┐             ┌─────────┐   │
+│       └───────────────────│  error   │◀────────────│   done  │   │
+│                           └──────────┘   异常关闭   └─────────┘   │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 响应时间阈值
+
+| 阶段 | 最大等待时间 | 用户反馈 |
+|------|-------------|----------|
+| 首字节到达 | 10 秒 | 持续显示加载动画 |
+| 10-30 秒 | - | 显示额外提示（如"AI 正在处理中..."） |
+| 30-60 秒 | - | 显示警告（如"响应较慢，请稍候..."） |
+| >60 秒 | - | 中断连接，显示超时错误 + 重试按钮 |
+
+### 加载状态文案
+
+| 场景 | 推荐文案 |
+|------|----------|
+| 连接中 | "正在思考..." |
+| 等待首字节 | "正在思考..." |
+| 长时间等待 | "AI 正在处理中，可能需要较长时间..." |
+| 超时 | "响应超时，请检查网络后重试" |
+
+### 错误处理文案
+
+| 错误类型 | 推荐文案 |
+|----------|----------|
+| 网络错误 | "网络连接失败，请检查网络后重试" |
+| 服务器错误 | "服务暂时不可用，请稍后重试" |
+| 超时 | "响应超时，AI 可能卡住了" |
+| 认证失败 | "登录已过期，请重新登录" |
+
+### 重试策略
+
+| 策略 | 实现 |
+|------|------|
+| 自动重试 | 网络错误时可自动重试 1 次 |
+| 手动重试 | 服务器错误需用户手动点击重试 |
+| 放弃重试 | 认证失败需跳转登录页面 |
+
+### 无障碍（Accessibility）规范
+
+| 要求 | 前端实现 | 安卓端实现 |
+|------|---------|-----------|
+| 屏幕阅读器 | `aria-live="polite"` 区域 | `contentDescription` 标记 |
+| 焦点管理 | 响应完成后聚焦到新消息 | `FocusRequester` 聚焦 |
+| 动画控制 | 尊重 `prefers-reduced-motion` | `AnimationSpec` 可配置 |
+| 颜色对比度 | WCAG AA 标准（4.5:1） | Material 主题默认支持 |
 
 ---
 
@@ -949,6 +1261,7 @@ android.util.Log.d(TAG, "SSE 事件: $data")
 |------|------|----------|
 | 2026-03-24 | 1.0 | 初始版本，统一 SSE 流式输出格式 |
 | 2026-03-24 | 1.1 | 新增后端统一 SSE 格式化组件 `SseFormatter` 和 `SseEvent` |
+| 2026-03-25 | 1.2 | 新增用户体验（UX）规范，定义连接状态、加载动画、流式显示标准 |
 
 ---
 
@@ -1003,5 +1316,5 @@ public class SseEvent {
 
 ---
 
-**文档版本**: 1.1
-**最后更新**: 2026-03-24
+**文档版本**: 1.2
+**最后更新**: 2026-03-25
