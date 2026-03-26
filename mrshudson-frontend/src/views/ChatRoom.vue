@@ -36,14 +36,16 @@
                   <VideoPause />
                 </el-icon>
               </el-button>
-              <!-- 继续播放按钮：暂停后显示 -->
-              <el-button v-if="msg.hasPaused && !msg.isPlaying" type="primary" size="small" class="resume-btn"
-                @click="resumeAudio(msg)">
-                <el-icon>
-                  <VideoPlay />
-                </el-icon>
-                继续
-              </el-button>
+              <!-- 继续播放按钮 + 从头播放按钮：暂停后显示 -->
+              <template v-if="msg.hasPaused && !msg.isPlaying">
+                <el-button type="primary" size="small" class="resume-btn" @click="resumeAudio(msg)">
+                  <el-icon><VideoPlay /></el-icon>
+                  继续
+                </el-button>
+                <el-button size="small" @click="replayAudio(msg)">
+                  从头播放
+                </el-button>
+              </template>
               <audio :id="'audio-' + msg.id" :src="msg.audioUrl || undefined" crossorigin="anonymous" preload="none"
                 @ended="onAudioEnded(msg)" @error="onAudioError(msg)" />
             </div>
@@ -322,6 +324,7 @@ async function sendStreamContent(content: string) {
 
   let fullContent = ''
   let toolCalls: chatApi.ToolCallInfo[] = []
+  let resolvedMessageId: string | null = null  // 后端返回的真实 messageId
 
   try {
     const token = localStorage.getItem('access_token')
@@ -350,31 +353,50 @@ async function sendStreamContent(content: string) {
         console.log('[SSE] 收到首个内容')
       },
 
-      onContent: (text: string) => {
+      onContent: (text: string, conversationId: number | null, messageId: number | null) => {
+        // 首次收到 messageId 时，将占位消息 id 更新为后端真实 messageId
+        if (messageId !== null && resolvedMessageId === null) {
+          resolvedMessageId = String(messageId)
+          aiMsg.id = resolvedMessageId
+        }
+        // 优先用 messageId 精确定位消息气泡
+        if (messageId !== null) {
+          const target = messages.value.find(m => m.id === String(messageId))
+          if (target) {
+            target.content += text
+            scrollToBottom()
+            return
+          }
+        }
+        // 降级：用占位消息
         fullContent += text
         aiMsg.content = fullContent
         scrollToBottom()
       },
 
-      onContentDone: () => {
+      onContentDone: (conversationId: number | null, messageId: number | null) => {
         console.log('[SSE] content_done 收到')
-        aiMsg.ttsStatus = 'synthesizing'
+        const target = messageId !== null ? messages.value.find(m => m.id === String(messageId)) : null
+        const msg = target || aiMsg
+        msg.ttsStatus = 'synthesizing'
       },
 
       onAudioDone: (event) => {
         console.log('[SSE] audio_done:', event)
+        const target = event.messageId !== null ? messages.value.find(m => m.id === String(event.messageId)) : null
+        const msg = target || aiMsg
         if (event.timeout) {
-          aiMsg.ttsStatus = 'timeout'
-          aiMsg.audioUrl = null
+          msg.ttsStatus = 'timeout'
+          msg.audioUrl = null
         } else if (event.error) {
-          aiMsg.ttsStatus = 'error'
-          aiMsg.audioUrl = null
+          msg.ttsStatus = 'error'
+          msg.audioUrl = null
         } else if (event.noaudio) {
-          aiMsg.ttsStatus = 'noaudio'
-          aiMsg.audioUrl = null
+          msg.ttsStatus = 'noaudio'
+          msg.audioUrl = null
         } else if (event.url) {
-          aiMsg.ttsStatus = 'ready'
-          aiMsg.audioUrl = event.url
+          msg.ttsStatus = 'ready'
+          msg.audioUrl = event.url
         }
       },
 
@@ -637,6 +659,34 @@ const resumeAudio = (msg: Message) => {
   if (msg.pausedAt && msg.pausedAt > 0) {
     audioElement.currentTime = msg.pausedAt
   }
+  audioElement.play().then(() => {
+    msg.isPlaying = true
+  }).catch((error) => {
+    console.error('音频播放失败:', error)
+    ElMessage.error('音频播放失败')
+  })
+}
+
+// 从头重新播放
+const replayAudio = (msg: Message) => {
+  const audioElement = document.getElementById('audio-' + msg.id) as HTMLAudioElement
+  if (!audioElement) return
+
+  // 先停止其他正在播放的音频
+  messages.value.forEach(m => {
+    if (m.role === 'assistant' && m.isPlaying) {
+      const otherAudio = document.getElementById('audio-' + m.id) as HTMLAudioElement
+      if (otherAudio) {
+        otherAudio.pause()
+        otherAudio.currentTime = 0
+      }
+      m.isPlaying = false
+    }
+  })
+
+  msg.hasPaused = false
+  msg.pausedAt = 0
+  audioElement.currentTime = 0
   audioElement.play().then(() => {
     msg.isPlaying = true
   }).catch((error) => {

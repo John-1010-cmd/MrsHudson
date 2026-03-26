@@ -48,8 +48,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Sinks;
 
 /**
- * 流式对话服务
- * 提供真正的SSE流式响应，支持Token统计追加
+ * 流式对话服务 提供真正的SSE流式响应，支持Token统计追加
  */
 @Slf4j
 @Service
@@ -96,10 +95,9 @@ public class StreamChatService {
   }
 
   /**
-   * 流式发送消�?
-   * 返回JSON格式的SSE数据�?
+   * 流式发送消�? 返回JSON格式的SSE数据�?
    *
-   * @param userId  用户ID
+   * @param userId 用户ID
    * @param request 消息请求
    * @return JSON格式的SSE数据�?
    */
@@ -127,7 +125,8 @@ public class StreamChatService {
 
     // 4. 检查意图路由是否已直接处理（如天气查询、闲聊等）
     if (routeResult.isHandled()) {
-      log.info("意图路由直接处理: type={}, layer={}", routeResult.getIntentType(), routeResult.getRouterLayer());
+      log.info("意图路由直接处理: type={}, layer={}", routeResult.getIntentType(),
+          routeResult.getRouterLayer());
       String response = routeResult.getResponse();
       if (response != null && !response.isEmpty()) {
         Long messageId = saveAssistantMessage(userId, conversationId, response, null, null);
@@ -147,8 +146,7 @@ public class StreamChatService {
         if (clarification != null) {
           Long messageId = saveAssistantMessage(userId, conversationId, clarification, null, null);
           checkAndGenerateTitle(conversationId, userMessage);
-          return buildAsyncTtsFlux(
-              Flux.just(SseFormatter.clarification(escapeJson(clarification))),
+          return buildAsyncTtsFlux(Flux.just(SseFormatter.clarification(escapeJson(clarification))),
               clarification, conversationId, messageId);
         }
       }
@@ -176,105 +174,96 @@ public class StreamChatService {
     // 9. 执行流式AI调用（支持工具调用）
     AtomicReference<String> aiFinalContent = new AtomicReference<>("");
     AtomicReference<TokenUsage> tokenUsageRef = new AtomicReference<>();
-    AtomicReference<Long> messageIdRef = new AtomicReference<>();
-    List<SendMessageResponse.ToolCallInfo> toolCallInfos = Collections.synchronizedList(new ArrayList<>());
+    List<SendMessageResponse.ToolCallInfo> toolCallInfos =
+        Collections.synchronizedList(new ArrayList<>());
+
+    // 预保存占位消息，提前拿到 messageId，使 content 事件能携带正确的 messageId
+    Long messageId = saveAssistantMessage(userId, conversationId, "", null, null);
 
     // 用 Sink 驱动整个流（AI内容 + content_done + TTS异步 + audio_done + token_usage + done）
     Sinks.Many<String> mainSink = Sinks.many().unicast().onBackpressureBuffer();
 
-    Flux<String> aiStream = executeStreamingAiCallWithTools(
-        messages,
-        toolRegistry.getToolDefinitions(),
-        userId,
-        conversationId,
-        toolCallInfos,
-        aiFinalContent,
-        tokenUsageRef,
-        userMessage,
-        intentType);
+    Flux<String> aiStream = executeStreamingAiCallWithTools(messages,
+        toolRegistry.getToolDefinitions(), userId, conversationId, messageId, toolCallInfos,
+        aiFinalContent, tokenUsageRef, userMessage, intentType);
 
     // 10. 订阅 AI 流，内容推入 mainSink，完成时触发异步 TTS
     AtomicInteger outputTokens = new AtomicInteger(0);
 
-    aiStream.subscribe(
-        chunk -> {
-          outputTokens.addAndGet(tokenTrackerService.estimateTokens(chunk));
-          if (chunk.startsWith("{\"type\":")) {
-            mainSink.tryEmitNext(chunk);
-          } else {
-            mainSink.tryEmitNext(SseFormatter.content(escapeJson(chunk)));
-          }
-        },
-        error -> {
-          log.error("AI 流异常", error);
-          mainSink.tryEmitNext(SseFormatter.error(error.getMessage()));
-          mainSink.tryEmitNext(SseFormatter.done());
-          mainSink.tryEmitComplete();
-        },
-        () -> {
-          // AI 内容流结束
-          tokenTrackerService.recordOutputTokens(trackingId, outputTokens.get());
-          TokenUsage usage = tokenTrackerService.getUsage(trackingId);
-          tokenUsageRef.set(usage);
+    aiStream.subscribe(chunk -> {
+      outputTokens.addAndGet(tokenTrackerService.estimateTokens(chunk));
+      // executeStreamingAiCallWithTools 内部已将 content 包装为 JSON 事件，直接转发
+      mainSink.tryEmitNext(chunk);
+    }, error -> {
+      log.error("AI 流异常", error);
+      mainSink.tryEmitNext(SseFormatter.error(error.getMessage()));
+      mainSink.tryEmitNext(SseFormatter.done());
+      mainSink.tryEmitComplete();
+    }, () -> {
+      // AI 内容流结束
+      tokenTrackerService.recordOutputTokens(trackingId, outputTokens.get());
+      TokenUsage usage = tokenTrackerService.getUsage(trackingId);
+      tokenUsageRef.set(usage);
 
-          String finalContent = aiFinalContent.get();
-          if (finalContent == null || finalContent.isEmpty()) {
-            emitTokenUsageAndDone(mainSink, usage);
-            return;
-          }
+      String finalContent = aiFinalContent.get();
+      if (finalContent == null || finalContent.isEmpty()) {
+        emitTokenUsageAndDone(mainSink, usage);
+        return;
+      }
 
-          String functionCallJson = toolCallInfos.isEmpty() ? null : JSON.toJSONString(toolCallInfos);
-          Long messageId = saveAssistantMessage(userId, conversationId, finalContent, functionCallJson, null);
-          messageIdRef.set(messageId);
+      // 更新预保存消息的内容和 functionCall
+      String functionCallJson = toolCallInfos.isEmpty() ? null : JSON.toJSONString(toolCallInfos);
+      updateAssistantMessageContent(messageId, finalContent, functionCallJson);
 
-          // 发送 content_done
-          mainSink.tryEmitNext(SseFormatter.contentDone(conversationId, messageId));
+      // 发送 content_done
+      mainSink.tryEmitNext(SseFormatter.contentDone(conversationId, messageId));
 
-          // 异步 TTS（带超时）
-          CompletableFuture<String> ttsFuture = CompletableFuture.supplyAsync(() -> {
-            try {
-              return voiceService.textToSpeech(finalContent);
-            } catch (Exception e) {
-              log.error("TTS 合成失败", e);
-              return null;
+      // 异步 TTS（带超时）
+      CompletableFuture<String> ttsFuture = CompletableFuture.supplyAsync(() -> {
+        try {
+          return voiceService.textToSpeech(finalContent);
+        } catch (Exception e) {
+          log.error("TTS 合成失败", e);
+          return null;
+        }
+      });
+
+      ttsFuture.orTimeout(TTS_TIMEOUT_MS, TimeUnit.MILLISECONDS).thenAccept(audioUrl -> {
+        if (audioUrl != null && !audioUrl.isEmpty()) {
+          updateMessageAudioUrl(messageId, audioUrl);
+          mainSink.tryEmitNext(
+              SseFormatter.audioDone(audioUrl, false, null, conversationId, messageId));
+        } else {
+          mainSink
+              .tryEmitNext(SseFormatter.audioDone(null, false, null, conversationId, messageId));
+        }
+        emitTokenUsageAndDone(mainSink, tokenUsageRef.get());
+      }).exceptionally(ex -> {
+        if (ex.getCause() instanceof TimeoutException) {
+          log.warn("TTS 超时（{}ms），后台继续合成", TTS_TIMEOUT_MS);
+          mainSink.tryEmitNext(SseFormatter.audioDone(null, true, null, conversationId, messageId));
+          ttsFuture.thenAccept(audioUrl -> {
+            if (audioUrl != null && !audioUrl.isEmpty()) {
+              updateMessageAudioUrl(messageId, audioUrl);
+              log.info("TTS 超时后完成，audioUrl 已写入数据库，messageId={}", messageId);
             }
           });
+        } else {
+          log.error("TTS 异常", ex);
+          mainSink.tryEmitNext(
+              SseFormatter.audioDone(null, false, "TTS_FAILED", conversationId, messageId));
+        }
+        emitTokenUsageAndDone(mainSink, tokenUsageRef.get());
+        return null;
+      });
 
-          ttsFuture.orTimeout(TTS_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-              .thenAccept(audioUrl -> {
-                if (audioUrl != null && !audioUrl.isEmpty()) {
-                  updateMessageAudioUrl(messageId, audioUrl);
-                  mainSink.tryEmitNext(SseFormatter.audioDone(audioUrl, false, null, conversationId, messageId));
-                } else {
-                  mainSink.tryEmitNext(SseFormatter.audioDone(null, false, null, conversationId, messageId));
-                }
-                emitTokenUsageAndDone(mainSink, tokenUsageRef.get());
-              })
-              .exceptionally(ex -> {
-                if (ex.getCause() instanceof TimeoutException) {
-                  log.warn("TTS 超时（{}ms），后台继续合成", TTS_TIMEOUT_MS);
-                  mainSink.tryEmitNext(SseFormatter.audioDone(null, true, null, conversationId, messageId));
-                  ttsFuture.thenAccept(audioUrl -> {
-                    if (audioUrl != null && !audioUrl.isEmpty()) {
-                      updateMessageAudioUrl(messageId, audioUrl);
-                      log.info("TTS 超时后完成，audioUrl 已写入数据库，messageId={}", messageId);
-                    }
-                  });
-                } else {
-                  log.error("TTS 异常", ex);
-                  mainSink.tryEmitNext(SseFormatter.audioDone(null, false, "TTS_FAILED", conversationId, messageId));
-                }
-                emitTokenUsageAndDone(mainSink, tokenUsageRef.get());
-                return null;
-              });
+      costOptimizer.saveCache(userId, userMessage, finalContent);
 
-          costOptimizer.saveCache(userId, userMessage, finalContent);
-
-          if (conversationId != null) {
-            updateConversationLastMessageTime(conversationId);
-            checkAndGenerateTitle(conversationId, userMessage);
-          }
-        });
+      if (conversationId != null) {
+        updateConversationLastMessageTime(conversationId);
+        checkAndGenerateTitle(conversationId, userMessage);
+      }
+    });
 
     return mainSink.asFlux();
   }
@@ -283,11 +272,11 @@ public class StreamChatService {
 
   private void emitTokenUsageAndDone(Sinks.Many<String> sink, TokenUsage usage) {
     if (usage != null) {
-      sink.tryEmitNext(SseFormatter.tokenUsage(
-          usage.getInputTokens() != null ? usage.getInputTokens() : 0,
-          usage.getOutputTokens() != null ? usage.getOutputTokens() : 0,
-          usage.getDuration() != null ? usage.getDuration() : 0L,
-          usage.getModel() != null ? usage.getModel() : "unknown"));
+      sink.tryEmitNext(
+          SseFormatter.tokenUsage(usage.getInputTokens() != null ? usage.getInputTokens() : 0,
+              usage.getOutputTokens() != null ? usage.getOutputTokens() : 0,
+              usage.getDuration() != null ? usage.getDuration() : 0L,
+              usage.getModel() != null ? usage.getModel() : "unknown"));
     }
     sink.tryEmitNext(SseFormatter.done());
     sink.tryEmitComplete();
@@ -296,8 +285,8 @@ public class StreamChatService {
   /**
    * 构建异步 TTS Flux（意图路由 / 澄清路径复用）
    */
-  private Flux<String> buildAsyncTtsFlux(Flux<String> contentFlux, String text,
-      Long conversationId, Long messageId) {
+  private Flux<String> buildAsyncTtsFlux(Flux<String> contentFlux, String text, Long conversationId,
+      Long messageId) {
     Sinks.Many<String> sink = Sinks.many().unicast().onBackpressureBuffer();
     sink.tryEmitNext(SseFormatter.contentDone(conversationId, messageId));
 
@@ -310,35 +299,34 @@ public class StreamChatService {
       }
     });
 
-    ttsFuture.orTimeout(TTS_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-        .thenAccept(audioUrl -> {
+    ttsFuture.orTimeout(TTS_TIMEOUT_MS, TimeUnit.MILLISECONDS).thenAccept(audioUrl -> {
+      if (audioUrl != null && !audioUrl.isEmpty()) {
+        updateMessageAudioUrl(messageId, audioUrl);
+        sink.tryEmitNext(SseFormatter.audioDone(audioUrl, false, null, conversationId, messageId));
+      } else {
+        sink.tryEmitNext(SseFormatter.audioDone(null, false, null, conversationId, messageId));
+      }
+      sink.tryEmitNext(SseFormatter.done());
+      sink.tryEmitComplete();
+    }).exceptionally(ex -> {
+      if (ex.getCause() instanceof TimeoutException) {
+        log.warn("TTS 超时（{}ms），后台继续合成", TTS_TIMEOUT_MS);
+        sink.tryEmitNext(SseFormatter.audioDone(null, true, null, conversationId, messageId));
+        ttsFuture.thenAccept(audioUrl -> {
           if (audioUrl != null && !audioUrl.isEmpty()) {
             updateMessageAudioUrl(messageId, audioUrl);
-            sink.tryEmitNext(SseFormatter.audioDone(audioUrl, false, null, conversationId, messageId));
-          } else {
-            sink.tryEmitNext(SseFormatter.audioDone(null, false, null, conversationId, messageId));
+            log.info("TTS 超时后完成，audioUrl 已写入数据库，messageId={}", messageId);
           }
-          sink.tryEmitNext(SseFormatter.done());
-          sink.tryEmitComplete();
-        })
-        .exceptionally(ex -> {
-          if (ex.getCause() instanceof TimeoutException) {
-            log.warn("TTS 超时（{}ms），后台继续合成", TTS_TIMEOUT_MS);
-            sink.tryEmitNext(SseFormatter.audioDone(null, true, null, conversationId, messageId));
-            ttsFuture.thenAccept(audioUrl -> {
-              if (audioUrl != null && !audioUrl.isEmpty()) {
-                updateMessageAudioUrl(messageId, audioUrl);
-                log.info("TTS 超时后完成，audioUrl 已写入数据库，messageId={}", messageId);
-              }
-            });
-          } else {
-            log.error("TTS 异常", ex);
-            sink.tryEmitNext(SseFormatter.audioDone(null, false, "TTS_FAILED", conversationId, messageId));
-          }
-          sink.tryEmitNext(SseFormatter.done());
-          sink.tryEmitComplete();
-          return null;
         });
+      } else {
+        log.error("TTS 异常", ex);
+        sink.tryEmitNext(
+            SseFormatter.audioDone(null, false, "TTS_FAILED", conversationId, messageId));
+      }
+      sink.tryEmitNext(SseFormatter.done());
+      sink.tryEmitComplete();
+      return null;
+    });
 
     return contentFlux.mergeWith(sink.asFlux());
   }
@@ -356,43 +344,48 @@ public class StreamChatService {
   }
 
   /**
+   * 更新预保存消息的内容和 functionCall（流结束后回填）
+   */
+  private void updateAssistantMessageContent(Long messageId, String content, String functionCall) {
+    if (messageId == null)
+      return;
+    ChatMessage msg = new ChatMessage();
+    msg.setId(messageId);
+    msg.setContent(content);
+    if (functionCall != null && !functionCall.isEmpty()) {
+      msg.setFunctionCall(functionCall);
+    }
+    chatMessageMapper.updateById(msg);
+  }
+
+  /**
    * 转义 JSON 字符串中的特殊字符
    */
   private String escapeJson(String text) {
     if (text == null) {
       return "";
     }
-    return text
-        .replace("\\", "\\\\")
-        .replace("\"", "\\\"")
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-        .replace("\t", "\\t");
+    return text.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
+        .replace("\r", "\\r").replace("\t", "\\t");
   }
 
   /**
    * 执行流式AI调用（支持工具调用）
    *
-   * @param messages       消息列表（会被修改，添加工具调用和结果）
-   * @param tools          工具定义列表
-   * @param userId         用户ID
+   * @param messages 消息列表（会被修改，添加工具调用和结果）
+   * @param tools 工具定义列表
+   * @param userId 用户ID
    * @param conversationId 会话ID
    * @param aiFinalContent OUT参数：AI的最终文本内容（不含工具调用/结果事件�?
-   * @param tokenUsageRef  OUT参数：Token使用统计
-   * @param userMessage    用户原始消息（用于纠错上下文）
-   * @param intentType     识别的意图类型（用于纠错上下文）
+   * @param tokenUsageRef OUT参数：Token使用统计
+   * @param userMessage 用户原始消息（用于纠错上下文）
+   * @param intentType 识别的意图类型（用于纠错上下文）
    * @return 事件流（包含 tool_call、tool_result、content 事件�?
    */
-  private Flux<String> executeStreamingAiCallWithTools(
-      List<Message> messages,
-      List<Tool> tools,
-      Long userId,
-      Long conversationId,
-      List<SendMessageResponse.ToolCallInfo> toolCallInfos,
-      AtomicReference<String> aiFinalContent,
-      AtomicReference<TokenUsage> tokenUsageRef,
-      String userMessage,
-      IntentType intentType) {
+  private Flux<String> executeStreamingAiCallWithTools(List<Message> messages, List<Tool> tools,
+      Long userId, Long conversationId, Long messageId,
+      List<SendMessageResponse.ToolCallInfo> toolCallInfos, AtomicReference<String> aiFinalContent,
+      AtomicReference<TokenUsage> tokenUsageRef, String userMessage, IntentType intentType) {
 
     // 用于收集所有事件的 Sinks
     Sinks.Many<String> sink = Sinks.many().unicast().onBackpressureBuffer();
@@ -402,173 +395,145 @@ public class StreamChatService {
 
     // 订阅 AI 流式响应
     AIProvider provider = aiClientFactory.getCurrentProvider();
-    Flux<String> aiStream = (provider == AIProvider.KIMI
-        ? kimiClient.streamChatCompletion(messages, tools)
-        : miniMaxClient.streamChatCompletion(messages, tools))
-        .doOnSubscribe(s -> log.debug("AI 流式响应开始"))
-        .doOnError(e -> {
-          log.error("AI 流式响应异常: {}", e.getMessage(), e);
-          sink.tryEmitError(e);
-          if (activeSubscriptions.decrementAndGet() == 0) {
-            sink.tryEmitComplete();
-          }
-        })
-        .doOnCancel(() -> {
-          log.debug("AI 流式响应取消");
-          if (activeSubscriptions.decrementAndGet() == 0) {
-            sink.tryEmitComplete();
-          }
-        });
+    Flux<String> aiStream =
+        (provider == AIProvider.KIMI ? kimiClient.streamChatCompletion(messages, tools)
+            : miniMaxClient.streamChatCompletion(messages, tools))
+                .doOnSubscribe(s -> log.debug("AI 流式响应开始")).doOnError(e -> {
+                  log.error("AI 流式响应异常: {}", e.getMessage(), e);
+                  sink.tryEmitError(e);
+                  if (activeSubscriptions.decrementAndGet() == 0) {
+                    sink.tryEmitComplete();
+                  }
+                }).doOnCancel(() -> {
+                  log.debug("AI 流式响应取消");
+                  if (activeSubscriptions.decrementAndGet() == 0) {
+                    sink.tryEmitComplete();
+                  }
+                });
 
-    aiStream.subscribe(
-        chunk -> {
-          // 检查是否是工具调用事件
-          if (chunk.startsWith("[TOOL_CALL]")) {
-            // 解析工具调用信息，格式：[TOOL_CALL]tool_call_id:tool_name:arguments
-            String toolCallInfo = chunk.substring("[TOOL_CALL]".length());
-            String[] parts = toolCallInfo.split(":", 3);
+    aiStream.subscribe(chunk -> {
+      // 检查是否是工具调用事件
+      if (chunk.startsWith("[TOOL_CALL]")) {
+        // 解析工具调用信息，格式：[TOOL_CALL]tool_call_id:tool_name:arguments
+        String toolCallInfo = chunk.substring("[TOOL_CALL]".length());
+        String[] parts = toolCallInfo.split(":", 3);
 
-            if (parts.length >= 3) {
-              String toolCallId = parts[0];
-              String toolName = parts[1];
-              String arguments = parts[2];
+        if (parts.length >= 3) {
+          String toolCallId = parts[0];
+          String toolName = parts[1];
+          String arguments = parts[2];
 
-              log.info("检测到工具调用: id={}, tool={}, args={}", toolCallId, toolName, arguments);
+          log.info("检测到工具调用: id={}, tool={}, args={}", toolCallId, toolName, arguments);
 
-              // 1. 发送 tool_call 事件
-              sink.tryEmitNext(SseFormatter.toolCall(toolName, arguments));
+          // 1. 发送 tool_call 事件
+          sink.tryEmitNext(SseFormatter.toolCall(toolName, arguments, conversationId));
 
-              // 2. 执行工具调用
-              String toolResult = toolRegistry.executeTool(toolName, arguments);
-              toolCallInfos.add(SendMessageResponse.ToolCallInfo.builder()
-                  .name(toolName)
-                  .arguments(arguments)
-                  .result(toolResult)
-                  .build());
-              log.info("工具执行完成: tool={}, result={}", toolName, toolResult);
+          // 2. 执行工具调用
+          String toolResult = toolRegistry.executeTool(toolName, arguments);
+          toolCallInfos.add(SendMessageResponse.ToolCallInfo.builder().name(toolName)
+              .arguments(arguments).result(toolResult).build());
+          log.info("工具执行完成: tool={}, result={}", toolName, toolResult);
 
-              // 3. 验证工具结果（集成自纠错机制）
-              ValidationResult validationResult = selfCorrectingAgent.validate(toolName, toolResult, arguments);
-              if (!validationResult.isValid()) {
-                log.warn("工具 {} 执行结果验证失败: {}，尝试纠错", toolName, validationResult.getErrorMessage());
+          // 3. 验证工具结果（集成自纠错机制）
+          ValidationResult validationResult =
+              selfCorrectingAgent.validate(toolName, toolResult, arguments);
+          if (!validationResult.isValid()) {
+            log.warn("工具 {} 执行结果验证失败: {}，尝试纠错", toolName, validationResult.getErrorMessage());
 
-                // 构建纠错上下文
-                FallbackHandler.FallbackContext correctionContext = new FallbackHandler.FallbackContext(
-                    userMessage,
-                    userId,
-                    conversationId,
-                    intentType,
-                    toolResult,
-                    toolRegistry.getToolDescriptions(),
-                    messages);
+            // 构建纠错上下文
+            FallbackHandler.FallbackContext correctionContext =
+                new FallbackHandler.FallbackContext(userMessage, userId, conversationId, intentType,
+                    toolResult, toolRegistry.getToolDescriptions(), messages);
 
-                // 触发纠错流程
-                String correctedResult = selfCorrectingAgent.correctAndRetry(validationResult, correctionContext)
-                    .block();
-                if (correctedResult != null && !correctedResult.isEmpty()) {
-                  log.info("纠错成功，使用纠错后的结果");
-                  toolResult = correctedResult;
-                } else {
-                  // 纠错失败，发送错误事件给前端
-                  sink.tryEmitNext(SseFormatter.error("工具执行结果异常：" + validationResult.getErrorMessage()));
-                }
-              }
-
-              // 4. 将工具调用和结果添加到消息历�?
-              // 添加工具调用消息（assistant 角色�?
-              Message assistantMsg = Message.builder()
-                  .role("assistant")
-                  .content(null)
-                  .toolCalls(List.of(
-                      com.mrshudson.mcp.kimi.dto.ToolCall.builder()
-                          .id(toolCallId)
-                          .type("function")
-                          .function(com.mrshudson.mcp.kimi.dto.ToolCall.Function.builder()
-                              .name(toolName)
-                              .arguments(arguments)
-                              .build())
-                          .build()))
-                  .build();
-              messages.add(assistantMsg);
-
-              // 添加工具结果消息（tool 角色�?
-              messages.add(Message.tool(toolCallId, toolResult));
-
-              // 4. 发送 tool_result 事件
-              sink.tryEmitNext(SseFormatter.toolResult(toolName, toolResult));
-
-              // 5. 继续调用 AI 获取下一轮响�?
-              // 增加活跃订阅计数
-              activeSubscriptions.incrementAndGet();
-              continueAiStream(messages, tools, toolCallInfos, sink, aiFinalContent, activeSubscriptions, userMessage,
-                  intentType, userId, conversationId);
+            // 触发纠错流程
+            String correctedResult =
+                selfCorrectingAgent.correctAndRetry(validationResult, correctionContext).block();
+            if (correctedResult != null && !correctedResult.isEmpty()) {
+              log.info("纠错成功，使用纠错后的结果");
+              toolResult = correctedResult;
+            } else {
+              // 纠错失败，发送错误事件给前端
+              sink.tryEmitNext(
+                  SseFormatter.error("工具执行结果异常：" + validationResult.getErrorMessage()));
             }
-          } else {
-            // 普通内容：累加到最终内容，发送给前端
-            aiFinalContent.set(aiFinalContent.get() + chunk);
-            // 发送 content 事件（后续由 flatMap 统一处理）
-            sink.tryEmitNext(chunk);
           }
-        },
-        error -> {
-          // 处理错误
-          log.error("AI 流订阅错误: {}", error.getMessage(), error);
-          if (activeSubscriptions.decrementAndGet() == 0) {
-            sink.tryEmitComplete();
-          }
-        },
-        () -> {
-          // 处理完成 - 正常结束时减少活跃订阅计数
-          log.debug("AI 流正常完成");
-          if (activeSubscriptions.decrementAndGet() == 0) {
-            sink.tryEmitComplete();
-          }
-        });
+
+          // 4. 将工具调用和结果添加到消息历�?
+          // 添加工具调用消息（assistant 角色�?
+          Message assistantMsg = Message
+              .builder().role("assistant").content(
+                  null)
+              .toolCalls(List.of(com.mrshudson.mcp.kimi.dto.ToolCall.builder().id(toolCallId)
+                  .type("function").function(com.mrshudson.mcp.kimi.dto.ToolCall.Function.builder()
+                      .name(toolName).arguments(arguments).build())
+                  .build()))
+              .build();
+          messages.add(assistantMsg);
+
+          // 添加工具结果消息（tool 角色�?
+          messages.add(Message.tool(toolCallId, toolResult));
+
+          // 4. 发送 tool_result 事件
+          sink.tryEmitNext(SseFormatter.toolResult(toolName, toolResult, conversationId));
+
+          // 5. 继续调用 AI 获取下一轮响应
+          // 增加活跃订阅计数
+          activeSubscriptions.incrementAndGet();
+          continueAiStream(messages, tools, toolCallInfos, sink, aiFinalContent,
+              activeSubscriptions, userMessage, intentType, userId, conversationId, messageId);
+        }
+      } else {
+        // 普通内容：累加到最终内容，content 事件携带 conversationId + messageId
+        aiFinalContent.set(aiFinalContent.get() + chunk);
+        sink.tryEmitNext(SseFormatter.content(escapeJson(chunk), conversationId, messageId));
+      }
+    }, error -> {
+      // 处理错误
+      log.error("AI 流订阅错误: {}", error.getMessage(), error);
+      if (activeSubscriptions.decrementAndGet() == 0) {
+        sink.tryEmitComplete();
+      }
+    }, () -> {
+      // 处理完成 - 正常结束时减少活跃订阅计数
+      log.debug("AI 流正常完成");
+      if (activeSubscriptions.decrementAndGet() == 0) {
+        sink.tryEmitComplete();
+      }
+    });
 
     // 返回事件�?
-    return sink.asFlux()
-        .doOnComplete(() -> log.debug("事件流完成"))
+    return sink.asFlux().doOnComplete(() -> log.debug("事件流完成"))
         .doOnError(e -> log.error("事件流异常: {}", e.getMessage(), e));
   }
 
   /**
    * 继续 AI 流式响应（处理工具调用后的下一轮）
    */
-  private void continueAiStream(
-      List<Message> messages,
-      List<Tool> tools,
-      List<SendMessageResponse.ToolCallInfo> toolCallInfos,
-      Sinks.Many<String> sink,
-      AtomicReference<String> aiFinalContent,
-      AtomicInteger activeSubscriptions,
-      String userMessage,
-      IntentType intentType,
-      Long userId,
-      Long conversationId) {
+  private void continueAiStream(List<Message> messages, List<Tool> tools,
+      List<SendMessageResponse.ToolCallInfo> toolCallInfos, Sinks.Many<String> sink,
+      AtomicReference<String> aiFinalContent, AtomicInteger activeSubscriptions, String userMessage,
+      IntentType intentType, Long userId, Long conversationId, Long messageId) {
 
     log.debug("继续调用 AI 获取下一轮响应，当前消息数: {}", messages.size());
 
     // 继续订阅 AI 响应
     AIProvider provider = aiClientFactory.getCurrentProvider();
-    Flux<String> continueStream = (provider == AIProvider.KIMI
-        ? kimiClient.streamChatCompletion(messages, tools)
-        : miniMaxClient.streamChatCompletion(messages, tools))
-        .doOnNext(chunk -> {
-          aiFinalContent.set(aiFinalContent.get() + chunk);
-        })
-        .doOnError(e -> {
-          log.error("继续 AI 调用异常: {}", e.getMessage(), e);
-          sink.tryEmitError(e);
-          if (activeSubscriptions.decrementAndGet() == 0) {
-            sink.tryEmitComplete();
-          }
-        })
-        .doOnCancel(() -> {
-          log.debug("继续 AI 流式响应取消");
-          if (activeSubscriptions.decrementAndGet() == 0) {
-            sink.tryEmitComplete();
-          }
-        });
+    Flux<String> continueStream =
+        (provider == AIProvider.KIMI ? kimiClient.streamChatCompletion(messages, tools)
+            : miniMaxClient.streamChatCompletion(messages, tools)).doOnNext(chunk -> {
+              aiFinalContent.set(aiFinalContent.get() + chunk);
+            }).doOnError(e -> {
+              log.error("继续 AI 调用异常: {}", e.getMessage(), e);
+              sink.tryEmitError(e);
+              if (activeSubscriptions.decrementAndGet() == 0) {
+                sink.tryEmitComplete();
+              }
+            }).doOnCancel(() -> {
+              log.debug("继续 AI 流式响应取消");
+              if (activeSubscriptions.decrementAndGet() == 0) {
+                sink.tryEmitComplete();
+              }
+            });
 
     continueStream.subscribe(chunk -> {
       // 检查是否是工具调用事件
@@ -585,57 +550,47 @@ public class StreamChatService {
           log.info("检测到工具调用（继续）: id={}, tool={}, args={}", toolCallId, toolName, arguments);
 
           // 发送 tool_call 事件
-          sink.tryEmitNext(SseFormatter.toolCall(toolName, arguments));
+          sink.tryEmitNext(SseFormatter.toolCall(toolName, arguments, conversationId));
 
           // 执行工具调用
           String toolResult = toolRegistry.executeTool(toolName, arguments);
 
           // 验证工具结果（集成自纠错机制）
-          ValidationResult validationResult = selfCorrectingAgent.validate(toolName, toolResult, arguments);
+          ValidationResult validationResult =
+              selfCorrectingAgent.validate(toolName, toolResult, arguments);
           if (!validationResult.isValid()) {
             log.warn("工具 {} 执行结果验证失败（继续）: {}，尝试纠错", toolName, validationResult.getErrorMessage());
 
             // 构建纠错上下文
-            FallbackHandler.FallbackContext correctionContext = new FallbackHandler.FallbackContext(
-                userMessage,
-                userId,
-                conversationId,
-                intentType,
-                toolResult,
-                toolRegistry.getToolDescriptions(),
-                messages);
+            FallbackHandler.FallbackContext correctionContext =
+                new FallbackHandler.FallbackContext(userMessage, userId, conversationId, intentType,
+                    toolResult, toolRegistry.getToolDescriptions(), messages);
 
             // 触发纠错流程
-            String correctedResult = selfCorrectingAgent.correctAndRetry(validationResult, correctionContext).block();
+            String correctedResult =
+                selfCorrectingAgent.correctAndRetry(validationResult, correctionContext).block();
             if (correctedResult != null && !correctedResult.isEmpty()) {
               log.info("纠错成功（继续），使用纠错后的结果");
               toolResult = correctedResult;
             } else {
               // 纠错失败，发送错误事件给前端
-              sink.tryEmitNext(SseFormatter.error("工具执行结果异常：" + validationResult.getErrorMessage()));
+              sink.tryEmitNext(
+                  SseFormatter.error("工具执行结果异常：" + validationResult.getErrorMessage()));
             }
           }
 
-          toolCallInfos.add(SendMessageResponse.ToolCallInfo.builder()
-              .name(toolName)
-              .arguments(arguments)
-              .result(toolResult)
-              .build());
+          toolCallInfos.add(SendMessageResponse.ToolCallInfo.builder().name(toolName)
+              .arguments(arguments).result(toolResult).build());
           log.info("工具执行完成（继续）: tool={}, result={}", toolName, toolResult);
 
           // 添加工具调用消息
-          Message assistantMsg = Message.builder()
-              .role("assistant")
-              .content(null)
-              .toolCalls(List.of(
-                  com.mrshudson.mcp.kimi.dto.ToolCall.builder()
-                      .id(toolCallId)
-                      .type("function")
-                      .function(com.mrshudson.mcp.kimi.dto.ToolCall.Function.builder()
-                          .name(toolName)
-                          .arguments(arguments)
-                          .build())
-                      .build()))
+          Message assistantMsg = Message
+              .builder().role("assistant").content(
+                  null)
+              .toolCalls(List.of(com.mrshudson.mcp.kimi.dto.ToolCall.builder().id(toolCallId)
+                  .type("function").function(com.mrshudson.mcp.kimi.dto.ToolCall.Function.builder()
+                      .name(toolName).arguments(arguments).build())
+                  .build()))
               .build();
           messages.add(assistantMsg);
 
@@ -643,34 +598,32 @@ public class StreamChatService {
           messages.add(Message.tool(toolCallId, toolResult));
 
           // 发送 tool_result 事件
-          sink.tryEmitNext(SseFormatter.toolResult(toolName, toolResult));
+          sink.tryEmitNext(SseFormatter.toolResult(toolName, toolResult, conversationId));
 
           // 递归继续
           activeSubscriptions.incrementAndGet();
-          continueAiStream(messages, tools, toolCallInfos, sink, aiFinalContent, activeSubscriptions, userMessage,
-              intentType, userId, conversationId);
+          continueAiStream(messages, tools, toolCallInfos, sink, aiFinalContent,
+              activeSubscriptions, userMessage, intentType, userId, conversationId, messageId);
         }
       } else {
         // 普通内容：累加到最终内容，发送给前端
         aiFinalContent.set(aiFinalContent.get() + chunk);
-        // 发送 content 事件（后续由 flatMap 统一处理）
-        sink.tryEmitNext(chunk);
+        // content 事件携带 conversationId + messageId
+        sink.tryEmitNext(SseFormatter.content(escapeJson(chunk), conversationId, messageId));
       }
-    },
-        error -> {
-          // 处理错误
-          log.error("继续 AI 流订阅错误: {}", error.getMessage(), error);
-          if (activeSubscriptions.decrementAndGet() == 0) {
-            sink.tryEmitComplete();
-          }
-        },
-        () -> {
-          // 处理完成
-          log.debug("继续 AI 流正常完成");
-          if (activeSubscriptions.decrementAndGet() == 0) {
-            sink.tryEmitComplete();
-          }
-        });
+    }, error -> {
+      // 处理错误
+      log.error("继续 AI 流订阅错误: {}", error.getMessage(), error);
+      if (activeSubscriptions.decrementAndGet() == 0) {
+        sink.tryEmitComplete();
+      }
+    }, () -> {
+      // 处理完成
+      log.debug("继续 AI 流正常完成");
+      if (activeSubscriptions.decrementAndGet() == 0) {
+        sink.tryEmitComplete();
+      }
+    });
   }
 
   /**
@@ -682,9 +635,7 @@ public class StreamChatService {
 
     // 查询历史消息
     LambdaQueryWrapper<ChatMessage> wrapper = new LambdaQueryWrapper<ChatMessage>()
-        .eq(ChatMessage::getUserId, userId)
-        .orderByDesc(ChatMessage::getCreatedAt)
-        .last("LIMIT 20");
+        .eq(ChatMessage::getUserId, userId).orderByDesc(ChatMessage::getCreatedAt).last("LIMIT 20");
 
     if (conversationId != null) {
       wrapper.eq(ChatMessage::getConversationId, conversationId);
@@ -716,7 +667,8 @@ public class StreamChatService {
       StringBuilder sb = new StringBuilder();
       sb.append("我不太确定您的意思，请问您是想：\n");
       for (int i = 0; i < intentResult.getCandidates().size(); i++) {
-        sb.append(i + 1).append(". ").append(intentResult.getCandidates().get(i).getDescription()).append("\n");
+        sb.append(i + 1).append(". ").append(intentResult.getCandidates().get(i).getDescription())
+            .append("\n");
       }
       return sb.toString();
     }
@@ -743,8 +695,8 @@ public class StreamChatService {
   /**
    * 保存AI响应消息，返回消息ID
    */
-  private Long saveAssistantMessage(Long userId, Long conversationId, String content, String functionCall,
-      String audioUrl) {
+  private Long saveAssistantMessage(Long userId, Long conversationId, String content,
+      String functionCall, String audioUrl) {
     ChatMessage assistantMsg = new ChatMessage();
     assistantMsg.setUserId(userId);
     assistantMsg.setConversationId(conversationId);
@@ -777,9 +729,9 @@ public class StreamChatService {
    * 检查并生成会话标题（如果是第一条用户消息）
    */
   private void checkAndGenerateTitle(Long conversationId, String firstMessage) {
-    LambdaQueryWrapper<ChatMessage> wrapper = new LambdaQueryWrapper<ChatMessage>()
-        .eq(ChatMessage::getConversationId, conversationId)
-        .eq(ChatMessage::getRole, ChatMessage.Role.USER.name());
+    LambdaQueryWrapper<ChatMessage> wrapper =
+        new LambdaQueryWrapper<ChatMessage>().eq(ChatMessage::getConversationId, conversationId)
+            .eq(ChatMessage::getRole, ChatMessage.Role.USER.name());
 
     long userMessageCount = chatMessageMapper.selectCount(wrapper);
 

@@ -35,7 +35,12 @@ public class SseEvent {
   private String url;
 
   /**
-   * 事件数据 - 错误信息
+   * 事件数据 - 错误信息（audio_done 专用，对应规范 error 字段）
+   */
+  private String error;
+
+  /**
+   * 事件数据 - 通用错误信息（error 事件专用）
    */
   private String message;
 
@@ -119,8 +124,8 @@ public class SseEvent {
    * 创建内容事件（带 conversationId / messageId）
    */
   public static SseEvent content(String text, Long conversationId, Long messageId) {
-    return SseEvent.builder().type("content").text(text)
-        .conversationId(conversationId).messageId(messageId).build();
+    return SseEvent.builder().type("content").text(text).conversationId(conversationId)
+        .messageId(messageId).build();
   }
 
   /**
@@ -134,29 +139,27 @@ public class SseEvent {
    * 创建 AI 内容结束事件
    */
   public static SseEvent contentDone(Long conversationId, Long messageId) {
-    return SseEvent.builder().type("content_done")
-        .conversationId(conversationId).messageId(messageId).build();
+    return SseEvent.builder().type("content_done").conversationId(conversationId)
+        .messageId(messageId).build();
   }
 
   /**
    * 创建 TTS 语音合成结束事件
    *
-   * @param url            音频 URL；超时/失败/noaudio 时传 null
-   * @param timeout        是否超时（超时后后台继续合成，历史消息可能有 URL）
-   * @param error          异常信息；超时时传 null
+   * @param url 音频 URL；超时/失败/noaudio 时传 null
+   * @param timeout 是否超时（超时后后台继续合成，历史消息可能有 URL）
+   * @param error 异常信息；超时时传 null
    * @param conversationId 会话 ID
-   * @param messageId      消息 ID
+   * @param messageId 消息 ID
    */
-  public static SseEvent audioDone(String url, boolean timeout, String error,
-      Long conversationId, Long messageId) {
-    SseEvent.SseEventBuilder builder = SseEvent.builder()
-        .type("audio_done")
-        .conversationId(conversationId)
-        .messageId(messageId);
+  public static SseEvent audioDone(String url, boolean timeout, String error, Long conversationId,
+      Long messageId) {
+    SseEvent.SseEventBuilder builder =
+        SseEvent.builder().type("audio_done").conversationId(conversationId).messageId(messageId);
     if (timeout) {
       builder.timeout(true);
     } else if (error != null && !error.isEmpty()) {
-      builder.message(error);
+      builder.error(error);
     } else if (url == null || url.isEmpty()) {
       builder.noaudio(true);
     } else {
@@ -167,7 +170,7 @@ public class SseEvent {
 
   /**
    * 创建音频 URL 事件（旧格式，保留向后兼容）
-   * 
+   *
    * @deprecated 请使用 audioDone()
    */
   @Deprecated
@@ -178,42 +181,38 @@ public class SseEvent {
   /**
    * 创建 Token 使用统计事件
    */
-  public static SseEvent tokenUsage(int inputTokens, int outputTokens, long duration, String model) {
-    return SseEvent.builder()
-        .type("token_usage")
-        .tokenUsage(TokenUsageInfo.builder()
-            .inputTokens(inputTokens)
-            .outputTokens(outputTokens)
-            .duration(duration)
-            .model(model)
-            .build())
+  public static SseEvent tokenUsage(int inputTokens, int outputTokens, long duration,
+      String model) {
+    return SseEvent.builder().type("token_usage")
+        .tokenUsage(TokenUsageInfo.builder().inputTokens(inputTokens).outputTokens(outputTokens)
+            .duration(duration).model(model).build())
         .build();
   }
 
   /**
-   * 创建工具调用事件
+   * 创建工具调用事件（带 conversationId）
    */
+  public static SseEvent toolCall(String name, String arguments, Long conversationId) {
+    return SseEvent.builder().type("tool_call").conversationId(conversationId)
+        .toolCall(ToolCallInfo.builder().name(name).arguments(arguments).build()).build();
+  }
+
+  /** 创建工具调用事件（向后兼容） */
   public static SseEvent toolCall(String name, String arguments) {
-    return SseEvent.builder()
-        .type("tool_call")
-        .toolCall(ToolCallInfo.builder()
-            .name(name)
-            .arguments(arguments)
-            .build())
-        .build();
+    return toolCall(name, arguments, null);
   }
 
   /**
-   * 创建工具结果事件
+   * 创建工具结果事件（带 conversationId）
    */
+  public static SseEvent toolResult(String name, String result, Long conversationId) {
+    return SseEvent.builder().type("tool_result").conversationId(conversationId)
+        .toolResult(ToolResultInfo.builder().name(name).result(result).build()).build();
+  }
+
+  /** 创建工具结果事件（向后兼容） */
   public static SseEvent toolResult(String name, String result) {
-    return SseEvent.builder()
-        .type("tool_result")
-        .toolResult(ToolResultInfo.builder()
-            .name(name)
-            .result(result)
-            .build())
-        .build();
+    return toolResult(name, result, null);
   }
 
   /**
