@@ -70,9 +70,9 @@ data: {"type":"content"} \n      ❌ 单换行符
 ### 2.3 正确示例
 
 ```
-data: {"type":"content","text":"Hello"}\n\n
-data: {"type":"content_done"}\n\n
-data: {"type":"audio_done","url":"https://..."}\n\n
+data: {"type":"content","text":"Hello","conversationId":1,"messageId":2}\n\n
+data: {"type":"content_done","conversationId":1,"messageId":2}\n\n
+data: {"type":"audio_done","url":"https://...","conversationId":1,"messageId":2}\n\n
 data: {"type":"done"}\n\n
 ```
 
@@ -84,23 +84,27 @@ data: {"type":"done"}\n\n
 
 | 事件类型 | 说明 | 字段 |
 |----------|------|------|
-| `content` | AI 增量内容 | `text`: string, `conversationId`: number |
-| `content_done` | AI 文本内容结束 | `conversationId`: number |
-| `audio_done` | TTS 语音合成结束 | `conversationId`: number, `url`: string, `timeout`: boolean, `error`: string |
+| `content` | AI 增量内容 | `text`: string, `conversationId`: number, `messageId`: number |
+| `content_done` | AI 文本内容结束 | `conversationId`: number, `messageId`: number |
+| `audio_done` | TTS 语音合成结束 | `conversationId`: number, `messageId`: number, `url`: string, `timeout`: boolean, `error`: string, `noaudio`: boolean |
 | `token_usage` | Token 统计 | `inputTokens`, `outputTokens`, `duration`, `model` |
 | `tool_call` | 工具调用 | `toolCall`: {name, arguments} |
 | `tool_result` | 工具执行结果 | `toolResult`: {name, result} |
 | `cache_hit` | 缓存命中 | `content`: string |
 | `clarification` | 澄清提示 | `content`: string |
-| `error` | 错误信息 | `message`: string |
-| `done` | 流式完成 | — |
+| `error` | 错误信息 | `message`: string, `conversationId`: number (可选) |
+| `done` | 流式完成 | `conversationId`: number (可选) |
 
-> **重要**：所有事件必须包含 `conversationId` 字段，以便 Android 端正确区分不同会话的消息。
+> **重要**：
+> - 所有消息相关事件（`content`、`content_done`、`audio_done`）必须包含 `conversationId` 和 `messageId` 字段
+> - `messageId` 用于将 SSE 事件精确关联到对应的消息气泡（前端 disable 期间不会有新消息，但 messageId 仍是最可靠的关联方式）
+> - 发送期间前端输入框必须 disable，后端串行处理，不支持并发发送
+> - `error` 和 `done` 事件的 `conversationId` 为可选，如果为 null 则关联到当前活跃会话
 
 ### 3.2 content_done 事件
 
 ```json
-{"type":"content_done"}
+{"type":"content_done","conversationId":123,"messageId":456}
 ```
 
 表示 AI 文本已全部生成，TTS 可在后台开始。
@@ -109,17 +113,29 @@ data: {"type":"done"}\n\n
 
 ```json
 // TTS 成功
-{"type":"audio_done","url":"https://raw.githubusercontent.com/..."}
+{"type":"audio_done","conversationId":123,"messageId":456,"url":"https://example.com/audio/xxx.mp3"}
 
 // TTS 超时（超过 10 秒）
-{"type":"audio_done","timeout":true}
+// 超时后后端继续合成，url 将异步写入数据库，下次加载历史消息可获取
+{"type":"audio_done","conversationId":123,"messageId":456,"timeout":true}
 
-// TTS 失败
-{"type":"audio_done","error":"TTS_FAILED"}
+// TTS 失败（合成过程中抛出异常）
+{"type":"audio_done","conversationId":123,"messageId":456,"error":"TTS_FAILED"}
 
-// TTS 成功但 URL 为空
-{"type":"audio_done","noaudio":true}
+// TTS 成功但返回 URL 为空（提供商返回空结果）
+{"type":"audio_done","conversationId":123,"messageId":456,"noaudio":true}
 ```
+
+**各状态前端/Android 处理规则**：
+
+| 字段 | 含义 | 展示行为 | 数据库 audioUrl |
+|------|------|----------|----------------|
+| `url` 有值 | TTS 成功 | 显示播放按钮 | 已写入 |
+| `timeout: true` | 超时，后台继续合成 | 不显示按钮，audioUrl 置空 | 合成完成后异步写入 |
+| `error` 有值 | 合成异常 | 不显示按钮，audioUrl 置空 | null |
+| `noaudio: true` | 提供商返回空 | 不显示按钮，audioUrl 置空 | null |
+
+> `timeout` 与 `noaudio` 的区别：`timeout` 表示后台合成仍在进行，历史消息可能有 URL；`noaudio` 表示合成已完成但无结果，历史消息也不会有 URL。
 
 ### 3.4 事件时序说明
 
@@ -143,24 +159,23 @@ data: {"type":"done"}\n\n
 │                     SSE 事件序列（正常流程）                        │
 └─────────────────────────────────────────────────────────────────┘
 
-data: {"type":"content","text":"今天天气"}\n\n
-data: {"type":"content","text":"很不错"}\n\n
+data: {"type":"content","text":"今天天气","conversationId":1,"messageId":2}\n\n
+data: {"type":"content","text":"很不错","conversationId":1,"messageId":2}\n\n
 data: {"type":"tool_call","toolCall":{...}}\n\n
       ← 工具调用
 data: {"type":"tool_result","toolResult":{...}}\n\n
       ← 工具结果
-data: {"type":"content","text":"适合出门。"}\n\n
+data: {"type":"content","text":"适合出门。","conversationId":1,"messageId":2}\n\n
                                                               ↑
                                                     content_done（TTS 开始后台执行）
-data: {"type":"content_done"}\n\n
+data: {"type":"content_done","conversationId":1,"messageId":2}\n\n
 
 
                                                              [TTS 合成中...]
                                                              [2-5秒后完成]
 
-data: {"type":"audio_done","url":"https://..."}\n\n
+data: {"type":"audio_done","url":"https://...","conversationId":1,"messageId":2}\n\n
       ← TTS 完成，展示播放按钮
-                                                              ↑
 data: {"type":"done"}\n\n
                               ← SSE 连接关闭
 ```
@@ -168,27 +183,27 @@ data: {"type":"done"}\n\n
 ### 4.2 超时场景
 
 ```
-data: {"type":"content_done"}\n\n
+data: {"type":"content_done","conversationId":1,"messageId":2}\n\n
 
 
                                                              [TTS 合成中...]
                                                              [超过 10 秒]
 
-data: {"type":"audio_done","timeout":true}\n\n
-      ← 超时不展示按钮
+data: {"type":"audio_done","timeout":true,"conversationId":1,"messageId":2}\n\n
+      ← 超时不展示按钮，后台继续合成
 data: {"type":"done"}\n\n
 ```
 
 ### 4.3 失败场景
 
 ```
-data: {"type":"content_done"}\n\n
+data: {"type":"content_done","conversationId":1,"messageId":2}\n\n
 
 
                                                              [TTS 合成中...]
                                                              [失败]
 
-data: {"type":"audio_done","error":"TTS_FAILED"}\n\n
+data: {"type":"audio_done","error":"TTS_FAILED","conversationId":1,"messageId":2}\n\n
       ← 失败，不展示按钮
 data: {"type":"done"}\n\n
 ```
@@ -198,15 +213,13 @@ data: {"type":"done"}\n\n
 意图路由的响应也走异步 TTS 流程，避免同步阻塞。
 
 ```
-data: {"type":"content","text":"今天天气不错"}\n\n
-                                                              ↑
-                                                    content_done
-data: {"type":"content_done"}\n\n
+data: {"type":"content","text":"今天天气不错","conversationId":1,"messageId":2}\n\n
+data: {"type":"content_done","conversationId":1,"messageId":2}\n\n
 
 
                                                              [TTS 合成中...]
 
-data: {"type":"audio_done","url":"https://..."}\n\n
+data: {"type":"audio_done","url":"https://...","conversationId":1,"messageId":2}\n\n
 data: {"type":"done"}\n\n
 ```
 
@@ -259,46 +272,69 @@ public final class SseFormatter {
 
     /**
      * 格式化 SseEvent 为 SSE 字符串
+     * 示例输入: SseEvent(type="content", text="Hello", conversationId=1, messageId=2)
+     * 示例输出: data: {"type":"content","text":"Hello","conversationId":1,"messageId":2}\n\n
      */
     public static String format(SseEvent event) { ... }
 
     /**
      * 格式化 JSON 字符串为 SSE 字符串
+     * 示例输入: {"type":"done"}
+     * 示例输出: data: {"type":"done"}\n\n
      */
-    public static String format(String jsonStr) { ... }
+    public static String format(String jsonStr) {
+        return "data: " + jsonStr + "\n\n";
+    }
 
     /**
-     * Flux JSON → Flux SSE 转换
+     * Flux JSON → Flux SSE 转换（Controller 层统一调用）
+     * 示例: flux.transform(SseFormatter::addSsePrefix)
      */
-    public static Flux<String> addSsePrefix(Flux<String> flux) { ... }
+    public static Flux<String> addSsePrefix(Flux<String> flux) {
+        return flux.map(SseFormatter::format);
+    }
 
     // ========== 事件构建方法 ==========
 
     /**
      * AI 增量内容
+     * @param text 增量文本片段
+     * @param conversationId 会话 ID
+     * @param messageId 消息 ID（用于将 SSE 事件精确关联到对应消息气泡）
      */
-    public static String content(String text) {
-        return "{\"type\":\"content\",\"text\":\"" + escapeJson(text) + "\"}";
+    public static String content(String text, Long conversationId, Long messageId) {
+        return "{\"type\":\"content\",\"text\":\"" + escapeJson(text) + "\""
+             + ",\"conversationId\":" + conversationId
+             + ",\"messageId\":" + messageId + "}";
     }
 
     /**
      * AI 内容结束
      * 表示 AI 文本已全部生成，TTS 可在后台开始
+     * @param conversationId 会话 ID
+     * @param messageId 消息 ID
      */
-    public static String contentDone() {
-        return "{\"type\":\"content_done\"}";
+    public static String contentDone(Long conversationId, Long messageId) {
+        return "{\"type\":\"content_done\""
+             + ",\"conversationId\":" + conversationId
+             + ",\"messageId\":" + messageId + "}";
     }
 
     /**
      * TTS 语音合成结束
      *
-     * @param url 音频 URL，为空表示失败或超时
-     * @param timeout 是否超时
-     * @param error 错误信息
+     * @param url     音频 URL；超时/失败/noaudio 时传 null
+     * @param timeout 是否超时（超时后后台继续合成，历史消息可能有 URL）
+     * @param error   异常信息；超时时传 null
+     * @param conversationId 会话 ID
+     * @param messageId 消息 ID
      */
-    public static String audioDone(String url, boolean timeout, String error) {
+    public static String audioDone(String url, boolean timeout, String error,
+                                   Long conversationId, Long messageId) {
         StringBuilder sb = new StringBuilder();
         sb.append("{\"type\":\"audio_done\"");
+        sb.append(",\"conversationId\":").append(conversationId);
+        sb.append(",\"messageId\":").append(messageId);
         if (timeout) {
             sb.append(",\"timeout\":true");
         } else if (error != null && !error.isEmpty()) {
@@ -411,7 +447,6 @@ public Flux<String> streamSendMessage(Long userId, SendMessageRequest request) {
  */
 private Flux<String> handleLlmStream(Long userId, Long conversationId, SendMessageRequest request) {
     AtomicReference<String> finalContent = new AtomicReference("");
-    AtomicReference<String> audioUrlRef = new AtomicReference<>();
     Sinks.Many<String> sink = Sinks.many().unicast().onBackpressureBuffer();
 
     // 订阅 AI 流
@@ -420,10 +455,9 @@ private Flux<String> handleLlmStream(Long userId, Long conversationId, SendMessa
             finalContent.set(finalContent.get() + chunk);
 
             if (chunk.startsWith("[TOOL_CALL]")) {
-                // 解析并发送工具调用事件
                 sink.tryEmitNext(parseToolCall(chunk));
             } else {
-                sink.tryEmitNext(SseFormatter.content(escapeJson(chunk)));
+                sink.tryEmitNext(SseFormatter.content(escapeJson(chunk), conversationId, messageId));
             }
         },
         error -> sink.tryEmitError(error),
@@ -433,43 +467,58 @@ private Flux<String> handleLlmStream(Long userId, Long conversationId, SendMessa
 
             // 1. 保存消息（audioUrl 初始为 null）
             String functionCallJson = toolCallInfos.isEmpty() ? null : JSON.toJSONString(toolCallInfos);
-            saveAssistantMessage(userId, conversationId,
+            Long messageId = saveAssistantMessage(userId, conversationId,
                 finalContent.get(), functionCallJson, null);
 
             // 2. 发送 content_done
-            sink.tryEmitNext(SseFormatter.contentDone());
+            sink.tryEmitNext(SseFormatter.contentDone(conversationId, messageId));
 
             // 3. 后台异步执行 TTS（带超时）
-            CompletableFuture.runAsync(() -> {
+            // 注意：orTimeout 从 runAsync 提交时开始计时，线程池繁忙时实际 TTS 执行时间可能少于 10s
+            CompletableFuture<String> ttsFuture = CompletableFuture.supplyAsync(() -> {
                 try {
-                    String audioUrl = voiceService.textToSpeech(finalContent.get());
-                    audioUrlRef.set(audioUrl);
-                    // 即使 audioUrl 为 null，也记录状态（后续可通过历史会话获取）
-                    if (audioUrl != null) {
-                        updateMessageAudioUrl(messageId, audioUrl);
-                    }
+                    return voiceService.textToSpeech(finalContent.get());
                 } catch (Exception e) {
                     log.error("TTS 合成失败", e);
-                    audioUrlRef.set(null);
+                    return null;
                 }
-            }).orTimeout(TTS_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-              .thenAccept(result -> {
-                  String url = audioUrlRef.get();
-                  if (url == null) {
-                      // 超时或失败
-                      sink.tryEmitNext(SseFormatter.audioDone(null, true, null));
+            });
+
+            ttsFuture.orTimeout(TTS_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+              .thenAccept(audioUrl -> {
+                  // thenAccept 在正常完成时触发（包括 TTS 返回 null 的情况）
+                  if (audioUrl != null && !audioUrl.isEmpty()) {
+                      // TTS 成功，更新数据库并通知前端
+                      updateMessageAudioUrl(messageId, audioUrl);
+                      sink.tryEmitNext(SseFormatter.audioDone(audioUrl, false, null, conversationId, messageId));
                   } else {
-                      // TTS 成功
-                      sink.tryEmitNext(SseFormatter.audioDone(url, false, null));
+                      // TTS 返回空（noaudio），不写入数据库
+                      sink.tryEmitNext(SseFormatter.audioDone(null, false, null, conversationId, messageId));
                   }
                   sink.tryEmitNext(SseFormatter.done());
                   sink.tryEmitComplete();
               })
               .exceptionally(ex -> {
-                  log.error("TTS 超时或异常", ex);
-                  sink.tryEmitNext(SseFormatter.audioDone(null, true, null));
-                  sink.tryEmitNext(SseFormatter.done());
-                  sink.tryEmitComplete();
+                  if (ex.getCause() instanceof TimeoutException) {
+                      // 超时：立即返回 timeout，后台继续合成并写入数据库
+                      log.warn("TTS 超时（{}ms），后台继续合成", TTS_TIMEOUT_MS);
+                      sink.tryEmitNext(SseFormatter.audioDone(null, true, null, conversationId, messageId));
+                      sink.tryEmitNext(SseFormatter.done());
+                      sink.tryEmitComplete();
+                      // 超时后继续等待 TTS 完成，将 url 写入数据库供历史消息使用
+                      ttsFuture.thenAccept(audioUrl -> {
+                          if (audioUrl != null && !audioUrl.isEmpty()) {
+                              updateMessageAudioUrl(messageId, audioUrl);
+                              log.info("TTS 超时后完成，audioUrl 已写入数据库，messageId={}", messageId);
+                          }
+                      });
+                  } else {
+                      // 其他异常（非超时）
+                      log.error("TTS 异常", ex);
+                      sink.tryEmitNext(SseFormatter.audioDone(null, false, "TTS_FAILED", conversationId, messageId));
+                      sink.tryEmitNext(SseFormatter.done());
+                      sink.tryEmitComplete();
+                  }
                   return null;
               });
         }
@@ -489,30 +538,53 @@ private Flux<String> handleLlmStream(Long userId, Long conversationId, SendMessa
  */
 private Flux<String> handleIntentRoute(Long userId, Long conversationId, RouteResult routeResult) {
     String response = routeResult.getResponse();
-    saveAssistantMessage(userId, conversationId, response, null, null);
+    Long messageId = saveAssistantMessage(userId, conversationId, response, null, null);
 
     Sinks.Many<String> sink = Sinks.many().unicast().onBackpressureBuffer();
 
     // 1. 发送内容
-    sink.tryEmitNext(SseFormatter.content(escapeJson(response)));
-    sink.tryEmitNext(SseFormatter.contentDone());
+    sink.tryEmitNext(SseFormatter.content(escapeJson(response), conversationId, messageId));
+    sink.tryEmitNext(SseFormatter.contentDone(conversationId, messageId));
 
     // 2. 后台 TTS（带超时）
-    CompletableFuture.runAsync(() -> {
+    CompletableFuture<String> ttsFuture = CompletableFuture.supplyAsync(() -> {
         try {
-            String audioUrl = voiceService.textToSpeech(response);
-            sink.tryEmitNext(SseFormatter.audioDone(audioUrl, false, null));
+            return voiceService.textToSpeech(response);
         } catch (Exception e) {
             log.error("意图路由 TTS 失败", e);
-            sink.tryEmitNext(SseFormatter.audioDone(null, false, "TTS_FAILED"));
+            return null;
         }
-        sink.tryEmitNext(SseFormatter.done());
-        sink.tryEmitComplete();
-    }).orTimeout(TTS_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-      .exceptionally(ex -> {
-          sink.tryEmitNext(SseFormatter.audioDone(null, true, null));
+    });
+
+    ttsFuture.orTimeout(TTS_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+      .thenAccept(audioUrl -> {
+          if (audioUrl != null && !audioUrl.isEmpty()) {
+              updateMessageAudioUrl(messageId, audioUrl);
+              sink.tryEmitNext(SseFormatter.audioDone(audioUrl, false, null, conversationId, messageId));
+          } else {
+              sink.tryEmitNext(SseFormatter.audioDone(null, false, null, conversationId, messageId));
+          }
           sink.tryEmitNext(SseFormatter.done());
           sink.tryEmitComplete();
+      })
+      .exceptionally(ex -> {
+          if (ex.getCause() instanceof TimeoutException) {
+              log.warn("意图路由 TTS 超时，后台继续合成");
+              sink.tryEmitNext(SseFormatter.audioDone(null, true, null, conversationId, messageId));
+              sink.tryEmitNext(SseFormatter.done());
+              sink.tryEmitComplete();
+              ttsFuture.thenAccept(audioUrl -> {
+                  if (audioUrl != null && !audioUrl.isEmpty()) {
+                      updateMessageAudioUrl(messageId, audioUrl);
+                      log.info("意图路由 TTS 超时后完成，audioUrl 已写入数据库，messageId={}", messageId);
+                  }
+              });
+          } else {
+              log.error("意图路由 TTS 异常", ex);
+              sink.tryEmitNext(SseFormatter.audioDone(null, false, "TTS_FAILED", conversationId, messageId));
+              sink.tryEmitNext(SseFormatter.done());
+              sink.tryEmitComplete();
+          }
           return null;
       });
 
@@ -579,14 +651,17 @@ public Flux<String> streamSendMessage(@Valid @RequestBody SendMessageRequest req
 content_done 发送
        │
        ▼
-计时开始（10s）
+计时开始（10s，从 runAsync 提交时起）
        │
-       ├── TTS 在 10s 内完成 ──► 正常发送 audio_done
+       ├── TTS 在 10s 内完成
+       │       ├── url 有值 ──► audio_done(url)，写入数据库
+       │       └── url 为空 ──► audio_done(noaudio)，不写入数据库
        │
-       └── TTS 超过 10s ─────► 发送 audio_done(timeout=true)
+       └── TTS 超过 10s ─────► audio_done(timeout=true)，立即返回 done
                                     │
-                                    ├── 数据库已有 audioUrl → 下次加载获取
-                                    └── 数据库无 audioUrl → 无播放按钮
+                                    └── 后台继续合成
+                                            ├── 完成 → 写入数据库，历史消息可获取
+                                            └── 失败 → 不写入，历史消息无 URL
 ```
 
 ### 6.4 无重试机制说明
@@ -602,42 +677,77 @@ TTS 失败时不重试，原因：
 
 ### 7.1 重获取机制
 
-即使 SSE 超时，消息已保存到数据库，音频 URL 已写入。下次加载历史消息时可获取。
+SSE 超时时，消息已保存到数据库（audioUrl 初始为 null），后台 TTS 继续合成，完成后异步写入 audioUrl。下次加载历史消息时前端可获取。
 
 ```
-SSE 流程：
-content_done ──► TTS 后台合成 ──► audio_done（可能超时）
-                                    │
-                                    ▼
-                            消息已保存到数据库
-                            audioUrl 已写入
+SSE 流程（超时场景）：
+content_done ──► TTS 后台合成 ──► audio_done(timeout=true) ──► done
+                      │
+                      └── 后台继续合成...
+                              │
+                              ▼
+                      TTS 完成 → updateMessageAudioUrl(messageId, url)
+                              │
+                              ▼
+                      数据库 audioUrl 已写入
 
-SSE 超时，但数据库有值：
+前端下次加载历史消息：
     │
-    ▼
-前端下次加载历史消息
-    │
-    ├── /api/conversations → 获取 audioUrl
-    └── /api/messages/{id} → 获取 audioUrl
+    ├── GET /api/conversations/{id}/messages → 返回含 audioUrl 的消息列表
+    └── 前端根据 audioUrl 是否为 null 决定是否显示播放按钮
 ```
 
-### 7.2 后端新增接口（可选）
+### 7.2 历史消息接口规范
+
+历史消息接口必须返回 `audioUrl` 字段，前端根据该字段设置 `ttsStatus`：
 
 ```java
 // MessageController.java
-@GetMapping("/messages/{messageId}/audio-url")
-public Result<String> getMessageAudioUrl(@PathVariable Long messageId) {
-    ChatMessage message = chatMessageMapper.selectById(messageId);
-    if (message == null) {
-        return Result.fail("消息不存在");
-    }
-    return Result.success(message.getAudioUrl());
+@GetMapping("/conversations/{conversationId}/messages")
+public Result<List<MessageVO>> getMessages(@PathVariable Long conversationId) {
+    // 返回的 MessageVO 包含 audioUrl 字段
+}
+
+// MessageVO.java
+public class MessageVO {
+    private Long id;
+    private String role;
+    private String content;
+    private String audioUrl;   // null 表示无音频
+    private LocalDateTime createdAt;
 }
 ```
 
-### 7.3 前端重获取说明
+### 7.3 前端历史消息加载规范
 
-前端不需要主动重获取，下次加载会话列表或消息时会自动从数据库获取 audioUrl。
+加载历史消息时，根据 `audioUrl` 初始化 `ttsStatus`：
+
+```typescript
+// 加载历史消息后，根据 audioUrl 设置 ttsStatus
+function mapHistoryMessage(msg: MessageVO): Message {
+  return {
+    id: String(msg.id),
+    role: msg.role,
+    content: msg.content,
+    audioUrl: msg.audioUrl || null,
+    // 历史消息：有 audioUrl 则 ready，否则置空不显示按钮
+    ttsStatus: msg.audioUrl ? 'ready' : 'no_audio',
+    isPlaying: false,
+    pausedAt: 0,
+    hasPaused: false,
+    createdAt: msg.createdAt
+  }
+}
+```
+
+**历史消息 ttsStatus 规则**：
+
+| audioUrl | ttsStatus | 说明 |
+|----------|-----------|------|
+| 有值 | `ready` | 显示播放按钮 |
+| null | `no_audio` | 不显示按钮（超时后合成失败，或 noaudio） |
+
+> `no_audio` 是历史消息专用状态，区别于实时流中的 `timeout`/`error`/`noaudio`，统一表示"无可播放音频"。
 
 ---
 
@@ -716,16 +826,7 @@ voice:
   enable-tts: true
   tts-storage-path: uploads/tts/
   tts-base-url: ${TTS_BASE_URL:http://localhost:8080}
-  upload-to-github: true
 ```
-
-### 8.4 待办事项
-
-| 待办 | 优先级 | 状态 |
-|------|--------|------|
-| TTS Provider 策略模式重构 | **P0** | 待实现 |
-| MiniMax TTS 实现 | P1 | 待实现 |
-| 长文本智能分块 | P2 | 后续考虑 |
 
 ---
 
@@ -754,12 +855,12 @@ export interface SseClientOptions {
 
   // 状态回调
   onConnecting?: () => void      // 刚发起连接
-  onFirstContent?: () => void   // 收到首个 content 事件
+  onFirstContent?: () => void    // 收到首个 content 事件
 
   // 事件回调
-  onContent?: (text: string) => void
-  onContentDone?: () => void                    // 新增
-  onAudioDone?: (event: AudioDoneEvent) => void // 新增
+  onContent?: (text: string, conversationId: number, messageId: number) => void
+  onContentDone?: (conversationId: number, messageId: number) => void
+  onAudioDone?: (event: AudioDoneEvent) => void
   onTokenUsage?: (usage: TokenUsage) => void
   onToolCall?: (tool: ToolCallInfo) => void
   onToolResult?: (result: ToolResultInfo) => void
@@ -772,9 +873,12 @@ export interface SseClientOptions {
 }
 
 export interface AudioDoneEvent {
-  url: string | null     // 音频 URL
-  timeout: boolean      // 是否超时
-  error: string | null  // 错误信息
+  conversationId: number | null
+  messageId: number | null
+  url: string | null      // 音频 URL，仅 TTS 成功时有值
+  timeout: boolean        // 超时（后台继续合成，历史消息可能有 URL）
+  error: string | null    // 合成异常信息
+  noaudio: boolean        // 提供商返回空（历史消息也不会有 URL）
 }
 ```
 
@@ -783,20 +887,26 @@ export interface AudioDoneEvent {
 ```typescript
 class SseClient {
   private handleEvent(data: any): void {
+    const conversationId: number | null = data.conversationId ?? null
+    const messageId: number | null = data.messageId ?? null
+
     switch (data.type) {
       case 'content':
-        this.options.onContent?.(data.text || data.content || '')
+        this.options.onContent?.(data.text || data.content || '', conversationId!, messageId!)
         break
 
-      case 'content_done':  // 新增
-        this.options.onContentDone?.()
+      case 'content_done':
+        this.options.onContentDone?.(conversationId!, messageId!)
         break
 
-      case 'audio_done':     // 新增
+      case 'audio_done':
         this.options.onAudioDone?.({
+          conversationId,
+          messageId,
           url: data.url || null,
           timeout: data.timeout || false,
-          error: data.error || null
+          error: data.error || null,
+          noaudio: data.noaudio || false
         })
         break
 
@@ -840,31 +950,42 @@ class SseClient {
 
 ```typescript
 interface Message {
-  id: string
+  id: string                    // 对应后端 messageId
   role: 'user' | 'assistant' | 'system'
   content: string
-  audioUrl?: string | null      // SSE 流中获取的音频 URL
+  audioUrl?: string | null      // SSE 流或历史消息中获取的音频 URL
   ttsStatus: TtsStatus          // TTS 状态
-  isPlaying?: boolean            // 是否正在播放
-  pausedAt?: number             // 暂停位置（秒）
-  hasPaused?: boolean           // 是否曾暂停过
+  isPlaying: boolean            // 是否正在播放
+  pausedAt: number              // 暂停位置（秒），0 表示未暂停
+  hasPaused: boolean            // 是否曾暂停过（用于显示"继续"按钮）
   createdAt: string
 }
 
-type TtsStatus = 'pending' | 'synthesizing' | 'ready' | 'timeout' | 'error'
+type TtsStatus =
+  | 'pending'      // AI 还在生成内容
+  | 'synthesizing' // content_done 已收到，等待 audio_done
+  | 'ready'        // audio_done 收到，有 URL，可播放
+  | 'timeout'      // 超时，后台继续合成，audioUrl 置空
+  | 'error'        // 合成异常，audioUrl 置空
+  | 'noaudio'      // 提供商返回空，audioUrl 置空
+  | 'no_audio'     // 历史消息专用：audioUrl 为 null，不显示按钮
 ```
 
 ### 9.5 TTS 状态说明
 
-| ttsStatus | 显示内容 | 说明 |
-|-----------|---------|------|
-| `pending` | 无 | AI 还在生成内容 |
-| `synthesizing` | 🔊 语音合成中... | content_done 已收到，等待 audio_done |
-| `ready` | 播放按钮 | audio_done 收到，有 URL |
-| `timeout` | 无 | 超时不展示播放按钮 |
-| `error` | 无 | 失败不展示播放按钮 |
+| ttsStatus | 来源 | 显示内容 | audioUrl | 说明 |
+|-----------|------|---------|----------|------|
+| `pending` | 实时流 | 无 | — | AI 还在生成内容 |
+| `synthesizing` | 实时流 | 🔊 语音合成中... | — | content_done 已收到，等待 audio_done |
+| `ready` | 实时流 / 历史 | 播放按钮 | 有值 | 可播放 |
+| `timeout` | 实时流 | 无 | null | 超时，后台继续合成，历史消息可能有 URL |
+| `error` | 实时流 | 无 | null | 合成异常 |
+| `noaudio` | 实时流 | 无 | null | 提供商返回空，历史消息也不会有 URL |
+| `no_audio` | 历史消息 | 无 | null | 历史消息无音频，统一不显示按钮 |
 
 ### 9.6 ChatRoom 状态管理
+
+发送期间输入框必须 disable，SSE 完成（`done` 事件收到）后才恢复可用。后端串行处理，不支持并发发送。
 
 ```typescript
 const sseClient = new SseClient({
@@ -877,47 +998,56 @@ const sseClient = new SseClient({
 
   onConnecting: () => {
     chatState.value.status = 'connecting'
+    inputDisabled.value = true   // 发送开始，禁用输入框
   },
 
   onFirstContent: () => {
     chatState.value.status = 'receiving'
   },
 
-  onContent: (text) => {
-    chatState.value.streamingContent += text
+  onContent: (text, conversationId, messageId) => {
+    // 通过 messageId 精确定位消息气泡
+    const msg = getMessageById(String(messageId))
+    if (msg) {
+      msg.content += text
+    }
   },
 
-  onContentDone: () => {
-    // AI 内容接收完毕
-    const lastMsg = getLastAssistantMessage()
-    if (lastMsg) {
-      lastMsg.ttsStatus = 'synthesizing'  // 开始合成 TTS
+  onContentDone: (conversationId, messageId) => {
+    const msg = getMessageById(String(messageId))
+    if (msg) {
+      msg.ttsStatus = 'synthesizing'
     }
   },
 
   onAudioDone: (event: AudioDoneEvent) => {
-    const lastMsg = getLastAssistantMessage()
-    if (!lastMsg) return
+    const msg = event.messageId ? getMessageById(String(event.messageId)) : null
+    if (!msg) return
 
     if (event.timeout) {
-      lastMsg.ttsStatus = 'timeout'
-      lastMsg.audioUrl = null
+      msg.ttsStatus = 'timeout'
+      msg.audioUrl = null
     } else if (event.error) {
-      lastMsg.ttsStatus = 'error'
-      lastMsg.audioUrl = null
+      msg.ttsStatus = 'error'
+      msg.audioUrl = null
+    } else if (event.noaudio) {
+      msg.ttsStatus = 'noaudio'
+      msg.audioUrl = null
     } else if (event.url) {
-      lastMsg.ttsStatus = 'ready'
-      lastMsg.audioUrl = event.url
+      msg.ttsStatus = 'ready'
+      msg.audioUrl = event.url
     }
   },
 
   onDone: () => {
     chatState.value.status = 'done'
+    inputDisabled.value = false  // SSE 完成，恢复输入框
   },
 
   onError: (error: string) => {
     chatState.value.status = 'error'
     chatState.value.errorMessage = error
+    inputDisabled.value = false  // 出错也要恢复输入框
   }
 })
 ```
@@ -936,12 +1066,19 @@ const sseClient = new SseClient({
 
     <!-- 语音播放按钮：仅 TTS 完成且有 URL 时显示 -->
     <div v-if="showAudioButton(msg)" class="audio-player">
-      <el-button @click="toggleAudio(msg)" circle>
-        {{ msg.isPlaying ? '暂停' : '播放' }}
+      <!-- 未播放过 或 已播放完毕：显示"播放"按钮 -->
+      <el-button v-if="!msg.isPlaying && !msg.hasPaused" @click="playAudio(msg)" circle>
+        播放
       </el-button>
-      <el-button v-if="msg.hasPaused && !msg.isPlaying" @click="resumeAudio(msg)">
-        继续
+      <!-- 正在播放：显示"暂停"按钮 -->
+      <el-button v-if="msg.isPlaying" @click="pauseAudio(msg)" circle>
+        暂停
       </el-button>
+      <!-- 已暂停：显示"继续"和"从头播放"按钮 -->
+      <template v-if="msg.hasPaused && !msg.isPlaying">
+        <el-button @click="resumeAudio(msg)">继续</el-button>
+        <el-button @click="replayAudio(msg)">从头播放</el-button>
+      </template>
     </div>
   </div>
 </template>
@@ -950,16 +1087,49 @@ const sseClient = new SseClient({
 const showAudioButton = (msg: Message) => {
   return msg.role === 'assistant' && msg.ttsStatus === 'ready' && msg.audioUrl
 }
+
+// 从头播放
+function playAudio(msg: Message) {
+  audioElement.currentTime = 0
+  audioElement.src = msg.audioUrl!
+  audioElement.play()
+  msg.isPlaying = true
+  msg.hasPaused = false
+  msg.pausedAt = 0
+}
+
+// 暂停，记录位置
+function pauseAudio(msg: Message) {
+  msg.pausedAt = audioElement.currentTime
+  audioElement.pause()
+  msg.isPlaying = false
+  msg.hasPaused = true
+}
+
+// 从暂停位置继续
+function resumeAudio(msg: Message) {
+  audioElement.currentTime = msg.pausedAt
+  audioElement.play()
+  msg.isPlaying = true
+}
+
+// 从头重新播放
+function replayAudio(msg: Message) {
+  msg.hasPaused = false
+  msg.pausedAt = 0
+  playAudio(msg)
+}
 </script>
 ```
 
 ### 9.8 播放控制
 
-| 操作 | 方法 | 说明 |
-|------|------|------|
-| 从头播放 | `toggleAudio()` | 暂停当前播放，从头开始 |
-| 继续播放 | `resumeAudio()` | 从暂停位置继续 |
-| 暂停 | `toggleAudio()` | 暂停并记录位置 |
+| 操作 | 方法 | 触发条件 | 说明 |
+|------|------|---------|------|
+| 从头播放 | `playAudio()` | 未播放过 | 设置 `currentTime=0`，开始播放 |
+| 暂停 | `pauseAudio()` | 正在播放 | 记录 `pausedAt`，设置 `hasPaused=true` |
+| 继续 | `resumeAudio()` | 已暂停 | 从 `pausedAt` 位置继续 |
+| 从头重播 | `replayAudio()` | 已暂停 | 重置 `pausedAt=0`，`hasPaused=false`，重新播放 |
 
 ---
 
@@ -973,7 +1143,6 @@ const showAudioButton = (msg: Message) => {
 | `XfyunTtsManager` | `XfyunTtsManager.kt` | 本地讯飞 TTS（可降级） |
 | `TtsButton` | `TtsButton.kt` | 播放按钮 UI |
 | `MessageBubble` | `MessageBubble.kt` | 消息气泡（含 TTS 按钮） |
-| `GitHubAudioCache` | `GitHubAudioCache.kt` | GitHub 音频缓存 |
 
 ### 10.2 StreamEvent 新增类型
 
@@ -986,20 +1155,24 @@ sealed class StreamEvent {
     /** AI 增量内容事件 */
     data class Content(
         override val conversationId: Long?,
+        val messageId: Long?,
         val text: String
     ) : StreamEvent()
 
     /** AI 内容结束事件 */
     data class ContentDone(
-        override val conversationId: Long?
+        override val conversationId: Long?,
+        val messageId: Long?
     ) : StreamEvent()
 
     /** TTS 语音合成结束事件 */
     data class AudioDone(
         override val conversationId: Long?,
+        val messageId: Long?,
         val url: String?,
         val timeout: Boolean,
-        val error: String?
+        val error: String?,
+        val noaudio: Boolean
     ) : StreamEvent()
 
     /** Token 使用统计事件 */
@@ -1060,25 +1233,34 @@ private fun parseEvent(data: String): StreamEvent? {
 
     val obj = JsonParser.parseString(data).asJsonObject
     val type = obj.get("type")?.asString ?: return null
-    val convId: Long? = null
+
+    // 从 JSON 中解析 conversationId 和 messageId
+    val convId = obj.get("conversationId")?.takeIf { !it.isJsonNull }?.asLong
+    val msgId = obj.get("messageId")?.takeIf { !it.isJsonNull }?.asLong
+
+    // conversationId 为 null 时，关联到当前活跃会话
+    val resolvedConvId = convId ?: activeConversationId
 
     return when (type) {
         "content" -> StreamEvent.Content(
-            convId,
+            resolvedConvId,
+            msgId,
             obj.get("text")?.asString ?: obj.get("content")?.asString ?: ""
         )
 
-        "content_done" -> StreamEvent.ContentDone(convId)  // 新增
+        "content_done" -> StreamEvent.ContentDone(resolvedConvId, msgId)
 
-        "audio_done" -> StreamEvent.AudioDone(            // 新增
-            conversationId = convId,
-            url = obj.optString("url").takeIf { it.isNotBlank() },
-            timeout = obj.optBoolean("timeout"),
-            error = obj.optString("error").takeIf { it.isNotBlank() }
+        "audio_done" -> StreamEvent.AudioDone(
+            conversationId = resolvedConvId,
+            messageId = msgId,
+            url = obj.get("url")?.takeIf { !it.isJsonNull }?.asString?.takeIf { it.isNotBlank() },
+            timeout = obj.get("timeout")?.asBoolean ?: false,
+            error = obj.get("error")?.takeIf { !it.isJsonNull }?.asString?.takeIf { it.isNotBlank() },
+            noaudio = obj.get("noaudio")?.asBoolean ?: false
         )
 
         "token_usage" -> StreamEvent.TokenUsage(
-            convId,
+            resolvedConvId,
             obj.get("inputTokens")?.asInt ?: 0,
             obj.get("outputTokens")?.asInt ?: 0,
             obj.get("duration")?.asLong ?: 0L,
@@ -1089,7 +1271,7 @@ private fun parseEvent(data: String): StreamEvent? {
             val toolCall = obj.getAsJsonObject("toolCall")
             if (toolCall != null) {
                 StreamEvent.ToolCall(
-                    convId,
+                    resolvedConvId,
                     toolCall.get("id")?.asString ?: "",
                     toolCall.get("name")?.asString ?: "",
                     toolCall.get("arguments")?.asString ?: ""
@@ -1101,7 +1283,7 @@ private fun parseEvent(data: String): StreamEvent? {
             val toolResult = obj.getAsJsonObject("toolResult")
             if (toolResult != null) {
                 StreamEvent.ToolResult(
-                    convId,
+                    resolvedConvId,
                     toolResult.get("id")?.asString ?: "",
                     toolResult.get("name")?.asString ?: "",
                     toolResult.get("result")?.asString ?: ""
@@ -1109,22 +1291,10 @@ private fun parseEvent(data: String): StreamEvent? {
             } else null
         }
 
-        "cache_hit" -> StreamEvent.CacheHit(
-            convId,
-            obj.get("content")?.asString ?: ""
-        )
-
-        "clarification" -> StreamEvent.Clarification(
-            convId,
-            obj.get("content")?.asString ?: ""
-        )
-
-        "error" -> StreamEvent.Error(
-            convId,
-            obj.get("message")?.asString ?: "Unknown error"
-        )
-
-        "done" -> StreamEvent.Done(convId)
+        "cache_hit" -> StreamEvent.CacheHit(resolvedConvId, obj.get("content")?.asString ?: "")
+        "clarification" -> StreamEvent.Clarification(resolvedConvId, obj.get("content")?.asString ?: "")
+        "error" -> StreamEvent.Error(resolvedConvId, obj.get("message")?.asString ?: "Unknown error")
+        "done" -> StreamEvent.Done(resolvedConvId)
 
         else -> null
     }
@@ -1139,58 +1309,72 @@ data class Message(
     val role: String,
     val content: String,
     val audioUrl: String? = null,
-    val ttsStatus: TtsStatus = TtsStatus.PENDING
+    val ttsStatus: TtsStatus = TtsStatus.PENDING,
+    val isPlaying: Boolean = false,
+    val pausedAt: Float = 0f,      // 暂停位置（秒）
+    val hasPaused: Boolean = false  // 是否曾暂停过（用于显示"继续"按钮）
 )
 
 enum class TtsStatus {
     PENDING,        // AI 还在生成
-    SYNTHESIZING,   // content_done 已收到
-    READY,          // audio_done 收到，有 URL
-    TIMEOUT,        // 超时
-    ERROR           // 失败
+    SYNTHESIZING,   // content_done 已收到，等待 audio_done
+    READY,          // audio_done 收到，有 URL，可播放
+    TIMEOUT,        // 超时，后台继续合成，audioUrl 置空
+    ERROR,          // 合成异常，audioUrl 置空
+    NOAUDIO,        // 提供商返回空，audioUrl 置空
+    NO_AUDIO        // 历史消息专用：audioUrl 为 null，不显示按钮
 }
 ```
 
 ### 10.5 ViewModel 处理
 
 ```kotlin
-@Composable
-fun ChatViewModel(
+class ChatViewModel(
     private val chatRepository: ChatRepository
-) {
+) : ViewModel() {
     private val _messages = MutableStateFlow<List<Message>>(emptyList())
     val messages: StateFlow<List<Message>> = _messages.asStateFlow()
 
-    fun onContentDone() {
-        val lastMsg = _messages.value.lastOrNull { it.role == "assistant" }
-        lastMsg?.let {
-            _messages.update { msgs ->
-                msgs.map { msg ->
-                    if (msg.id == lastMsg.id) msg.copy(ttsStatus = TtsStatus.SYNTHESIZING)
-                    else msg
+    fun onContentDone(messageId: Long?) {
+        updateMessage(messageId) { it.copy(ttsStatus = TtsStatus.SYNTHESIZING) }
+    }
+
+    fun onAudioDone(event: StreamEvent.AudioDone) {
+        updateMessage(event.messageId) { msg ->
+            msg.copy(
+                audioUrl = event.url,
+                ttsStatus = when {
+                    event.timeout -> TtsStatus.TIMEOUT
+                    event.error != null -> TtsStatus.ERROR
+                    event.noaudio -> TtsStatus.NOAUDIO
+                    event.url != null -> TtsStatus.READY
+                    else -> TtsStatus.ERROR
                 }
-            }
+            )
         }
     }
 
-    fun onAudioDone(url: String?, timeout: Boolean, error: String?) {
-        val lastMsg = _messages.value.lastOrNull { it.role == "assistant" }
-        lastMsg?.let {
-            _messages.update { msgs ->
-                msgs.map { msg ->
-                    if (msg.id == lastMsg.id) {
-                        msg.copy(
-                            audioUrl = url,
-                            ttsStatus = when {
-                                timeout -> TtsStatus.TIMEOUT
-                                error != null -> TtsStatus.ERROR
-                                url != null -> TtsStatus.READY
-                                else -> TtsStatus.ERROR
-                            }
-                        )
-                    } else msg
-                }
-            }
+    // 播放控制
+    fun playAudio(messageId: Long) {
+        updateMessage(messageId) { it.copy(isPlaying = true, hasPaused = false, pausedAt = 0f) }
+    }
+
+    fun pauseAudio(messageId: Long, position: Float) {
+        updateMessage(messageId) { it.copy(isPlaying = false, hasPaused = true, pausedAt = position) }
+    }
+
+    fun resumeAudio(messageId: Long) {
+        updateMessage(messageId) { it.copy(isPlaying = true) }
+    }
+
+    fun replayAudio(messageId: Long) {
+        updateMessage(messageId) { it.copy(isPlaying = true, hasPaused = false, pausedAt = 0f) }
+    }
+
+    private fun updateMessage(messageId: Long?, transform: (Message) -> Message) {
+        if (messageId == null) return
+        _messages.update { msgs ->
+            msgs.map { if (it.id == messageId) transform(it) else it }
         }
     }
 }
@@ -1200,31 +1384,46 @@ fun ChatViewModel(
 
 ```kotlin
 @Composable
-fun AudioPlayButton(message: Message) {
+fun AudioPlayButton(message: Message, viewModel: ChatViewModel) {
     when (message.ttsStatus) {
         TtsStatus.READY -> {
-            // 显示播放按钮
-            IconButton(onClick = { /* 播放 */ }) {
-                Icon(Icons.Default.PlayArrow, contentDescription = "播放")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                when {
+                    message.isPlaying -> {
+                        // 正在播放：显示暂停按钮
+                        IconButton(onClick = { viewModel.pauseAudio(message.id, audioPlayer.currentPosition) }) {
+                            Icon(Icons.Default.Pause, contentDescription = "暂停")
+                        }
+                    }
+                    message.hasPaused -> {
+                        // 已暂停：显示继续和从头播放
+                        IconButton(onClick = { viewModel.resumeAudio(message.id) }) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = "继续")
+                        }
+                        TextButton(onClick = { viewModel.replayAudio(message.id) }) {
+                            Text("从头播放", fontSize = 12.sp)
+                        }
+                    }
+                    else -> {
+                        // 未播放：显示播放按钮
+                        IconButton(onClick = { viewModel.playAudio(message.id) }) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = "播放")
+                        }
+                    }
+                }
             }
         }
         TtsStatus.SYNTHESIZING -> {
-            // 可选：显示合成中状态
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(8.dp)
             ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp
-                )
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                 Spacer(modifier = Modifier.width(4.dp))
                 Text("语音合成中...", fontSize = 12.sp)
             }
         }
-        TtsStatus.TIMEOUT, TtsStatus.ERROR -> {
-            // 不显示任何内容
-        }
+        // TIMEOUT / ERROR / NOAUDIO / NO_AUDIO：不显示任何内容
         else -> { }
     }
 }
@@ -1233,11 +1432,10 @@ fun AudioPlayButton(message: Message) {
 ### 10.7 语音播放流程
 
 ```
-AudioPlayer.playOrPause(message)
+AudioPlayer.play(message)
     │
     ├── message.audioUrl 非空
     │       │
-    │       ├─► GitHub URL → 本地缓存或直接播放
     │       ├─► 服务端 URL → 下载（需认证）
     │       └─► 公开 URL → 直接播放
     │
@@ -1247,130 +1445,32 @@ AudioPlayer.playOrPause(message)
 
 ### 10.8 播放控制
 
-| 操作 | 方法 | 说明 |
-|------|------|------|
-| 从头播放 | `togglePlay()` | 暂停当前播放，从头开始 |
-| 继续播放 | `resumePlay()` | 从暂停位置继续 |
-| 暂停 | `pausePlay()` | 暂停并记录位置 |
+| 操作 | 方法 | 触发条件 | 说明 |
+|------|------|---------|------|
+| 从头播放 | `playAudio()` | 未播放过 | 重置位置，开始播放 |
+| 暂停 | `pauseAudio()` | 正在播放 | 记录 `pausedAt`，设置 `hasPaused=true` |
+| 继续 | `resumeAudio()` | 已暂停 | 从 `pausedAt` 位置继续 |
+| 从头重播 | `replayAudio()` | 已暂停 | 重置 `pausedAt=0`，`hasPaused=false`，重新播放 |
 
-### 10.9 conversationId 处理
+### 10.9 conversationId 与 messageId 处理规范
 
-#### 10.9.1 问题描述
+所有消息相关事件（`content`、`content_done`、`audio_done`）均携带 `conversationId` 和 `messageId`。
 
-Android 端 `conversationId` 始终为 `null`，导致无法正确区分不同会话的消息事件。
+**串行发送约定**：前端发送期间输入框 disable，后端不支持并发处理，同一时刻只有一条 SSE 流在运行。
 
-#### 10.9.2 问题原因
+**Android 端处理规则**：
 
-**后端问题**：
-- `SseFormatter` 方法（如 `content()`、`contentDone()`、`audioDone()`）未携带 `conversationId` 参数
-- 发送的事件 JSON 中缺少 `conversationId` 字段
+| 场景 | 处理方式 |
+|------|---------|
+| `conversationId` 有值 | 精确匹配对应会话 |
+| `conversationId` 为 null | 关联到当前活跃会话（`activeConversationId`） |
+| `messageId` 有值 | 精确定位消息气泡 |
+| `messageId` 为 null | 降级为关联当前会话最后一条 assistant 消息 |
 
-**Android 端问题**：
-- `parseEvent()` 方法中 `convId` 硬编码为 `null`：
-  ```kotlin
-  val convId: Long? = null  // 始终为 null
-  ```
-
-#### 10.9.3 影响范围
-
-| 影响项 | 说明 |
-|--------|------|
-| 多会话切换 | 切换会话后，新消息的 `conversationId` 仍为 null，无法匹配 |
-| 消息关联 | 事件无法正确关联到对应会话 |
-| 状态更新 | TTS 状态更新可能作用在错误的会话上 |
-
-#### 10.9.4 解决方案
-
-**后端修改**：
-
-1. 修改 `SseFormatter` 方法签名，添加 `conversationId` 参数：
-
-```java
-// SseFormatter.java
-public static String content(String text, Long conversationId) {
-    return String.format(
-        "{\"type\":\"content\",\"text\":\"%s\",\"conversationId\":%d}",
-        text, conversationId
-    );
-}
-
-public static String contentDone(Long conversationId) {
-    return String.format(
-        "{\"type\":\"content_done\",\"conversationId\":%d}",
-        conversationId
-    );
-}
-
-public static String audioDone(String url, boolean timeout, String error, Long conversationId) {
-    return String.format(
-        "{\"type\":\"audio_done\",\"url\":\"%s\",\"timeout\":%b,\"error\":%s,\"conversationId\":%d}",
-        url != null ? url : "",
-        timeout,
-        error != null ? "\"" + error + "\"" : "null",
-        conversationId
-    );
-}
-```
-
-2. 修改 `StreamChatService` 调用处，传入 `conversationId`：
-
-```java
-// handleLlmStream 方法中
-sink.tryEmitNext(SseFormatter.content(escapeJson(chunk), conversationId));
-sink.tryEmitNext(SseFormatter.contentDone(conversationId));
-sink.tryEmitNext(SseFormatter.audioDone(url, false, null, conversationId));
-```
-
-**Android 端修改**：
-
-1. 修改 `parseEvent()` 方法，从 JSON 中解析 `conversationId`：
-
-```kotlin
-private fun parseEvent(data: String): StreamEvent? {
-    if (data.isBlank()) return null
-
-    val obj = JsonParser.parseString(data).asJsonObject
-    val type = obj.get("type")?.asString ?: return null
-
-    // 从 JSON 中解析 conversationId
-    val convId = obj.get("conversationId")?.asLong
-
-    return when (type) {
-        "content" -> StreamEvent.Content(
-            convId,
-            obj.get("text")?.asString ?: obj.get("content")?.asString ?: ""
-        )
-
-        "content_done" -> StreamEvent.ContentDone(convId)
-
-        "audio_done" -> StreamEvent.AudioDone(
-            conversationId = convId,
-            url = obj.optString("url").takeIf { it.isNotBlank() },
-            timeout = obj.optBoolean("timeout"),
-            error = obj.optString("error").takeIf { it.isNotBlank() }
-        )
-
-        // ... 其他事件类型同样需要传入 convId
-
-        else -> null
-    }
-}
-```
-
-#### 10.9.5 涉及修改的文件清单
-
-| 层级 | 文件 | 修改内容 |
-|------|------|----------|
-| 后端 | `SseFormatter.java` | 添加 `conversationId` 参数到各方法 |
-| 后端 | `StreamChatService.java` | 调用时传入 `conversationId` |
-| Android | `StreamEvent.kt` | `parseEvent()` 方法解析 `conversationId` |
-
-#### 10.9.6 验证方法
-
-1. 启动后端和 Android 应用
-2. 创建多个会话
-3. 在每个会话发送消息，观察 SSE 事件中的 `conversationId` 是否正确
-4. 使用 `adb logcat | grep "SSE"` 查看 Android 端解析的 `conversationId` 值
+**验证方法**：
+1. 创建多个会话，在每个会话发送消息
+2. 观察 SSE 事件中的 `conversationId` 和 `messageId` 是否正确
+3. 使用 `adb logcat | grep "SSE"` 查看 Android 端解析结果
 
 ---
 
@@ -1402,27 +1502,28 @@ private fun parseEvent(data: String): StreamEvent? {
                          │      等待 audio_done          │
                          │      超时计时：10s            │
                          └───────────────────────────────┘
-                              /            |            \
-                             /             |             \
-                            /              |              \
-               ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-               │ audio_done   │  │ audio_done   │  │ audio_done   │
-               │ url 有值     │  │ timeout=true │  │ error=xxx    │
-               └──────────────┘  └──────────────┘  └──────────────┘
-                      │                  │                 │
-                      ▼                  ▼                 ▼
-               ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-               │ ttsStatus =  │  │ ttsStatus =  │  │ ttsStatus =  │
-               │ READY        │  │ TIMEOUT      │  │ ERROR        │
-               │ 显示播放按钮  │  │ 不显示按钮    │  │ 不显示按钮    │
-               └──────────────┘  └──────────────┘  └──────────────┘
-                      │                  │                 │
-                      └──────────────────┼─────────────────┘
-                                         ▼
-                              ┌──────────────────────┐
-                              │       done 收到      │
-                              │    SSE 连接关闭      │
-                              └──────────────────────┘
+                    /          |           |           \
+                   /           |           |            \
+                  /            |           |             \
+    ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+    │ audio_done   │  │ audio_done   │  │ audio_done   │  │ audio_done   │
+    │ url 有值     │  │ timeout=true │  │ error=xxx    │  │ noaudio=true │
+    └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘
+           │                  │                 │                 │
+           ▼                  ▼                 ▼                 ▼
+    ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+    │ READY        │  │ TIMEOUT      │  │ ERROR        │  │ NOAUDIO      │
+    │ 显示播放按钮  │  │ 不显示按钮    │  │ 不显示按钮    │  │ 不显示按钮    │
+    │ audioUrl有值 │  │ audioUrl=null│  │ audioUrl=null│  │ audioUrl=null│
+    │              │  │ 后台继续合成  │  │              │  │ 历史也无URL  │
+    └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘
+           │                  │                 │                 │
+           └──────────────────┼─────────────────┴─────────────────┘
+                              ▼
+                   ┌──────────────────────┐
+                   │       done 收到      │
+                   │    SSE 连接关闭      │
+                   └──────────────────────┘
 ```
 
 ### 11.2 连接状态机
@@ -1464,9 +1565,9 @@ private fun parseEvent(data: String): StreamEvent? {
 | 阶段 | 最大等待时间 | 用户反馈 |
 |------|-------------|----------|
 | 首字节到达 | 10 秒 | 持续显示加载动画 |
-| 10-30 秒 | - | 显示额外提示（如"AI 正在处理中..."） |
-| 30-60 秒 | - | 显示警告（如"响应较慢，请稍候..."） |
-| >60 秒 | - | 中断连接，显示超时错误 + 重试按钮 |
+| 首字节到达后 10-30 秒 | 20 秒 | 显示额外提示（如"AI 正在处理中..."） |
+| 首字节到达后 30-60 秒 | 30 秒 | 显示警告（如"响应较慢，请稍候..."） |
+| 首字节到达后 >60 秒 | 60 秒 | 中断连接，显示超时错误 + 重试按钮 |
 
 ### 12.3 加载状态文案
 
@@ -1599,8 +1700,7 @@ Log.e(TAG, "SSE 错误", e)
 
 | 待办 | 优先级 | 状态 |
 |------|--------|------|
-| SseFormatter 新增方法 | **P0** | 待实现 |
-| SseFormatter 添加 conversationId 参数 | **P0** | 待实现 |
+| SseFormatter 新增方法（含 conversationId、messageId 参数） | **P0** | 待实现 |
 | StreamChatService 重构 | **P0** | 待实现 |
 | TTS Provider 策略模式重构 | **P0** | 待实现 |
 | MiniMax TTS 实现 | P1 | 待实现 |
@@ -1613,6 +1713,7 @@ Log.e(TAG, "SSE 错误", e)
 | SseClient 新增事件 | **P0** | 待实现 |
 | Message 接口更新 | **P0** | 待实现 |
 | ChatRoom 状态管理 | **P0** | 待实现 |
+| 发送期间输入框 disable / SSE 完成后恢复 | **P0** | 待实现 |
 
 ### 16.3 Android
 
@@ -1630,11 +1731,11 @@ Log.e(TAG, "SSE 错误", e)
 
 ### A.1 相关文档
 
-| 文档 | 说明 |
-|------|------|
-| `SSE_STREAM_SPEC.md` | SSE 流式输出基础规范 |
-| `SSE_TTS_ASYNC_SPEC.md` | TTS 异步化方案 |
-| `VOICE_PLAYBACK_SPEC.md` | 语音播放实现规范 |
+| 文档 | 路径 | 说明 |
+|------|------|------|
+| `SSE_STREAM_SPEC.md` | `mds/SSE_STREAM_SPEC.md` | SSE 流式输出基础规范 |
+| `SSE_TTS_ASYNC_SPEC.md` | `mds/SSE_TTS_ASYNC_SPEC.md` | TTS 异步化方案 |
+| `VOICE_PLAYBACK_SPEC.md` | `mds/VOICE_PLAYBACK_SPEC.md` | 语音播放实现规范 |
 
 ---
 

@@ -28,22 +28,39 @@ export interface SseClientOptions {
   headers?: Record<string, string>
   body?: any
   timeout?: number  // 超时时间(ms)，默认 60000
-  onContent?: (text: string) => void        // content 事件
-  onAudioUrl?: (url: string) => void       // audio_url 事件
-  onTokenUsage?: (usage: TokenUsage) => void // token_usage 事件
-  onToolCall?: (tool: ToolCallInfo) => void // tool_call 事件
-  onToolResult?: (result: ToolResultInfo) => void // tool_result 事件
-  onCacheHit?: (content: string) => void    // cache_hit 事件
-  onClarification?: (content: string) => void // clarification 事件
-  onError?: (error: string) => void        // error 事件
-  onDone?: () => void                       // done 事件
-  onOpen?: () => void                       // 连接打开
-  onClose?: () => void                     // 连接关闭
+
+  // 状态回调
+  onConnecting?: () => void      // 刚发起连接
+  onFirstContent?: () => void    // 收到首个 content 事件
+
+  // 事件回调
+  onContent?: (text: string, conversationId: number | null, messageId: number | null) => void
+  onContentDone?: (conversationId: number | null, messageId: number | null) => void
+  onAudioDone?: (event: AudioDoneEvent) => void
+  onTokenUsage?: (usage: TokenUsage) => void
+  onToolCall?: (tool: ToolCallInfo) => void
+  onToolResult?: (result: ToolResultInfo) => void
+  onCacheHit?: (content: string) => void
+  onClarification?: (content: string) => void
+  onError?: (error: string) => void
+  onDone?: () => void
+  onOpen?: () => void
+  onClose?: () => void
+}
+
+export interface AudioDoneEvent {
+  conversationId: number | null
+  messageId: number | null
+  url: string | null      // 音频 URL，仅 TTS 成功时有值
+  timeout: boolean        // 超时（后台继续合成，历史消息可能有 URL）
+  error: string | null    // 合成异常信息
+  noaudio: boolean        // 提供商返回空（历史消息也不会有 URL）
 }
 
 export class SseClient {
   private abortController: AbortController
   private timeoutId?: number
+  private _firstContentReceived = false
 
   constructor(private options: SseClientOptions) {
     this.abortController = new AbortController()
@@ -148,12 +165,29 @@ export class SseClient {
    * 处理 SSE 事件
    */
   private handleEvent(data: any): void {
+    const conversationId: number | null = data.conversationId ?? null
+    const messageId: number | null = data.messageId ?? null
+
     switch (data.type) {
       case 'content':
-        this.options.onContent?.(data.text || data.content || '')
+        if (!this._firstContentReceived) {
+          this._firstContentReceived = true
+          this.options.onFirstContent?.()
+        }
+        this.options.onContent?.(data.text || data.content || '', conversationId, messageId)
         break
-      case 'audio_url':
-        this.options.onAudioUrl?.(data.url)
+      case 'content_done':
+        this.options.onContentDone?.(conversationId, messageId)
+        break
+      case 'audio_done':
+        this.options.onAudioDone?.({
+          conversationId,
+          messageId,
+          url: data.url || null,
+          timeout: data.timeout || false,
+          error: data.error || null,
+          noaudio: data.noaudio || false
+        })
         break
       case 'token_usage':
         this.options.onTokenUsage?.({

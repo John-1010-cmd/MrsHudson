@@ -14,6 +14,7 @@ import com.mrshudson.android.data.remote.dto.TtsRequest
 import com.mrshudson.android.data.remote.dto.TtsResponse
 import com.mrshudson.android.domain.model.Conversation
 import com.mrshudson.android.domain.model.Message
+import com.mrshudson.android.domain.model.TtsStatus
 import com.mrshudson.android.domain.model.createConversation
 import com.mrshudson.android.domain.model.createMessage
 import kotlinx.coroutines.Dispatchers
@@ -202,12 +203,16 @@ class ChatRepositoryImpl @Inject constructor(
      * 后端返回: id (String), role, content, createdAt, functionCall, audioUrl
      */
     private fun MessageDto.toDomainModel(): Message {
-        return createMessage(
+        val msg = createMessage(
             id = id.toLong(),
             role = role,
             content = content,
             createdAt = createdAt,
             audioUrl = audioUrl
+        )
+        // 历史消息：根据 audioUrl 设置 ttsStatus
+        return msg.copy(
+            ttsStatus = if (!audioUrl.isNullOrBlank()) TtsStatus.READY else TtsStatus.NO_AUDIO
         )
     }
 

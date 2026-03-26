@@ -34,6 +34,19 @@ enum class AudioPlayState {
 }
 
 /**
+ * TTS 合成状态
+ */
+enum class TtsStatus {
+    PENDING,        // AI 还在生成
+    SYNTHESIZING,   // content_done 已收到，等待 audio_done
+    READY,          // audio_done 收到，有 URL，可播放
+    TIMEOUT,        // 超时，后台继续合成，audioUrl 置空
+    ERROR,          // 合成异常，audioUrl 置空
+    NOAUDIO,        // 提供商返回空，audioUrl 置空
+    NO_AUDIO        // 历史消息专用：audioUrl 为 null，不显示按钮
+}
+
+/**
  * 消息领域模型
  *
  * @property id 消息ID
@@ -41,6 +54,7 @@ enum class AudioPlayState {
  * @property content 消息内容
  * @property createdAt 创建时间
  * @property audioUrl 语音合成音频URL
+ * @property ttsStatus TTS 合成状态
  * @property audioPlayState 音频播放状态
  * @property pausedPosition 暂停位置（毫秒）
  */
@@ -50,6 +64,7 @@ data class Message(
     val content: String,
     val createdAt: LocalDateTime,
     val audioUrl: String? = null,
+    val ttsStatus: TtsStatus = TtsStatus.NO_AUDIO,
     val audioPlayState: AudioPlayState = AudioPlayState.IDLE,
     val pausedPosition: Long = 0L
 ) {

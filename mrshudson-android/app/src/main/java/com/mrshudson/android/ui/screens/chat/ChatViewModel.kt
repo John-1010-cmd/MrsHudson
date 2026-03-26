@@ -12,6 +12,7 @@ import com.mrshudson.android.data.repository.StreamEvent
 import com.mrshudson.android.domain.model.Conversation
 import com.mrshudson.android.domain.model.Message
 import com.mrshudson.android.domain.model.MessageRole
+import com.mrshudson.android.domain.model.TtsStatus
 import com.mrshudson.android.ui.components.chat.AudioPlayer
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -291,14 +292,42 @@ class ChatViewModel @Inject constructor(
                 when (event) {
                     is StreamEvent.Content -> {
                         currentAiContent.append(event.text)
-                        // 增量更新 AI 消息
+                        // 增量更新 AI 消息，同时设置 ttsStatus = PENDING
                         _uiState.update { state ->
                             val updatedMessages = state.messages.map { msg ->
                                 if (msg.id == aiMessageId) {
-                                    msg.copy(content = currentAiContent.toString())
+                                    msg.copy(content = currentAiContent.toString(), ttsStatus = TtsStatus.PENDING)
                                 } else {
                                     msg
                                 }
+                            }
+                            state.copy(messages = updatedMessages)
+                        }
+                    }
+                    is StreamEvent.ContentDone -> {
+                        // AI 内容结束，TTS 开始后台合成
+                        _uiState.update { state ->
+                            val updatedMessages = state.messages.map { msg ->
+                                if (msg.id == aiMessageId) msg.copy(ttsStatus = TtsStatus.SYNTHESIZING) else msg
+                            }
+                            state.copy(messages = updatedMessages)
+                        }
+                    }
+                    is StreamEvent.AudioDone -> {
+                        _uiState.update { state ->
+                            val updatedMessages = state.messages.map { msg ->
+                                if (msg.id == aiMessageId) {
+                                    msg.copy(
+                                        audioUrl = event.url,
+                                        ttsStatus = when {
+                                            event.timeout -> TtsStatus.TIMEOUT
+                                            event.error != null -> TtsStatus.ERROR
+                                            event.noaudio -> TtsStatus.NOAUDIO
+                                            event.url != null -> TtsStatus.READY
+                                            else -> TtsStatus.ERROR
+                                        }
+                                    )
+                                } else msg
                             }
                             state.copy(messages = updatedMessages)
                         }
@@ -354,11 +383,11 @@ class ChatViewModel @Inject constructor(
                         }
                     }
                     is StreamEvent.AudioUrl -> {
-                        // 语音合成完成，更新 AI 消息的 audioUrl
+                        // 旧格式向后兼容：直接设置 audioUrl 并标记 READY
                         _uiState.update { state ->
                             val updatedMessages = state.messages.map { msg ->
                                 if (msg.id == aiMessageId) {
-                                    msg.copy(audioUrl = event.url)
+                                    msg.copy(audioUrl = event.url, ttsStatus = TtsStatus.READY)
                                 } else {
                                     msg
                                 }

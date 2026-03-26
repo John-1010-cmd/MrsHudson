@@ -32,7 +32,8 @@ class SseClient(
         private const val TIMEOUT_CHECK_INTERVAL_MS = 5000L // 超时检测间隔
     }
 
-    /**
+    /** 当前活跃会话 ID，conversationId 为 null 时用于关联事件 */
+    var activeConversationId: Long? = null
      * 创建 SSE 流
      *
      * @param endpoint API 端点，如 "/api/chat/stream"
@@ -201,19 +202,39 @@ class SseClient(
         val obj = jsonElement.asJsonObject
         val type = obj.get("type")?.asString ?: return null
 
+        // 从 JSON 中解析 conversationId 和 messageId
+        val convId = obj.get("conversationId")?.takeIf { !it.isJsonNull }?.asLong
+        val msgId = obj.get("messageId")?.takeIf { !it.isJsonNull }?.asLong
+
+        // conversationId 为 null 时，关联到当前活跃会话
+        val resolvedConvId = convId ?: activeConversationId
+
         return when (type) {
             "content" -> StreamEvent.Content(
-                null,
+                resolvedConvId,
+                msgId,
                 obj.get("text")?.asString ?: obj.get("content")?.asString ?: ""
             )
 
+            "content_done" -> StreamEvent.ContentDone(resolvedConvId, msgId)
+
+            "audio_done" -> StreamEvent.AudioDone(
+                conversationId = resolvedConvId,
+                messageId = msgId,
+                url = obj.get("url")?.takeIf { !it.isJsonNull }?.asString?.takeIf { it.isNotBlank() },
+                timeout = obj.get("timeout")?.asBoolean ?: false,
+                error = obj.get("error")?.takeIf { !it.isJsonNull }?.asString?.takeIf { it.isNotBlank() },
+                noaudio = obj.get("noaudio")?.asBoolean ?: false
+            )
+
+            // 旧格式向后兼容
             "audio_url" -> StreamEvent.AudioUrl(
-                null,
+                resolvedConvId,
                 obj.get("url")?.asString ?: ""
             )
 
             "token_usage" -> StreamEvent.TokenUsage(
-                null,
+                resolvedConvId,
                 obj.get("inputTokens")?.asInt ?: 0,
                 obj.get("outputTokens")?.asInt ?: 0,
                 obj.get("duration")?.asLong ?: 0L,
@@ -224,7 +245,7 @@ class SseClient(
                 val toolCall = obj.getAsJsonObject("toolCall")
                 if (toolCall != null) {
                     StreamEvent.ToolCall(
-                        null,
+                        resolvedConvId,
                         toolCall.get("id")?.asString ?: "",
                         toolCall.get("name")?.asString ?: "",
                         toolCall.get("arguments")?.asString ?: ""
@@ -236,7 +257,7 @@ class SseClient(
                 val toolResult = obj.getAsJsonObject("toolResult")
                 if (toolResult != null) {
                     StreamEvent.ToolResult(
-                        null,
+                        resolvedConvId,
                         toolResult.get("id")?.asString ?: "",
                         toolResult.get("name")?.asString ?: "",
                         toolResult.get("result")?.asString ?: ""
@@ -244,22 +265,10 @@ class SseClient(
                 } else null
             }
 
-            "cache_hit" -> StreamEvent.CacheHit(
-                null,
-                obj.get("content")?.asString ?: ""
-            )
-
-            "clarification" -> StreamEvent.Clarification(
-                null,
-                obj.get("content")?.asString ?: ""
-            )
-
-            "error" -> StreamEvent.Error(
-                null,
-                obj.get("message")?.asString ?: "Unknown error"
-            )
-
-            "done" -> StreamEvent.Done(null)
+            "cache_hit" -> StreamEvent.CacheHit(resolvedConvId, obj.get("content")?.asString ?: "")
+            "clarification" -> StreamEvent.Clarification(resolvedConvId, obj.get("content")?.asString ?: "")
+            "error" -> StreamEvent.Error(resolvedConvId, obj.get("message")?.asString ?: "Unknown error")
+            "done" -> StreamEvent.Done(resolvedConvId)
 
             else -> null
         }

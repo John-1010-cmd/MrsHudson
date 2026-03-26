@@ -82,7 +82,7 @@ interface ChatRepository {
 /**
  * 流式事件
  * 包含 SSE 流中的 JSON 事件数据
- * 遵循 SSE_STREAM_SPEC.md 规范
+ * 遵循 SSE_TTS_UNIFIED_SPEC.md 规范
  */
 sealed class StreamEvent {
     abstract val conversationId: Long?
@@ -112,7 +112,28 @@ sealed class StreamEvent {
      */
     data class Content(
         override val conversationId: Long?,
+        val messageId: Long?,
         val text: String
+    ) : StreamEvent()
+
+    /**
+     * AI 内容结束事件（TTS 开始后台合成）
+     */
+    data class ContentDone(
+        override val conversationId: Long?,
+        val messageId: Long?
+    ) : StreamEvent()
+
+    /**
+     * TTS 语音合成结束事件
+     */
+    data class AudioDone(
+        override val conversationId: Long?,
+        val messageId: Long?,
+        val url: String?,
+        val timeout: Boolean,
+        val error: String?,
+        val noaudio: Boolean
     ) : StreamEvent()
 
     /**
@@ -143,8 +164,10 @@ sealed class StreamEvent {
     ) : StreamEvent()
 
     /**
-     * 音频URL事件（语音合成完成）
+     * 音频URL事件（旧格式，保留向后兼容）
+     * @deprecated 请使用 AudioDone
      */
+    @Deprecated("Use AudioDone instead")
     data class AudioUrl(
         override val conversationId: Long?,
         val url: String

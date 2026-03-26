@@ -4,11 +4,8 @@
     <div class="message-list" ref="messageListRef">
       <!-- 消息列表内容 -->
       <template v-if="messages.length > 0">
-        <div
-          v-for="msg in messages"
-          :key="msg.id"
-          :class="['message', msg.role === 'user' ? 'user-message' : 'ai-message']"
-        >
+        <div v-for="msg in messages" :key="msg.id"
+          :class="['message', msg.role === 'user' ? 'user-message' : 'ai-message']">
           <div class="message-avatar">
             <el-avatar v-if="msg.role === 'assistant'" :size="40" :style="{ background: '#409eff' }">
               🤖
@@ -23,38 +20,32 @@
                 <el-tag size="small" type="info">🔧 {{ tool.name }}</el-tag>
               </div>
             </div>
-            <!-- AI语音播放按钮 -->
-            <div v-if="msg.role === 'assistant' && (msg.audioUrl || msg.streamAudioUrl)" class="audio-player">
+            <!-- TTS 合成中状态提示 -->
+            <div v-if="msg.role === 'assistant' && msg.ttsStatus === 'synthesizing'" class="tts-status">
+              <span class="tts-loading">🔊 语音合成中...</span>
+            </div>
+            <!-- AI语音播放按钮：仅 ttsStatus === 'ready' 且有 audioUrl 时显示 -->
+            <div v-if="msg.role === 'assistant' && msg.ttsStatus === 'ready' && msg.audioUrl" class="audio-player">
               <!-- 主按钮：从头播放 -->
-              <el-button
-                type="info"
-                size="small"
-                circle
-                :title="msg.isPlaying ? '暂停' : '从头播放'"
-                @click="toggleAudio(msg)"
-              >
-                <el-icon v-if="!msg.isPlaying"><VideoPlay /></el-icon>
-                <el-icon v-else><VideoPause /></el-icon>
+              <el-button type="info" size="small" circle :title="msg.isPlaying ? '暂停' : '从头播放'"
+                @click="toggleAudio(msg)">
+                <el-icon v-if="!msg.isPlaying">
+                  <VideoPlay />
+                </el-icon>
+                <el-icon v-else>
+                  <VideoPause />
+                </el-icon>
               </el-button>
               <!-- 继续播放按钮：暂停后显示 -->
-              <el-button
-                v-if="msg.hasPaused && !msg.isPlaying"
-                type="primary"
-                size="small"
-                class="resume-btn"
-                @click="resumeAudio(msg)"
-              >
-                <el-icon><VideoPlay /></el-icon>
+              <el-button v-if="msg.hasPaused && !msg.isPlaying" type="primary" size="small" class="resume-btn"
+                @click="resumeAudio(msg)">
+                <el-icon>
+                  <VideoPlay />
+                </el-icon>
                 继续
               </el-button>
-              <audio
-                :id="'audio-' + msg.id"
-                :src="msg.streamAudioUrl || msg.audioUrl"
-                crossorigin="anonymous"
-                preload="none"
-                @ended="onAudioEnded(msg)"
-                @error="onAudioError(msg)"
-              />
+              <audio :id="'audio-' + msg.id" :src="msg.audioUrl || undefined" crossorigin="anonymous" preload="none"
+                @ended="onAudioEnded(msg)" @error="onAudioError(msg)" />
             </div>
             <div class="message-time">{{ formatTime(msg.createdAt) }}</div>
           </div>
@@ -84,28 +75,17 @@
     <!-- 输入框 -->
     <div class="input-area">
       <div class="input-box">
-        <el-input
-          v-model="inputMessage"
-          type="textarea"
-          :rows="2"
-          :placeholder="conversationId ? '请输入消息，按 Enter 发送...' : '请先选择一个会话'"
-          @keyup.enter.exact="sendMessage"
-          :disabled="loading || !conversationId"
-        />
+        <el-input v-model="inputMessage" type="textarea" :rows="2"
+          :placeholder="conversationId ? '请输入消息，按 Enter 发送...' : '请先选择一个会话'" @keyup.enter.exact="sendMessage"
+          :disabled="inputDisabled || !conversationId" />
         <div class="input-actions">
-          <VoiceInputButton
-            :disabled="loading || !conversationId"
-            :loading="loading"
-            @record="handleVoiceRecord"
-            @error="handleVoiceError"
-          />
-          <el-button
-            type="primary"
-            :loading="loading"
-            @click="sendMessage"
-            :disabled="!inputMessage.trim() || !conversationId"
-          >
-            <el-icon><Promotion /></el-icon>
+          <VoiceInputButton :disabled="inputDisabled || !conversationId" :loading="loading" @record="handleVoiceRecord"
+            @error="handleVoiceError" />
+          <el-button type="primary" :loading="loading" @click="sendMessage"
+            :disabled="!inputMessage.trim() || !conversationId || inputDisabled">
+            <el-icon>
+              <Promotion />
+            </el-icon>
             发送
           </el-button>
         </div>
@@ -115,9 +95,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick, watch, inject, type Ref } from 'vue'
+import { Promotion, UserFilled, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { UserFilled, Promotion, VideoPlay, VideoPause } from '@element-plus/icons-vue'
+import { computed, inject, nextTick, onMounted, ref, watch, type Ref } from 'vue'
 import * as chatApi from '../api/chat'
 import VoiceInputButton from '../components/VoiceInputButton.vue'
 import { SseClient } from '../utils/sse/SseClient'
@@ -140,16 +120,26 @@ interface Message {
   content: string
   createdAt: string
   toolCalls?: chatApi.ToolCallInfo[]
-  audioUrl?: string          // 历史消息中的音频URL（从后端数据库加载）
-  streamAudioUrl?: string     // 流式响应中生成的音频URL（仅在当前会话有效，不会被 loadConversationMessages 覆盖）
-  isPlaying?: boolean
-  pausedAt?: number  // 暂停位置（秒）
-  hasPaused?: boolean  // 是否曾暂停过
+  audioUrl?: string | null      // 历史消息或 TTS 成功时的音频 URL
+  ttsStatus: TtsStatus          // TTS 状态
+  isPlaying: boolean
+  pausedAt: number              // 暂停位置（秒），0 表示未暂停
+  hasPaused: boolean            // 是否曾暂停过
 }
+
+type TtsStatus =
+  | 'pending'      // AI 还在生成内容
+  | 'synthesizing' // content_done 已收到，等待 audio_done
+  | 'ready'        // 有 URL，可播放
+  | 'timeout'      // 超时，后台继续合成
+  | 'error'        // 合成异常
+  | 'noaudio'      // 提供商返回空
+  | 'no_audio'     // 历史消息无音频
 
 const messages = ref<Message[]>([])
 const inputMessage = ref('')
 const loading = ref(false)
+const inputDisabled = ref(false)  // 发送期间禁用输入框
 const messageListRef = ref<HTMLElement>()
 
 // 计算是否有AI消息占位符（用于避免双气泡）
@@ -170,7 +160,11 @@ watch(() => conversationId?.value, async (newId, oldId) => {
       id: 'welcome',
       role: 'assistant',
       content: `你好，我是 MrsHudson，你的私人AI管家。\n\n我可以帮你：\n- 查询天气\n- 管理日程\n- 记录待办\n\n请选择一个会话或创建新对话开始使用。`,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      ttsStatus: 'no_audio',
+      isPlaying: false,
+      pausedAt: 0,
+      hasPaused: false
     }]
   }
 }, { immediate: true })
@@ -199,7 +193,7 @@ const loadConversationMessages = async (conversationId: string) => {
               const parsed = JSON.parse(msg.functionCall)
               toolCalls = Array.isArray(parsed) ? parsed : [parsed]
             } catch (e) {
-  console.warn('解析工具调用信息失败:', msg.functionCall)
+              console.warn('解析工具调用信息失败:', msg.functionCall)
             }
           }
           return {
@@ -208,8 +202,8 @@ const loadConversationMessages = async (conversationId: string) => {
             content: msg.content,
             createdAt: msg.createdAt,
             toolCalls,
-            audioUrl: msg.audioUrl, // 使用后端返回的音频URL
-            streamAudioUrl: undefined, // 流式响应中生成的音频URL
+            audioUrl: msg.audioUrl || null,
+            ttsStatus: (msg.audioUrl ? 'ready' : 'no_audio') as TtsStatus,
             isPlaying: false,
             pausedAt: 0,
             hasPaused: false
@@ -221,7 +215,11 @@ const loadConversationMessages = async (conversationId: string) => {
           id: 'welcome-' + conversationId,
           role: 'assistant',
           content: '对话已开始，有什么我可以帮你？',
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
+          ttsStatus: 'no_audio',
+          isPlaying: false,
+          pausedAt: 0,
+          hasPaused: false
         }]
         console.log('ChatRoom: 会话历史消息加载完成，欢迎')
       }
@@ -276,26 +274,27 @@ const scrollToBottom = () => {
 
 const sendMessage = async () => {
   const content = inputMessage.value.trim()
-  if (!content || loading.value) return
+  if (!content || inputDisabled.value) return
 
-  // 检查是否有选中的会话
   if (!conversationId.value) {
     ElMessage.warning('请先选择一个会话')
     return
   }
 
-  // 添加用户消息
   const userMsg: Message = {
     id: Date.now().toString(),
     role: 'user',
     content: content,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    ttsStatus: 'no_audio',
+    isPlaying: false,
+    pausedAt: 0,
+    hasPaused: false
   }
   messages.value.push(userMsg)
   inputMessage.value = ''
   scrollToBottom()
 
-  // 使用流式响应
   await sendStreamContent(content)
 }
 
@@ -304,14 +303,15 @@ let currentAiMsg: Message | null = null
 
 async function sendStreamContent(content: string) {
   loading.value = true
+  inputDisabled.value = true  // 发送开始，禁用输入框
 
-  // 创建 AI 消息占位（用于增量更新）
   const aiMsg: Message = {
     id: 'stream-' + Date.now(),
     role: 'assistant',
     content: '',
     createdAt: new Date().toISOString(),
     toolCalls: [],
+    ttsStatus: 'pending',
     isPlaying: false,
     pausedAt: 0,
     hasPaused: false
@@ -322,12 +322,10 @@ async function sendStreamContent(content: string) {
 
   let fullContent = ''
   let toolCalls: chatApi.ToolCallInfo[] = []
-  let doneReceived = false
 
   try {
     const token = localStorage.getItem('access_token')
 
-    // 使用 SseClient 统一处理 SSE 流
     const sseClient = new SseClient({
       url: '/api/chat/stream',
       method: 'POST',
@@ -340,8 +338,16 @@ async function sendStreamContent(content: string) {
       },
       timeout: 60000,
 
+      onConnecting: () => {
+        console.log('[SSE] 连接中...')
+      },
+
       onOpen: () => {
         console.log('[SSE] 连接已打开')
+      },
+
+      onFirstContent: () => {
+        console.log('[SSE] 收到首个内容')
       },
 
       onContent: (text: string) => {
@@ -350,34 +356,48 @@ async function sendStreamContent(content: string) {
         scrollToBottom()
       },
 
+      onContentDone: () => {
+        console.log('[SSE] content_done 收到')
+        aiMsg.ttsStatus = 'synthesizing'
+      },
+
+      onAudioDone: (event) => {
+        console.log('[SSE] audio_done:', event)
+        if (event.timeout) {
+          aiMsg.ttsStatus = 'timeout'
+          aiMsg.audioUrl = null
+        } else if (event.error) {
+          aiMsg.ttsStatus = 'error'
+          aiMsg.audioUrl = null
+        } else if (event.noaudio) {
+          aiMsg.ttsStatus = 'noaudio'
+          aiMsg.audioUrl = null
+        } else if (event.url) {
+          aiMsg.ttsStatus = 'ready'
+          aiMsg.audioUrl = event.url
+        }
+      },
+
       onCacheHit: (text: string) => {
-        // 缓存命中，直接显示缓存内容
         fullContent += text
         aiMsg.content = fullContent
         scrollToBottom()
       },
 
       onClarification: (text: string) => {
-        // 澄清提示
         fullContent += text
         aiMsg.content = fullContent
         scrollToBottom()
       },
 
       onToolCall: (tool) => {
-        toolCalls.push({
-          name: tool.name,
-          arguments: tool.arguments,
-          result: ''
-        })
+        toolCalls.push({ name: tool.name, arguments: tool.arguments, result: '' })
         aiMsg.toolCalls = [...toolCalls]
       },
 
       onToolResult: (result) => {
         const toolCall = toolCalls.find(t => t.name === result.name)
-        if (toolCall) {
-          toolCall.result = result.result
-        }
+        if (toolCall) toolCall.result = result.result
         aiMsg.toolCalls = [...toolCalls]
       },
 
@@ -391,12 +411,6 @@ async function sendStreamContent(content: string) {
         aiMsg.content = fullContent + stats
       },
 
-      onAudioUrl: (url: string) => {
-        // 语音合成完成，设置音频URL（使用 streamAudioUrl 避免被 loadConversationMessages 覆盖）
-        aiMsg.streamAudioUrl = url
-        console.log('[SSE] audio_url:', url)
-      },
-
       onError: (error: string) => {
         console.error('[SSE] error:', error)
         ElMessage.error(error)
@@ -405,39 +419,31 @@ async function sendStreamContent(content: string) {
 
       onDone: () => {
         console.log('[SSE] done')
-        doneReceived = true
+        inputDisabled.value = false  // SSE 完成，恢复输入框
+        loading.value = false
       },
 
       onClose: () => {
         console.log('[SSE] 连接已关闭')
+        // 确保 inputDisabled 被恢复（兜底）
+        inputDisabled.value = false
         loading.value = false
       }
     })
 
-    // 开始流式接收
     await sseClient.stream()
 
-    // 流结束后，重新加载消息列表以获取最新数据（包括意图路由直接处理的响应）
-    // 注意：需要保留当前流式消息的 streamAudioUrl，因为 loadConversationMessages 会替换整个 messages 数组
+    // 流结束后重新加载消息列表（获取最新数据库状态）
     if (conversationId.value) {
-      const currentStreamAudioUrl = aiMsg.streamAudioUrl
-      const streamStartTime = aiMsg.createdAt
-      console.log('[DEBUG] 流结束，恢复音频: streamStartTime=', streamStartTime, 'currentStreamAudioUrl=', currentStreamAudioUrl)
-
-      // 重新加载消息
       await loadConversationMessages(conversationId.value)
-
-      // 找到最后一条 assistant 消息（按 createdAt 最新），恢复其 audioUrl
-      // 因为后端返回的消息是按时间排序的，最后一条 assistant 消息就是当前流的 AI 消息
+      // 恢复当前消息的 ttsStatus 和 audioUrl（loadConversationMessages 会覆盖）
       const assistantMsgs = messages.value.filter(msg => msg.role === 'assistant')
       if (assistantMsgs.length > 0) {
-        const lastAssistantMsg = assistantMsgs[assistantMsgs.length - 1]
-        if (currentStreamAudioUrl) {
-          lastAssistantMsg.streamAudioUrl = currentStreamAudioUrl
-          console.log('[DEBUG] 音频URL已恢复: msgId=', lastAssistantMsg.id, 'url=', currentStreamAudioUrl)
+        const lastMsg = assistantMsgs[assistantMsgs.length - 1]
+        if (aiMsg.ttsStatus === 'ready' && aiMsg.audioUrl) {
+          lastMsg.ttsStatus = 'ready'
+          lastMsg.audioUrl = aiMsg.audioUrl
         }
-      } else {
-        console.warn('[DEBUG] 音频URL恢复失败: 没有找到 assistant 消息')
       }
     }
   } catch (error: any) {
@@ -446,17 +452,14 @@ async function sendStreamContent(content: string) {
     aiMsg.content = '抱歉，服务器返回异常，请稍后重试。'
   } finally {
     loading.value = false
+    inputDisabled.value = false  // 出错也要恢复输入框
     currentAiMsg = null
     scrollToBottom()
-    // 刷新会话列表（更新标题等元数据）
     refreshConversations?.()
-    // 考虑异步操作的可能延迟，多次刷新确保最新可视图
     if (refreshConversations) {
       window.setTimeout(() => refreshConversations(), 800)
       window.setTimeout(() => refreshConversations(), 2000)
     }
-    // 启动标题轮询：每秒检查一次当前会话标题是否已更新
-    // 解决后端 @Async 异步生成标题导致的延迟问题
     startTitlePolling()
   }
 }
@@ -778,6 +781,7 @@ onMounted(() => {
     opacity: 0;
     transform: translateX(-10px);
   }
+
   to {
     opacity: 1;
     transform: translateX(0);
@@ -839,10 +843,14 @@ onMounted(() => {
 }
 
 @keyframes typing {
-  0%, 60%, 100% {
+
+  0%,
+  60%,
+  100% {
     transform: translateY(0);
     opacity: 0.5;
   }
+
   30% {
     transform: translateY(-10px);
     opacity: 1;
