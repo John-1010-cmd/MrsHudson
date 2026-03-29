@@ -52,6 +52,8 @@ enum class TtsStatus {
  * @property id 消息ID
  * @property role 消息角色
  * @property content 消息内容
+ * @property thinkingContent 思考推理过程（可选，null 表示模型不支持或历史消息）
+ * @property isThinkingExpanded 思考过程是否展开（流式接收时默认 true，历史消息默认 false）
  * @property createdAt 创建时间
  * @property audioUrl 语音合成音频URL
  * @property ttsStatus TTS 合成状态
@@ -62,6 +64,8 @@ data class Message(
     val id: Long,
     val role: MessageRole,
     val content: String,
+    val thinkingContent: String? = null,  // 思考过程，null 表示无或历史消息
+    val isThinkingExpanded: Boolean = false, // 流式时默认 true，历史消息默认 false
     val createdAt: LocalDateTime,
     val audioUrl: String? = null,
     val ttsStatus: TtsStatus = TtsStatus.NO_AUDIO,
@@ -107,13 +111,15 @@ data class Message(
  * @param content 消息内容
  * @param createdAt 创建时间字符串
  * @param audioUrl 音频URL（可选）
+ * @param thinkingContent 思考过程（可选）
  */
 fun createMessage(
     id: Long,
     role: String,
     content: String,
     createdAt: String,
-    audioUrl: String? = null
+    audioUrl: String? = null,
+    thinkingContent: String? = null
 ): Message {
     val messageRole = MessageRole.fromString(role)
     val dateTime = try {
@@ -140,6 +146,8 @@ fun createMessage(
         id = id,
         role = messageRole,
         content = content,
+        thinkingContent = thinkingContent,
+        isThinkingExpanded = false, // 历史消息默认折叠
         createdAt = dateTime,
         audioUrl = audioUrl
     )

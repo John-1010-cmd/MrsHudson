@@ -210,6 +210,12 @@ class SseClient(
         val resolvedConvId = convId ?: activeConversationId
 
         return when (type) {
+            "thinking" -> StreamEvent.Thinking(
+                resolvedConvId,
+                msgId,
+                obj.get("text")?.asString ?: ""
+            )
+
             "content" -> StreamEvent.Content(
                 resolvedConvId,
                 msgId,

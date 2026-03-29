@@ -251,14 +251,14 @@ public class MiniMaxClient {
                 // 优先尝试 delta.content（MiniMax 流式格式）
                 var delta = choice.getJSONObject("delta");
                 if (delta != null) {
+                    // 思考推理过程：加 [THINKING] 前缀，与正式内容区分
+                    String reasoning = delta.getString("reasoning_content");
+                    if (reasoning != null && !reasoning.isEmpty()) {
+                        return Flux.just("[THINKING]" + reasoning);
+                    }
+                    // 正式回复内容
                     String content = delta.getString("content");
-                    // 如果 content 为空，尝试使用 reasoning_content（MiniMax 推理模式）
-                    if (content == null || content.isEmpty()) {
-                        String reasoning = delta.getString("reasoning_content");
-                        if (reasoning != null && !reasoning.isEmpty()) {
-                            return Flux.just(reasoning);
-                        }
-                    } else if (content != null && !content.isEmpty()) {
+                    if (content != null && !content.isEmpty()) {
                         return Flux.just(content);
                     }
                 }

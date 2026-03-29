@@ -121,6 +121,15 @@ public class SseEvent {
   // ==================== 工厂方法 ====================
 
   /**
+   * 创建思考推理过程事件（增量）
+   * 仅当模型返回 reasoning_content 时使用
+   */
+  public static SseEvent thinking(String text, Long conversationId, Long messageId) {
+    return SseEvent.builder().type("thinking").text(text).conversationId(conversationId)
+        .messageId(messageId).build();
+  }
+
+  /**
    * 创建内容事件（带 conversationId / messageId）
    */
   public static SseEvent content(String text, Long conversationId, Long messageId) {

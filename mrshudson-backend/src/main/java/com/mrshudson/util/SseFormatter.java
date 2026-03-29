@@ -50,6 +50,14 @@ public final class SseFormatter {
 
   // ==================== Service 层：返回纯 JSON（不含 data: 前缀）====================
 
+  /**
+   * AI 思考推理过程（增量）
+   * 仅当模型返回 reasoning_content 时调用
+   */
+  public static String thinking(String text, Long conversationId, Long messageId) {
+    return toJson(SseEvent.thinking(text, conversationId, messageId));
+  }
+
   /** AI 增量内容（带 conversationId / messageId） */
   public static String content(String text, Long conversationId, Long messageId) {
     return toJson(SseEvent.content(text, conversationId, messageId));

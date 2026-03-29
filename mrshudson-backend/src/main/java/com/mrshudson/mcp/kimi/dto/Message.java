@@ -29,6 +29,12 @@ public class Message {
     private String content;
 
     /**
+     * 思考推理过程（仅 kimi-k2-thinking 等思考模型返回）
+     */
+    @JSONField(name = "reasoning_content")
+    private String reasoningContent;
+
+    /**
      * 工具调用（assistant消息中）
      */
     @JSONField(name = "tool_calls")

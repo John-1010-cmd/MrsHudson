@@ -13,6 +13,17 @@
             <el-avatar v-else :size="40" :icon="UserFilled" />
           </div>
           <div class="message-content">
+            <!-- 思考过程折叠块（仅 assistant 且有 thinkingContent 时显示） -->
+            <div v-if="msg.role === 'assistant' && msg.thinkingContent" class="thinking-block">
+              <div class="thinking-header" @click="msg.isThinkingExpanded = !msg.isThinkingExpanded">
+                <span class="thinking-icon">🧠</span>
+                <span class="thinking-label">思考过程</span>
+                <span class="thinking-toggle">{{ msg.isThinkingExpanded ? '▲ 收起' : '▼ 展开' }}</span>
+              </div>
+              <div v-show="msg.isThinkingExpanded" class="thinking-content">
+                {{ msg.thinkingContent }}
+              </div>
+            </div>
             <div class="message-bubble" v-html="formatMessage(msg.content)"></div>
             <!-- 工具调用显示 -->
             <div v-if="msg.toolCalls && msg.toolCalls.length > 0" class="tool-calls">
@@ -59,8 +70,8 @@
         <el-empty description="暂无消息，开始对话吧" />
       </div>
 
-      <!-- 加载状态 - 仅当没有AI消息占位符时显示（避免双气泡） -->
-      <div v-if="loading && !hasAiMessagePlaceholder" class="message ai-message">
+      <!-- 加载状态 - 当正在加载且AI消息还没有内容时显示打字动画（避免双气泡） -->
+      <div v-if="loading && !hasAiMessageContent" class="message ai-message">
         <div class="message-avatar">
           <el-avatar :size="40" :style="{ background: '#409eff' }">🤖</el-avatar>
         </div>
@@ -99,7 +110,7 @@
 <script setup lang="ts">
 import { Promotion, UserFilled, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { computed, inject, nextTick, onMounted, ref, watch, type Ref } from 'vue'
+import { computed, inject, nextTick, onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
 import * as chatApi from '../api/chat'
 import VoiceInputButton from '../components/VoiceInputButton.vue'
 import { SseClient } from '../utils/sse/SseClient'
@@ -120,6 +131,8 @@ interface Message {
   id: string
   role: 'user' | 'assistant' | 'system'
   content: string
+  thinkingContent?: string       // 思考推理过程（可选，模型不支持时为 undefined）
+  isThinkingExpanded: boolean    // 思考过程是否展开（流式接收时默认展开，历史消息默认折叠）
   createdAt: string
   toolCalls?: chatApi.ToolCallInfo[]
   audioUrl?: string | null      // 历史消息或 TTS 成功时的音频 URL
@@ -152,8 +165,22 @@ const hasAiMessagePlaceholder = computed(() => {
   )
 })
 
+// 计算是否有AI消息内容（用于控制打字动画显示）
+const hasAiMessageContent = computed(() => {
+  return messages.value.some(msg =>
+    msg.role === 'assistant' && msg.id.startsWith('stream-') && msg.content.length > 0
+  )
+})
+
 // 监听会话ID变化，加载对应会话的消息
 watch(() => conversationId?.value, async (newId, oldId) => {
+  // 切换会话时中断旧 SSE 连接
+  if (oldId !== newId && currentSseClient) {
+    currentSseClient.abort()
+    currentSseClient = null
+    loading.value = false
+    inputDisabled.value = false
+  }
   console.log('ChatRoom: 会话历史消息初始化中，欢迎')
   if (newId) {
     await loadConversationMessages(newId)
@@ -163,6 +190,8 @@ watch(() => conversationId?.value, async (newId, oldId) => {
       role: 'assistant',
       content: `你好，我是 MrsHudson，你的私人AI管家。\n\n我可以帮你：\n- 查询天气\n- 管理日程\n- 记录待办\n\n请选择一个会话或创建新对话开始使用。`,
       createdAt: new Date().toISOString(),
+      thinkingContent: undefined,
+      isThinkingExpanded: false,
       ttsStatus: 'no_audio',
       isPlaying: false,
       pausedAt: 0,
@@ -202,6 +231,8 @@ const loadConversationMessages = async (conversationId: string) => {
             id: msg.id,
             role: msg.role as 'user' | 'assistant' | 'system',
             content: msg.content,
+            thinkingContent: undefined,  // 历史消息无思考过程
+            isThinkingExpanded: false,    // 历史消息默认折叠
             createdAt: msg.createdAt,
             toolCalls,
             audioUrl: msg.audioUrl || null,
@@ -218,6 +249,8 @@ const loadConversationMessages = async (conversationId: string) => {
           role: 'assistant',
           content: '对话已开始，有什么我可以帮你？',
           createdAt: new Date().toISOString(),
+          thinkingContent: undefined,
+          isThinkingExpanded: false,
           ttsStatus: 'no_audio',
           isPlaying: false,
           pausedAt: 0,
@@ -288,6 +321,8 @@ const sendMessage = async () => {
     role: 'user',
     content: content,
     createdAt: new Date().toISOString(),
+    thinkingContent: undefined,
+    isThinkingExpanded: false,
     ttsStatus: 'no_audio',
     isPlaying: false,
     pausedAt: 0,
@@ -302,6 +337,7 @@ const sendMessage = async () => {
 
 // 流式发送并接收消息
 let currentAiMsg: Message | null = null
+let currentSseClient: SseClient | null = null
 
 async function sendStreamContent(content: string) {
   loading.value = true
@@ -311,6 +347,8 @@ async function sendStreamContent(content: string) {
     id: 'stream-' + Date.now(),
     role: 'assistant',
     content: '',
+    thinkingContent: undefined,  // 流式接收时初始为 undefined，收到 thinking 事件时设置
+    isThinkingExpanded: true,   // 流式接收时默认展开
     createdAt: new Date().toISOString(),
     toolCalls: [],
     ttsStatus: 'pending',
@@ -329,7 +367,7 @@ async function sendStreamContent(content: string) {
   try {
     const token = localStorage.getItem('access_token')
 
-    const sseClient = new SseClient({
+    currentSseClient = new SseClient({
       url: '/api/chat/stream',
       method: 'POST',
       headers: {
@@ -351,6 +389,32 @@ async function sendStreamContent(content: string) {
 
       onFirstContent: () => {
         console.log('[SSE] 收到首个内容')
+      },
+
+      onThinking: (text: string, conversationId: number | null, messageId: number | null) => {
+        // 首次收到 messageId 时，将占位消息 id 更新为后端真实 messageId
+        if (messageId !== null && resolvedMessageId === null) {
+          resolvedMessageId = String(messageId)
+          aiMsg.id = resolvedMessageId
+        }
+        // 优先用 messageId 精确定位消息气泡
+        if (messageId !== null) {
+          const target = messages.value.find(m => m.id === String(messageId))
+          if (target) {
+            if (target.thinkingContent === undefined) {
+              target.thinkingContent = ''
+            }
+            target.thinkingContent += text
+            scrollToBottom()
+            return
+          }
+        }
+        // 降级：用占位消息
+        if (aiMsg.thinkingContent === undefined) {
+          aiMsg.thinkingContent = ''
+        }
+        aiMsg.thinkingContent += text
+        scrollToBottom()
       },
 
       onContent: (text: string, conversationId: number | null, messageId: number | null) => {
@@ -443,6 +507,7 @@ async function sendStreamContent(content: string) {
         console.log('[SSE] done')
         inputDisabled.value = false  // SSE 完成，恢复输入框
         loading.value = false
+        currentSseClient = null
       },
 
       onClose: () => {
@@ -450,10 +515,11 @@ async function sendStreamContent(content: string) {
         // 确保 inputDisabled 被恢复（兜底）
         inputDisabled.value = false
         loading.value = false
+        currentSseClient = null
       }
     })
 
-    await sseClient.stream()
+    await currentSseClient.stream()
 
     // 流结束后重新加载消息列表（获取最新数据库状态）
     if (conversationId.value) {
@@ -472,10 +538,12 @@ async function sendStreamContent(content: string) {
     console.error('流式接收失败:', error)
     ElMessage.error(error.message || '网络异常，请重试')
     aiMsg.content = '抱歉，服务器返回异常，请稍后重试。'
+    currentSseClient = null
   } finally {
     loading.value = false
     inputDisabled.value = false  // 出错也要恢复输入框
     currentAiMsg = null
+    currentSseClient = null
     scrollToBottom()
     refreshConversations?.()
     if (refreshConversations) {
@@ -540,7 +608,9 @@ const handleVoiceRecord = async (audioBlob: Blob, duration: number) => {
     id: Date.now().toString(),
     role: 'user',
     content: `[语音消息 ${Math.round(duration)}秒]`,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    thinkingContent: undefined,
+    isThinkingExpanded: false,
   }
   messages.value.push(userMsg)
   scrollToBottom()
@@ -564,6 +634,8 @@ const handleVoiceRecord = async (audioBlob: Blob, duration: number) => {
         role: 'assistant',
         content: res.data.content,
         createdAt: res.data.createdAt,
+        thinkingContent: undefined,
+        isThinkingExpanded: false,
         toolCalls: res.data.functionCalls,
         audioUrl: res.data.audioUrl,
         isPlaying: false,
@@ -579,7 +651,9 @@ const handleVoiceRecord = async (audioBlob: Blob, duration: number) => {
         id: 'error-' + Date.now(),
         role: 'assistant',
         content: '对话已开始，有什么我可以帮你？',
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        thinkingContent: undefined,
+        isThinkingExpanded: false,
       })
     }
   } catch (error) {
@@ -737,6 +811,14 @@ onMounted(() => {
   }
   scrollToBottom()
 })
+
+// 组件卸载时中断 SSE 连接
+onUnmounted(() => {
+  if (currentSseClient) {
+    currentSseClient.abort()
+    currentSseClient = null
+  }
+})
 </script>
 
 <style scoped>
@@ -802,6 +884,48 @@ onMounted(() => {
   gap: 8px;
   margin-top: 8px;
   flex-wrap: wrap;
+}
+
+/* 思考过程折叠块 */
+.thinking-block {
+  margin-bottom: 8px;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fafafa;
+}
+
+.thinking-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  color: #909399;
+  background: #f5f7fa;
+}
+
+.thinking-header:hover {
+  background: #ecf5ff;
+}
+
+.thinking-toggle {
+  margin-left: auto;
+  font-size: 12px;
+}
+
+.thinking-content {
+  padding: 10px 12px;
+  font-size: 13px;
+  color: #606266;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 300px;
+  overflow-y: auto;
+  border-top: 1px solid #e4e7ed;
 }
 
 .tool-call {

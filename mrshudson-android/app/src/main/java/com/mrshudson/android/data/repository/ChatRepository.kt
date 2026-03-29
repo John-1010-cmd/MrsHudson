@@ -88,6 +88,16 @@ sealed class StreamEvent {
     abstract val conversationId: Long?
 
     /**
+     * AI 思考推理过程（增量，可选）
+     * 仅当模型返回 reasoning_content 时后端才发送
+     */
+    data class Thinking(
+        override val conversationId: Long?,
+        val messageId: Long?,
+        val text: String
+    ) : StreamEvent()
+
+    /**
      * 工具调用事件
      */
     data class ToolCall(

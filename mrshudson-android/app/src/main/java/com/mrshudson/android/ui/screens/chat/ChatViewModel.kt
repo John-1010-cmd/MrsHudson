@@ -85,6 +85,9 @@ class ChatViewModel @Inject constructor(
     // 跟踪加载会话列表的 coroutine job，用于取消之前的任务
     private var loadConversationsJob: Job? = null
 
+    // 跟踪流式消息的 coroutine job，用于切换会话时取消
+    private var streamJob: Job? = null
+
     init {
         // 初始化时加载会话列表
         loadConversations()
@@ -92,6 +95,7 @@ class ChatViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
+        streamJob?.cancel()
         audioPlayer.release()
     }
 
@@ -136,6 +140,10 @@ class ChatViewModel @Inject constructor(
      * @param conversationId 会话ID
      */
     fun selectConversation(conversationId: Long) {
+        // 切换会话时取消当前流式任务
+        streamJob?.cancel()
+        streamJob = null
+
         val conversation = _uiState.value.conversations.find { it.id == conversationId }
         _uiState.update {
             it.copy(
@@ -253,7 +261,9 @@ class ChatViewModel @Inject constructor(
     fun sendMessageStream(content: String) {
         if (content.isBlank()) return
 
-        viewModelScope.launch {
+        // 取消之前的流式任务
+        streamJob?.cancel()
+        streamJob = viewModelScope.launch {
             // 先添加用户消息到列表（乐观更新）
             val userMessage = Message(
                 id = System.currentTimeMillis(),
@@ -271,14 +281,17 @@ class ChatViewModel @Inject constructor(
             // 创建一个占位的 AI 消息用于增量更新
             val aiMessageId = System.currentTimeMillis() + 1
             var currentAiContent = StringBuilder()
+            var currentThinkingContent: String? = null  // 思考过程增量
 
-            // 添加空的 AI 消息占位符
+            // 添加空的 AI 消息占位符（流式接收时 thinking 默认展开）
             _uiState.update { state ->
                 state.copy(
                     messages = state.messages + Message(
                         id = aiMessageId,
                         role = MessageRole.ASSISTANT,
                         content = "",
+                        thinkingContent = null,
+                        isThinkingExpanded = true,  // 流式接收时默认展开
                         createdAt = LocalDateTime.now()
                     )
                 )
@@ -290,6 +303,20 @@ class ChatViewModel @Inject constructor(
                 conversationId = _uiState.value.currentConversationId
             ).collect { event ->
                 when (event) {
+                    is StreamEvent.Thinking -> {
+                        // 思考过程增量事件
+                        currentThinkingContent = (currentThinkingContent ?: "") + event.text
+                        _uiState.update { state ->
+                            val updatedMessages = state.messages.map { msg ->
+                                if (msg.id == aiMessageId) {
+                                    msg.copy(thinkingContent = currentThinkingContent)
+                                } else {
+                                    msg
+                                }
+                            }
+                            state.copy(messages = updatedMessages)
+                        }
+                    }
                     is StreamEvent.Content -> {
                         currentAiContent.append(event.text)
                         // 增量更新 AI 消息，同时设置 ttsStatus = PENDING
@@ -526,6 +553,24 @@ class ChatViewModel @Inject constructor(
                     } else {
                         msg
                     }
+                }
+            }
+            state.copy(messages = updatedMessages)
+        }
+    }
+
+    /**
+     * 切换思考过程的展开/折叠状态
+     *
+     * @param messageId 消息ID
+     */
+    fun toggleThinking(messageId: Long) {
+        _uiState.update { state ->
+            val updatedMessages = state.messages.map { msg ->
+                if (msg.id == messageId) {
+                    msg.copy(isThinkingExpanded = !msg.isThinkingExpanded)
+                } else {
+                    msg
                 }
             }
             state.copy(messages = updatedMessages)

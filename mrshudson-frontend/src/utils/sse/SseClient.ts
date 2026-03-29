@@ -34,6 +34,7 @@ export interface SseClientOptions {
   onFirstContent?: () => void    // 收到首个 content 事件
 
   // 事件回调
+  onThinking?: (text: string, conversationId: number | null, messageId: number | null) => void
   onContent?: (text: string, conversationId: number | null, messageId: number | null) => void
   onContentDone?: (conversationId: number | null, messageId: number | null) => void
   onAudioDone?: (event: AudioDoneEvent) => void
@@ -169,6 +170,9 @@ export class SseClient {
     const messageId: number | null = data.messageId ?? null
 
     switch (data.type) {
+      case 'thinking':
+        this.options.onThinking?.(data.text || '', conversationId, messageId)
+        break
       case 'content':
         if (!this._firstContentReceived) {
           this._firstContentReceived = true

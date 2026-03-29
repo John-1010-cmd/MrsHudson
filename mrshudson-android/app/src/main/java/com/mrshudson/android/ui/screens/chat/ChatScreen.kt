@@ -247,7 +247,8 @@ fun ChatScreen(
                                     message = message,
                                     onPlay = { audioPlayer.replay(message) },
                                     onPause = { audioPlayer.pause(message) },
-                                    onResume = { audioPlayer.resume(message) }
+                                    onResume = { audioPlayer.resume(message) },
+                                    onToggleThinking = { viewModel.toggleThinking(message.id) }
                                 )
                             }
 

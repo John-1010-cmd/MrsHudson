@@ -114,9 +114,18 @@ public class StreamChatService {
     var cacheResult = costOptimizer.checkCache(userId, userMessage);
     if (cacheResult != null && cacheResult.isHit()) {
       log.info("缓存命中，直接返回缓存结果");
-      // 生成会话标题（如果是第一条消息）
+      // 缓存命中时，去掉末尾的 token 统计信息（避免重复追加）
+      String cachedResponse = cacheResult.getResponse();
+      int statsIdx = cachedResponse.indexOf("\n\n--- 💡 本次对话消耗 ---");
+      if (statsIdx > 0) {
+        cachedResponse = cachedResponse.substring(0, statsIdx);
+      }
+      Long messageId = saveAssistantMessage(userId, conversationId, cachedResponse, null, null);
       checkAndGenerateTitle(conversationId, userMessage);
-      return Flux.just(SseFormatter.cacheHit(escapeJson(cacheResult.getResponse())));
+      // 发送 cache_hit 内容事件，然后走完整的 content_done + TTS + audio_done + done 流程
+      return buildAsyncTtsFlux(
+          Flux.just(SseFormatter.cacheHit(escapeJson(cachedResponse))),
+          cachedResponse, conversationId, messageId);
     }
 
     // 3. 意图路由 - 直接使用 route() 获取结果，避免与 IntentConfidenceEvaluator 重复评估
@@ -180,12 +189,18 @@ public class StreamChatService {
     // 预保存占位消息，提前拿到 messageId，使 content 事件能携带正确的 messageId
     Long messageId = saveAssistantMessage(userId, conversationId, "", null, null);
 
+    // cancelSink：与本次请求绑定，客户端断开时通过 doOnCancel 触发
+    Sinks.One<Void> cancelSink = Sinks.one();
+
     // 用 Sink 驱动整个流（AI内容 + content_done + TTS异步 + audio_done + token_usage + done）
     Sinks.Many<String> mainSink = Sinks.many().unicast().onBackpressureBuffer();
 
+    // contentDoneEmitted：标记 content_done 是否已发出，用于客户端断开时的 TTS 兜底判断
+    java.util.concurrent.atomic.AtomicBoolean contentDoneEmitted = new java.util.concurrent.atomic.AtomicBoolean(false);
+
     Flux<String> aiStream = executeStreamingAiCallWithTools(messages,
         toolRegistry.getToolDefinitions(), userId, conversationId, messageId, toolCallInfos,
-        aiFinalContent, tokenUsageRef, userMessage, intentType);
+        aiFinalContent, tokenUsageRef, userMessage, intentType, cancelSink);
 
     // 10. 订阅 AI 流，内容推入 mainSink，完成时触发异步 TTS
     AtomicInteger outputTokens = new AtomicInteger(0);
@@ -215,7 +230,8 @@ public class StreamChatService {
       String functionCallJson = toolCallInfos.isEmpty() ? null : JSON.toJSONString(toolCallInfos);
       updateAssistantMessageContent(messageId, finalContent, functionCallJson);
 
-      // 发送 content_done
+      // 发送 content_done，并标记已发出
+      contentDoneEmitted.set(true);
       mainSink.tryEmitNext(SseFormatter.contentDone(conversationId, messageId));
 
       // 异步 TTS（带超时）
@@ -265,7 +281,15 @@ public class StreamChatService {
       }
     });
 
-    return mainSink.asFlux();
+    return mainSink.asFlux()
+        .doOnCancel(() -> {
+          log.info("客户端断开，取消 AI 流，userId={}, messageId={}", userId, messageId);
+          // 触发 takeUntilOther，终止 AI 流
+          cancelSink.tryEmitEmpty();
+          // TTS 兜底：content_done 已发出则静默合成写 DB，否则保存已有内容
+          handleClientDisconnect(messageId, contentDoneEmitted.get(), aiFinalContent.get(),
+              toolCallInfos);
+        });
   }
 
   private static final long TTS_TIMEOUT_MS = 10000;
@@ -283,12 +307,12 @@ public class StreamChatService {
   }
 
   /**
-   * 构建异步 TTS Flux（意图路由 / 澄清路径复用）
+   * 构建异步 TTS Flux（意图路由 / 澄清 / 缓存命中路径复用）
+   * 顺序：contentFlux → content_done → audio_done → done
    */
   private Flux<String> buildAsyncTtsFlux(Flux<String> contentFlux, String text, Long conversationId,
       Long messageId) {
     Sinks.Many<String> sink = Sinks.many().unicast().onBackpressureBuffer();
-    sink.tryEmitNext(SseFormatter.contentDone(conversationId, messageId));
 
     CompletableFuture<String> ttsFuture = CompletableFuture.supplyAsync(() -> {
       try {
@@ -328,7 +352,10 @@ public class StreamChatService {
       return null;
     });
 
-    return contentFlux.mergeWith(sink.asFlux());
+    // contentFlux 先发，然后 content_done，再等 sink（audio_done + done）
+    return contentFlux
+        .concatWith(Flux.just(SseFormatter.contentDone(conversationId, messageId)))
+        .mergeWith(sink.asFlux());
   }
 
   /**
@@ -359,6 +386,40 @@ public class StreamChatService {
   }
 
   /**
+   * 客户端断开时的处理逻辑
+   * content_done 已发出 → accumulatedContent 即为完整 AI 回复，TTS 静默合成写 DB
+   * content_done 未发出 → 内容不完整，保存已有部分，不启动 TTS
+   */
+  private void handleClientDisconnect(Long messageId, boolean contentDoneEmitted,
+      String accumulatedContent, List<SendMessageResponse.ToolCallInfo> toolCallInfos) {
+    if (messageId == null) return;
+    if (contentDoneEmitted) {
+      // content_done 已发出：accumulatedContent 即为完整 AI 回复
+      String functionCallJson = (toolCallInfos == null || toolCallInfos.isEmpty())
+          ? null : JSON.toJSONString(toolCallInfos);
+      updateAssistantMessageContent(messageId, accumulatedContent, functionCallJson);
+      // TTS 静默合成，结果写 DB，供历史消息使用
+      CompletableFuture.runAsync(() -> {
+        try {
+          String audioUrl = voiceService.textToSpeech(accumulatedContent);
+          if (audioUrl != null && !audioUrl.isEmpty()) {
+            updateMessageAudioUrl(messageId, audioUrl);
+            log.info("客户端断开后 TTS 完成，audioUrl 已写入数据库，messageId={}", messageId);
+          }
+        } catch (Exception e) {
+          log.warn("客户端断开后 TTS 合成失败，messageId={}", messageId, e);
+        }
+      });
+    } else {
+      // content_done 未发出：内容不完整，保存已有部分，不启动 TTS
+      if (accumulatedContent != null && !accumulatedContent.isEmpty()) {
+        updateAssistantMessageContent(messageId, accumulatedContent, null);
+        log.info("客户端断开，保存不完整内容，messageId={}", messageId);
+      }
+    }
+  }
+
+  /**
    * 转义 JSON 字符串中的特殊字符
    */
   private String escapeJson(String text) {
@@ -385,7 +446,8 @@ public class StreamChatService {
   private Flux<String> executeStreamingAiCallWithTools(List<Message> messages, List<Tool> tools,
       Long userId, Long conversationId, Long messageId,
       List<SendMessageResponse.ToolCallInfo> toolCallInfos, AtomicReference<String> aiFinalContent,
-      AtomicReference<TokenUsage> tokenUsageRef, String userMessage, IntentType intentType) {
+      AtomicReference<TokenUsage> tokenUsageRef, String userMessage, IntentType intentType,
+      Sinks.One<Void> cancelSink) {
 
     // 用于收集所有事件的 Sinks
     Sinks.Many<String> sink = Sinks.many().unicast().onBackpressureBuffer();
@@ -393,11 +455,12 @@ public class StreamChatService {
     // 活跃订阅计数器，用于追踪异步流程
     AtomicInteger activeSubscriptions = new AtomicInteger(1);
 
-    // 订阅 AI 流式响应
+    // 订阅 AI 流式响应，通过 takeUntilOther 编织取消信号
     AIProvider provider = aiClientFactory.getCurrentProvider();
     Flux<String> aiStream =
         (provider == AIProvider.KIMI ? kimiClient.streamChatCompletion(messages, tools)
             : miniMaxClient.streamChatCompletion(messages, tools))
+                .takeUntilOther(cancelSink.asMono())  // 客户端断开时终止 AI 流
                 .doOnSubscribe(s -> log.debug("AI 流式响应开始")).doOnError(e -> {
                   log.error("AI 流式响应异常: {}", e.getMessage(), e);
                   sink.tryEmitError(e);
@@ -482,8 +545,13 @@ public class StreamChatService {
           continueAiStream(messages, tools, toolCallInfos, sink, aiFinalContent,
               activeSubscriptions, userMessage, intentType, userId, conversationId, messageId);
         }
+      } else if (chunk.startsWith("[THINKING]")) {
+        // 思考推理过程：发送 thinking 事件，不累加到 aiFinalContent
+        String thinkingText = chunk.substring("[THINKING]".length());
+        log.debug("AI 思考过程: {}", thinkingText.substring(0, Math.min(50, thinkingText.length())));
+        sink.tryEmitNext(SseFormatter.thinking(escapeJson(thinkingText), conversationId, messageId));
       } else {
-        // 普通内容：累加到最终内容，content 事件携带 conversationId + messageId
+        // 正式回复：累加到 aiFinalContent，发送 content 事件
         aiFinalContent.set(aiFinalContent.get() + chunk);
         sink.tryEmitNext(SseFormatter.content(escapeJson(chunk), conversationId, messageId));
       }
@@ -501,7 +569,7 @@ public class StreamChatService {
       }
     });
 
-    // 返回事件�?
+    // 返回事件流
     return sink.asFlux().doOnComplete(() -> log.debug("事件流完成"))
         .doOnError(e -> log.error("事件流异常: {}", e.getMessage(), e));
   }
@@ -520,9 +588,7 @@ public class StreamChatService {
     AIProvider provider = aiClientFactory.getCurrentProvider();
     Flux<String> continueStream =
         (provider == AIProvider.KIMI ? kimiClient.streamChatCompletion(messages, tools)
-            : miniMaxClient.streamChatCompletion(messages, tools)).doOnNext(chunk -> {
-              aiFinalContent.set(aiFinalContent.get() + chunk);
-            }).doOnError(e -> {
+            : miniMaxClient.streamChatCompletion(messages, tools)).doOnError(e -> {
               log.error("继续 AI 调用异常: {}", e.getMessage(), e);
               sink.tryEmitError(e);
               if (activeSubscriptions.decrementAndGet() == 0) {
@@ -605,10 +671,14 @@ public class StreamChatService {
           continueAiStream(messages, tools, toolCallInfos, sink, aiFinalContent,
               activeSubscriptions, userMessage, intentType, userId, conversationId, messageId);
         }
+      } else if (chunk.startsWith("[THINKING]")) {
+        // 思考推理过程：发送 thinking 事件，不累加到 aiFinalContent
+        String thinkingText = chunk.substring("[THINKING]".length());
+        log.debug("AI 思考过程（继续）: {}", thinkingText.substring(0, Math.min(50, thinkingText.length())));
+        sink.tryEmitNext(SseFormatter.thinking(escapeJson(thinkingText), conversationId, messageId));
       } else {
-        // 普通内容：累加到最终内容，发送给前端
+        // 正式回复：累加到 aiFinalContent，发送 content 事件
         aiFinalContent.set(aiFinalContent.get() + chunk);
-        // content 事件携带 conversationId + messageId
         sink.tryEmitNext(SseFormatter.content(escapeJson(chunk), conversationId, messageId));
       }
     }, error -> {

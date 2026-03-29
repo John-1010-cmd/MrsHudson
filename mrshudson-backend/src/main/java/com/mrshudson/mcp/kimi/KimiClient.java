@@ -236,30 +236,52 @@ public class KimiClient {
         }
 
         try {
-            ChatResponse chatResponse = JSON.parseObject(data, ChatResponse.class);
-            if (chatResponse.getChoices() != null && !chatResponse.getChoices().isEmpty()) {
-                Message message = chatResponse.getChoices().get(0).getMessage();
-                if (message != null) {
-                    String content = message.getContent();
-                    List<ToolCall> toolCalls = message.getToolCalls();
+            // Kimi 流式响应使用 delta 字段（与 MiniMax 一致）
+            com.alibaba.fastjson2.JSONObject json = com.alibaba.fastjson2.JSON.parseObject(data);
+            var choices = json.getJSONArray("choices");
+            if (choices != null && !choices.isEmpty()) {
+                var choice = choices.getJSONObject(0);
 
-                    // 优先返回 content
+                // 优先读 delta（流式格式）
+                var delta = choice.getJSONObject("delta");
+                if (delta != null) {
+                    // 思考推理过程（kimi-k2-thinking 等思考模型）：加 [THINKING] 前缀
+                    String reasoning = delta.getString("reasoning_content");
+                    if (reasoning != null && !reasoning.isEmpty()) {
+                        return Flux.just("[THINKING]" + reasoning);
+                    }
+                    // 正式回复内容
+                    String content = delta.getString("content");
                     if (content != null && !content.isEmpty()) {
                         return Flux.just(content);
                     }
-
-                    // 当 content 为空但有 tool_calls 时，返回工具调用标识
-                    if (toolCalls != null && !toolCalls.isEmpty()) {
-                        ToolCall toolCall = toolCalls.get(0);
-                        if (toolCall != null && toolCall.getFunction() != null) {
-                            String id = toolCall.getId() != null ? toolCall.getId() : "tool_" + System.currentTimeMillis();
-                            String name = toolCall.getFunction().getName();
-                            String arguments = toolCall.getFunction().getArguments();
-                            // 格式：[TOOL_CALL]tool_call_id:tool_name:arguments
-                            String toolCallStr = "[TOOL_CALL]" + id + ":" + name + ":" + arguments;
-                            log.debug("检测到工具调用: {}", toolCallStr);
-                            return Flux.just(toolCallStr);
+                    // 工具调用
+                    var toolCallsArr = delta.getJSONArray("tool_calls");
+                    if (toolCallsArr != null && !toolCallsArr.isEmpty()) {
+                        var toolCallObj = toolCallsArr.getJSONObject(0);
+                        if (toolCallObj != null) {
+                            String id = toolCallObj.getString("id");
+                            var function = toolCallObj.getJSONObject("function");
+                            if (function != null) {
+                                String name = function.getString("name");
+                                String arguments = function.getString("arguments");
+                                if (name != null && arguments != null) {
+                                    String toolCallId = id != null ? id : "tool_" + System.currentTimeMillis();
+                                    String toolCallStr = "[TOOL_CALL]" + toolCallId + ":" + name + ":" + arguments;
+                                    log.debug("检测到工具调用: {}", toolCallStr);
+                                    return Flux.just(toolCallStr);
+                                }
+                            }
                         }
+                    }
+                }
+
+                // 降级：读 message 字段（非流式兼容）
+                var message = choice.getJSONObject("message");
+                if (message != null) {
+                    String content = message.getString("content");
+                    if (content != null && !content.isEmpty()) {
+                        return Flux.just(content);
                     }
                 }
             }
