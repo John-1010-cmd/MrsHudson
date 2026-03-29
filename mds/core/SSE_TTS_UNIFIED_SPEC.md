@@ -1,6 +1,6 @@
 # SSE 流式响应 + TTS 语音合成统一规范
 
-**文档版本**: 2.3
+**文档版本**: 2.4
 **创建日期**: 2026-03-24
 **最后更新**: 2026-03-28
 **文档状态**: 正式版
@@ -1313,22 +1313,25 @@ Log.d(TAG, "SSE done")
 
 | 待办 | 优先级 | 状态 |
 |------|--------|------|
-| SseClient 新增 onThinking 回调 | **P0** | 待实现 |
-| Message 接口新增 thinkingContent / isThinkingExpanded | **P0** | 待实现 |
-| ChatRoom 思考折叠块 UI | **P0** | 待实现 |
-| ChatRoom 切换会话/卸载时 abort SSE 连接 | **P0** | 待实现 |
+| SseClient 新增 onThinking 回调 | **P0** | ✅ 已完成 |
+| Message 接口新增 thinkingContent / isThinkingExpanded | **P0** | ✅ 已完成 |
+| ChatRoom 思考折叠块 UI | **P0** | ✅ 已完成 |
+| ChatRoom 切换会话/卸载时 abort SSE 连接 | **P0** | ✅ 已完成 |
 | 加载指示器优化（有内容前显示打字动画） | **P0** | ✅ 已完成 |
 
 ### 16.3 Android
 
 | 待办 | 优先级 | 状态 |
 |------|--------|------|
-| StreamEvent 新增 Thinking 类型 | **P0** | 待实现 |
-| SSE 解析新增 thinking 事件处理 | **P0** | 待实现 |
-| Message 新增 thinkingContent / isThinkingExpanded | **P0** | 待实现 |
-| ViewModel 处理 Thinking 事件 | **P0** | 待实现 |
-| ThinkingBlock Composable | **P0** | 待实现 |
-| ViewModel 切换会话/onCleared 时 cancel streamJob | **P0** | 待实现 |
+| StreamEvent 新增 Thinking 类型 | **P0** | ✅ 已完成 |
+| SSE 解析新增 thinking 事件处理 | **P0** | ✅ 已完成 |
+| Message 新增 thinkingContent / isThinkingExpanded | **P0** | ✅ 已完成 |
+| ViewModel 处理 Thinking 事件 | **P0** | ✅ 已完成 |
+| ThinkingBlock Composable | **P0** | ✅ 已完成 |
+| ViewModel 切换会话/onCleared 时 cancel streamJob | **P0** | ✅ 已完成 |
+| 响应时间阈值分阶段提示（10s/30s/60s） | **P1** | ✅ 已完成 |
+| SSE 错误重试按钮 | **P1** | ✅ 已完成 |
+| content_done/audio_done 专项调试日志 | **P1** | ✅ 已完成 |
 
 ---
 
@@ -1344,6 +1347,6 @@ Log.d(TAG, "SSE done")
 
 ---
 
-**文档版本**: 2.3
-**最后更新**: 2026-03-28
-**变更说明**: 修正事件时序表；补全所有事件 JSON 示例；完善并发控制规范（3.6 节，含前端 abort、Android cancel、后端 takeUntil 取消传播、TTS 静默兜底）；修正 Android TtsSynthesizingIndicator 命名；响应时间阈值改为累计等待时间；说明 escapeJson 职责约定；修正待办状态
+**文档版本**: 2.4
+**最后更新**: 2026-03-29
+**变更说明**: 修正事件时序表；补全所有事件 JSON 示例；完善并发控制规范（3.6 节，含前端 abort、Android cancel、后端 takeUntil 取消传播、TTS 静默兜底）；修正 Android TtsSynthesizingIndicator 命名；响应时间阈值改为累计等待时间；说明 escapeJson 职责约定；修正待办状态；更新前端待办为已完成（16.2 节）；后端 StreamChatService 相关待办需人工确认状态

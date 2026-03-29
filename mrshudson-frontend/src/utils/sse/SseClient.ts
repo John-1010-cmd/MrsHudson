@@ -38,11 +38,11 @@ export interface SseClientOptions {
   onContent?: (text: string, conversationId: number | null, messageId: number | null) => void
   onContentDone?: (conversationId: number | null, messageId: number | null) => void
   onAudioDone?: (event: AudioDoneEvent) => void
-  onTokenUsage?: (usage: TokenUsage) => void
-  onToolCall?: (tool: ToolCallInfo) => void
-  onToolResult?: (result: ToolResultInfo) => void
-  onCacheHit?: (content: string) => void
-  onClarification?: (content: string) => void
+  onTokenUsage?: (usage: TokenUsage, conversationId: number | null, messageId: number | null) => void
+  onToolCall?: (tool: ToolCallInfo, conversationId: number | null, messageId: number | null) => void
+  onToolResult?: (result: ToolResultInfo, conversationId: number | null, messageId: number | null) => void
+  onCacheHit?: (content: string, conversationId: number | null, messageId: number | null) => void
+  onClarification?: (content: string, conversationId: number | null, messageId: number | null) => void
   onError?: (error: string) => void
   onDone?: () => void
   onOpen?: () => void
@@ -199,14 +199,14 @@ export class SseClient {
           outputTokens: data.outputTokens || 0,
           duration: data.duration || 0,
           model: data.model || 'unknown'
-        })
+        }, conversationId, messageId)
         break
       case 'tool_call':
         if (data.toolCall) {
           this.options.onToolCall?.({
             name: data.toolCall.name || '',
             arguments: data.toolCall.arguments || ''
-          })
+          }, conversationId, messageId)
         }
         break
       case 'tool_result':
@@ -214,14 +214,14 @@ export class SseClient {
           this.options.onToolResult?.({
             name: data.toolResult.name || '',
             result: data.toolResult.result || ''
-          })
+          }, conversationId, messageId)
         }
         break
       case 'cache_hit':
-        this.options.onCacheHit?.(data.content || '')
+        this.options.onCacheHit?.(data.content || '', conversationId, messageId)
         break
       case 'clarification':
-        this.options.onClarification?.(data.content || '')
+        this.options.onClarification?.(data.content || '', conversationId, messageId)
         break
       case 'error':
         this.options.onError?.(data.message || 'Unknown error')

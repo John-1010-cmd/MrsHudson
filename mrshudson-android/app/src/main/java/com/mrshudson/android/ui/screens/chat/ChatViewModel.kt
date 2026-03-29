@@ -88,6 +88,9 @@ class ChatViewModel @Inject constructor(
     // 跟踪流式消息的 coroutine job，用于切换会话时取消
     private var streamJob: Job? = null
 
+    // 最近一次发送失败的内容，用于重试
+    private var lastFailedContent: String? = null
+
     init {
         // 初始化时加载会话列表
         loadConversations()
@@ -148,7 +151,8 @@ class ChatViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 currentConversationId = conversationId,
-                currentConversationTitle = conversation?.title ?: "新对话"
+                currentConversationTitle = conversation?.title ?: "新对话",
+                isSending = false
             )
         }
         loadHistory(conversationId)
@@ -263,6 +267,7 @@ class ChatViewModel @Inject constructor(
 
         // 取消之前的流式任务
         streamJob?.cancel()
+        lastFailedContent = content  // 记录本次发送内容，用于重试
         streamJob = viewModelScope.launch {
             // 先添加用户消息到列表（乐观更新）
             val userMessage = Message(
@@ -279,7 +284,8 @@ class ChatViewModel @Inject constructor(
             }
 
             // 创建一个占位的 AI 消息用于增量更新
-            val aiMessageId = System.currentTimeMillis() + 1
+            val localAiMessageId = System.currentTimeMillis() + 1
+            var backendMessageId: Long? = null  // 后端返回的真实 messageId
             var currentAiContent = StringBuilder()
             var currentThinkingContent: String? = null  // 思考过程增量
 
@@ -287,7 +293,7 @@ class ChatViewModel @Inject constructor(
             _uiState.update { state ->
                 state.copy(
                     messages = state.messages + Message(
-                        id = aiMessageId,
+                        id = localAiMessageId,
                         role = MessageRole.ASSISTANT,
                         content = "",
                         thinkingContent = null,
@@ -297,6 +303,9 @@ class ChatViewModel @Inject constructor(
                 )
             }
 
+            // 辅助函数：获取当前消息ID（优先使用后端 messageId）
+            fun getCurrentMessageId(): Long = backendMessageId ?: localAiMessageId
+
             // 使用流式 API 发送消息
             chatRepository.streamMessage(
                 message = content,
@@ -304,11 +313,18 @@ class ChatViewModel @Inject constructor(
             ).collect { event ->
                 when (event) {
                     is StreamEvent.Thinking -> {
+                        // 规范 14.3：思考过程调试日志
+                        Log.d(TAG, "SSE thinking: ${event.text.take(50)}")
                         // 思考过程增量事件
+                        // 首次收到后端 messageId 时更新
+                        if (backendMessageId == null && event.messageId != null) {
+                            backendMessageId = event.messageId
+                        }
                         currentThinkingContent = (currentThinkingContent ?: "") + event.text
+                        val targetId = getCurrentMessageId()
                         _uiState.update { state ->
                             val updatedMessages = state.messages.map { msg ->
-                                if (msg.id == aiMessageId) {
+                                if (msg.id == targetId) {
                                     msg.copy(thinkingContent = currentThinkingContent)
                                 } else {
                                     msg
@@ -318,11 +334,19 @@ class ChatViewModel @Inject constructor(
                         }
                     }
                     is StreamEvent.Content -> {
+                        // 规范 14.3：内容调试日志
+                        Log.d(TAG, "SSE content: ${event.text}")
+                        // 首次收到后端 messageId 时更新
+                        // 首次收到后端 messageId 时更新
+                        if (backendMessageId == null && event.messageId != null) {
+                            backendMessageId = event.messageId
+                        }
                         currentAiContent.append(event.text)
                         // 增量更新 AI 消息，同时设置 ttsStatus = PENDING
+                        val targetId = getCurrentMessageId()
                         _uiState.update { state ->
                             val updatedMessages = state.messages.map { msg ->
-                                if (msg.id == aiMessageId) {
+                                if (msg.id == targetId) {
                                     msg.copy(content = currentAiContent.toString(), ttsStatus = TtsStatus.PENDING)
                                 } else {
                                     msg
@@ -332,18 +356,32 @@ class ChatViewModel @Inject constructor(
                         }
                     }
                     is StreamEvent.ContentDone -> {
+                        // 规范 14.3：content_done 调试日志
+                        Log.d(TAG, "content_done 收到，convId=${event.conversationId}, msgId=${event.messageId}")
+                        // 首次收到后端 messageId 时更新
+                        if (backendMessageId == null && event.messageId != null) {
+                            backendMessageId = event.messageId
+                        }
                         // AI 内容结束，TTS 开始后台合成
+                        val targetId = getCurrentMessageId()
                         _uiState.update { state ->
                             val updatedMessages = state.messages.map { msg ->
-                                if (msg.id == aiMessageId) msg.copy(ttsStatus = TtsStatus.SYNTHESIZING) else msg
+                                if (msg.id == targetId) msg.copy(ttsStatus = TtsStatus.SYNTHESIZING) else msg
                             }
                             state.copy(messages = updatedMessages)
                         }
                     }
                     is StreamEvent.AudioDone -> {
+                        // 规范 14.3：audio_done 调试日志
+                        Log.d(TAG, "audio_done: url=${event.url}, timeout=${event.timeout}, error=${event.error}, noaudio=${event.noaudio}")
+                        // 首次收到后端 messageId 时更新
+                        if (backendMessageId == null && event.messageId != null) {
+                            backendMessageId = event.messageId
+                        }
+                        val targetId = getCurrentMessageId()
                         _uiState.update { state ->
                             val updatedMessages = state.messages.map { msg ->
-                                if (msg.id == aiMessageId) {
+                                if (msg.id == targetId) {
                                     msg.copy(
                                         audioUrl = event.url,
                                         ttsStatus = when {
@@ -370,9 +408,10 @@ class ChatViewModel @Inject constructor(
                         // 更新消息末尾的 Token 统计
                         val statsDisplay = tokenUsage.toDisplayString()
                         currentAiContent.append(statsDisplay)
+                        val targetId = getCurrentMessageId()
                         _uiState.update { state ->
                             val updatedMessages = state.messages.map { msg ->
-                                if (msg.id == aiMessageId) {
+                                if (msg.id == targetId) {
                                     msg.copy(content = currentAiContent.toString())
                                 } else {
                                     msg
@@ -382,11 +421,16 @@ class ChatViewModel @Inject constructor(
                         }
                     }
                     is StreamEvent.CacheHit -> {
+                        // 首次收到后端 messageId 时更新
+                        if (backendMessageId == null && event.messageId != null) {
+                            backendMessageId = event.messageId
+                        }
                         // 缓存命中，直接显示缓存内容
                         currentAiContent.append(event.content)
+                        val targetId = getCurrentMessageId()
                         _uiState.update { state ->
                             val updatedMessages = state.messages.map { msg ->
-                                if (msg.id == aiMessageId) {
+                                if (msg.id == targetId) {
                                     msg.copy(content = currentAiContent.toString())
                                 } else {
                                     msg
@@ -396,11 +440,16 @@ class ChatViewModel @Inject constructor(
                         }
                     }
                     is StreamEvent.Clarification -> {
+                        // 首次收到后端 messageId 时更新
+                        if (backendMessageId == null && event.messageId != null) {
+                            backendMessageId = event.messageId
+                        }
                         // 澄清提示，直接显示
                         currentAiContent.append(event.content)
+                        val targetId = getCurrentMessageId()
                         _uiState.update { state ->
                             val updatedMessages = state.messages.map { msg ->
-                                if (msg.id == aiMessageId) {
+                                if (msg.id == targetId) {
                                     msg.copy(content = currentAiContent.toString())
                                 } else {
                                     msg
@@ -409,20 +458,9 @@ class ChatViewModel @Inject constructor(
                             state.copy(messages = updatedMessages)
                         }
                     }
-                    is StreamEvent.AudioUrl -> {
-                        // 旧格式向后兼容：直接设置 audioUrl 并标记 READY
-                        _uiState.update { state ->
-                            val updatedMessages = state.messages.map { msg ->
-                                if (msg.id == aiMessageId) {
-                                    msg.copy(audioUrl = event.url, ttsStatus = TtsStatus.READY)
-                                } else {
-                                    msg
-                                }
-                            }
-                            state.copy(messages = updatedMessages)
-                        }
-                    }
                     is StreamEvent.Done -> {
+                        // 规范 14.3：done 调试日志
+                        Log.d(TAG, "SSE done")
                         // 流式完成
                         val newConversationId = event.conversationId
                         if (_uiState.value.currentConversationId == null && newConversationId != null) {
@@ -435,6 +473,7 @@ class ChatViewModel @Inject constructor(
                         _uiState.update { it.copy(isSending = false) }
                     }
                     is StreamEvent.Error -> {
+                        // lastFailedContent 已在 sendMessageStream 开头设置
                         _uiState.update {
                             it.copy(
                                 isSending = false,
@@ -534,6 +573,22 @@ class ChatViewModel @Inject constructor(
      */
     fun clearError() {
         _uiState.update { it.copy(error = null) }
+    }
+
+    /**
+     * 重试上次失败的消息（规范 12.1 节 error 状态 + 重试按钮）
+     */
+    fun retryLastMessage() {
+        val content = lastFailedContent
+        if (content.isNullOrBlank()) return
+        lastFailedContent = null
+        clearError()
+        // 移除最后的 AI 占位消息（如果有）
+        _uiState.update { state ->
+            val messages = state.messages.dropLastWhile { it.role == MessageRole.ASSISTANT && it.content.isBlank() }
+            state.copy(messages = messages)
+        }
+        sendMessageStream(content)
     }
 
     /**

@@ -162,6 +162,7 @@ sealed class StreamEvent {
      */
     data class CacheHit(
         override val conversationId: Long?,
+        val messageId: Long?,  // 添加 messageId 支持多端关联
         val content: String
     ) : StreamEvent()
 
@@ -170,17 +171,8 @@ sealed class StreamEvent {
      */
     data class Clarification(
         override val conversationId: Long?,
+        val messageId: Long?,  // 添加 messageId 支持多端关联
         val content: String
-    ) : StreamEvent()
-
-    /**
-     * 音频URL事件（旧格式，保留向后兼容）
-     * @deprecated 请使用 AudioDone
-     */
-    @Deprecated("Use AudioDone instead")
-    data class AudioUrl(
-        override val conversationId: Long?,
-        val url: String
     ) : StreamEvent()
 
     /**

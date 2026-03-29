@@ -200,7 +200,7 @@ class ChatRepositoryImpl @Inject constructor(
 
     /**
      * 将 MessageDto 转换为领域模型 Message
-     * 后端返回: id (String), role, content, createdAt, functionCall, audioUrl
+     * 后端返回: id (String), role, content, createdAt, functionCall, audioUrl, thinkingContent
      */
     private fun MessageDto.toDomainModel(): Message {
         val msg = createMessage(
@@ -208,7 +208,8 @@ class ChatRepositoryImpl @Inject constructor(
             role = role,
             content = content,
             createdAt = createdAt,
-            audioUrl = audioUrl
+            audioUrl = audioUrl,
+            thinkingContent = thinkingContent
         )
         // 历史消息：根据 audioUrl 设置 ttsStatus
         return msg.copy(

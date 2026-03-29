@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -84,6 +85,18 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     var inputText by remember { mutableStateOf("") }
     var voiceButtonState by remember { mutableStateOf(VoiceButtonState.IDLE) }
+
+    // 响应时间阈值（规范 12.2 节）
+    var elapsedSeconds by remember { mutableStateOf(0) }
+    LaunchedEffect(uiState.isSending) {
+        if (uiState.isSending) {
+            elapsedSeconds = 0
+            while (uiState.isSending) {
+                kotlinx.coroutines.delay(1000)
+                elapsedSeconds++
+            }
+        }
+    }
 
     // 音频播放器
     val audioPlayer = viewModel.audioPlayer
@@ -264,10 +277,54 @@ fun ChatScreen(
                                             strokeWidth = 2.dp
                                         )
                                         Text(
-                                            text = "  AI 正在回复...",
+                                            text = "  " + when {
+                                                elapsedSeconds >= 30 -> "响应较慢，请稍候..."
+                                                elapsedSeconds >= 10 -> "AI 正在处理中..."
+                                                else -> "AI 正在回复..."
+                                            },
                                             style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            color = if (elapsedSeconds >= 30) {
+                                                MaterialTheme.colorScheme.error
+                                            } else {
+                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                            }
                                         )
+                                    }
+                                }
+                            }
+
+                            // 错误状态 + 重试按钮（规范 12.1 节）
+                            if (!uiState.isSending && uiState.error != null) {
+                                item {
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.errorContainer
+                                        ),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = uiState.error!!,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            TextButton(onClick = { viewModel.retryLastMessage() }) {
+                                                Text(
+                                                    text = "重试",
+                                                    color = MaterialTheme.colorScheme.error
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }

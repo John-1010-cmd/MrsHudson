@@ -34,6 +34,8 @@ class SseClient(
 
     /** 当前活跃会话 ID，conversationId 为 null 时用于关联事件 */
     var activeConversationId: Long? = null
+
+    /**
      * 创建 SSE 流
      *
      * @param endpoint API 端点，如 "/api/chat/stream"
@@ -233,12 +235,6 @@ class SseClient(
                 noaudio = obj.get("noaudio")?.asBoolean ?: false
             )
 
-            // 旧格式向后兼容
-            "audio_url" -> StreamEvent.AudioUrl(
-                resolvedConvId,
-                obj.get("url")?.asString ?: ""
-            )
-
             "token_usage" -> StreamEvent.TokenUsage(
                 resolvedConvId,
                 obj.get("inputTokens")?.asInt ?: 0,
@@ -271,8 +267,16 @@ class SseClient(
                 } else null
             }
 
-            "cache_hit" -> StreamEvent.CacheHit(resolvedConvId, obj.get("content")?.asString ?: "")
-            "clarification" -> StreamEvent.Clarification(resolvedConvId, obj.get("content")?.asString ?: "")
+            "cache_hit" -> StreamEvent.CacheHit(
+                resolvedConvId,
+                msgId,
+                obj.get("content")?.asString ?: ""
+            )
+            "clarification" -> StreamEvent.Clarification(
+                resolvedConvId,
+                msgId,
+                obj.get("content")?.asString ?: ""
+            )
             "error" -> StreamEvent.Error(resolvedConvId, obj.get("message")?.asString ?: "Unknown error")
             "done" -> StreamEvent.Done(resolvedConvId)
 

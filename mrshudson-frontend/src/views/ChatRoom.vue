@@ -464,36 +464,110 @@ async function sendStreamContent(content: string) {
         }
       },
 
-      onCacheHit: (text: string) => {
+      onCacheHit: (text: string, _conversationId: number | null, messageId: number | null) => {
+        // 首次收到 messageId 时，将占位消息 id 更新为后端真实 messageId
+        if (messageId !== null && resolvedMessageId === null) {
+          resolvedMessageId = String(messageId)
+          aiMsg.id = resolvedMessageId
+        }
+        // 优先用 messageId 精确定位消息气泡
+        if (messageId !== null) {
+          const target = messages.value.find(m => m.id === String(messageId))
+          if (target) {
+            target.content += text
+            scrollToBottom()
+            return
+          }
+        }
+        // 降级：用占位消息
         fullContent += text
         aiMsg.content = fullContent
         scrollToBottom()
       },
 
-      onClarification: (text: string) => {
+      onClarification: (text: string, _conversationId: number | null, messageId: number | null) => {
+        // 首次收到 messageId 时，将占位消息 id 更新为后端真实 messageId
+        if (messageId !== null && resolvedMessageId === null) {
+          resolvedMessageId = String(messageId)
+          aiMsg.id = resolvedMessageId
+        }
+        // 优先用 messageId 精确定位消息气泡
+        if (messageId !== null) {
+          const target = messages.value.find(m => m.id === String(messageId))
+          if (target) {
+            target.content += text
+            scrollToBottom()
+            return
+          }
+        }
+        // 降级：用占位消息
         fullContent += text
         aiMsg.content = fullContent
         scrollToBottom()
       },
 
-      onToolCall: (tool) => {
+      onToolCall: (tool, _conversationId: number | null, messageId: number | null) => {
+        // 首次收到 messageId 时，将占位消息 id 更新为后端真实 messageId
+        if (messageId !== null && resolvedMessageId === null) {
+          resolvedMessageId = String(messageId)
+          aiMsg.id = resolvedMessageId
+        }
         toolCalls.push({ name: tool.name, arguments: tool.arguments, result: '' })
+        // 优先用 messageId 精确定位消息气泡
+        if (messageId !== null) {
+          const target = messages.value.find(m => m.id === String(messageId))
+          if (target) {
+            target.toolCalls = [...(target.toolCalls || []), { name: tool.name, arguments: tool.arguments, result: '' }]
+            return
+          }
+        }
+        // 降级：用占位消息
         aiMsg.toolCalls = [...toolCalls]
       },
 
-      onToolResult: (result) => {
+      onToolResult: (result, _conversationId: number | null, messageId: number | null) => {
+        // 首次收到 messageId 时，将占位消息 id 更新为后端真实 messageId
+        if (messageId !== null && resolvedMessageId === null) {
+          resolvedMessageId = String(messageId)
+          aiMsg.id = resolvedMessageId
+        }
+        // 优先用 messageId 精确定位消息气泡
+        if (messageId !== null) {
+          const target = messages.value.find(m => m.id === String(messageId))
+          if (target && target.toolCalls) {
+            const toolCall = target.toolCalls.find(t => t.name === result.name)
+            if (toolCall) toolCall.result = result.result
+            target.toolCalls = [...target.toolCalls]
+            return
+          }
+        }
+        // 降级：用占位消息
         const toolCall = toolCalls.find(t => t.name === result.name)
         if (toolCall) toolCall.result = result.result
         aiMsg.toolCalls = [...toolCalls]
       },
 
-      onTokenUsage: (usage) => {
+      onTokenUsage: (usage, _conversationId: number | null, messageId: number | null) => {
+        // 首次收到 messageId 时，将占位消息 id 更新为后端真实 messageId
+        if (messageId !== null && resolvedMessageId === null) {
+          resolvedMessageId = String(messageId)
+          aiMsg.id = resolvedMessageId
+        }
         const stats = `\n\n--- 💡 本次对话消耗 ---\n` +
           `📥 输入: ${usage.inputTokens} tokens\n` +
           `📤 输出: ${usage.outputTokens} tokens\n` +
           `⏱️ 耗时: ${usage.duration}ms\n` +
           `🤖 模型: ${usage.model}\n` +
           `------------------------`
+        // 优先用 messageId 精确定位消息气泡
+        if (messageId !== null) {
+          const target = messages.value.find(m => m.id === String(messageId))
+          if (target) {
+            target.content += stats
+            return
+          }
+        }
+        // 降级：用占位消息
         aiMsg.content = fullContent + stats
       },
 
