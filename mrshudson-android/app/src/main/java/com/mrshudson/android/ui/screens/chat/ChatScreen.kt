@@ -265,8 +265,8 @@ fun ChatScreen(
                                 )
                             }
 
-                            // 加载中显示
-                            if (uiState.isSending) {
+                            // 加载中显示（规范 12.2：首字节到达后隐藏等待提示）
+                            if (uiState.isSending && !uiState.firstByteReceived) {
                                 item {
                                     Row(
                                         modifier = Modifier.padding(8.dp),

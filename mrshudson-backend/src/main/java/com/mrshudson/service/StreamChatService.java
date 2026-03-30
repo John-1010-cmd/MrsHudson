@@ -235,13 +235,10 @@ public class StreamChatService {
       mainSink.tryEmitNext(SseFormatter.contentDone(conversationId, messageId));
 
       // 异步 TTS（带超时）
+      // 不在 supplyAsync 内 try-catch：让异常传播到 exceptionally 块，
+      // 以正确区分 error（SDK 异常）vs noaudio（配置缺失/mock 模式）
       CompletableFuture<String> ttsFuture = CompletableFuture.supplyAsync(() -> {
-        try {
           return voiceService.textToSpeech(finalContent);
-        } catch (Exception e) {
-          log.error("TTS 合成失败", e);
-          return null;
-        }
       });
 
       ttsFuture.orTimeout(TTS_TIMEOUT_MS, TimeUnit.MILLISECONDS).thenAccept(audioUrl -> {
@@ -315,12 +312,7 @@ public class StreamChatService {
     Sinks.Many<String> sink = Sinks.many().unicast().onBackpressureBuffer();
 
     CompletableFuture<String> ttsFuture = CompletableFuture.supplyAsync(() -> {
-      try {
         return voiceService.textToSpeech(text);
-      } catch (Exception e) {
-        log.error("TTS 合成失败", e);
-        return null;
-      }
     });
 
     ttsFuture.orTimeout(TTS_TIMEOUT_MS, TimeUnit.MILLISECONDS).thenAccept(audioUrl -> {

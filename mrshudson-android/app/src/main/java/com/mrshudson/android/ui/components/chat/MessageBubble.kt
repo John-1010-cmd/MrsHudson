@@ -13,7 +13,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -227,19 +230,22 @@ fun ThinkingBlock(
             )
         }
 
-        // 可折叠的内容区域
+        // 可折叠的内容区域（规范 9.7：max-height 300px → heightIn + verticalScroll）
         AnimatedVisibility(visible = isExpanded) {
-            Text(
-                text = content,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .heightIn(max = 200.dp)  // ≈ 300px in spec
+                    .verticalScroll(rememberScrollState())
                     .padding(horizontal = 12.dp)
-                    .padding(bottom = 8.dp),
-                maxLines = 20,
-                overflow = TextOverflow.Ellipsis
-            )
+                    .padding(bottom = 8.dp)
+            ) {
+                Text(
+                    text = content,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                )
+            }
         }
     }
 }

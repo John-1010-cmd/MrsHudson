@@ -1304,10 +1304,11 @@ Log.d(TAG, "SSE done")
 | MiniMaxClient 分离 reasoning_content，加 [THINKING] 前缀 | **P0** | ✅ 已完成 |
 | KimiClient 改用 delta 字段解析，支持 reasoning_content | **P0** | ✅ 已完成 |
 | SseFormatter 新增 thinking() 方法 | **P0** | ✅ 已完成（见 5.4 节） |
-| StreamChatService 识别 [THINKING] 标记，发送 thinking 事件 | **P0** | 待实现 |
-| StreamChatService doOnCancel 取消传播 + TTS 静默兜底 | **P0** | 待实现 |
+| StreamChatService 识别 [THINKING] 标记，发送 thinking 事件 | **P0** | ✅ 已完成 |
+| StreamChatService doOnCancel 取消传播 + TTS 静默兜底 | **P0** | ✅ 已完成 |
 | 缓存命中路径补全 content_done / audio_done / done 事件 | **P0** | ✅ 已完成 |
-| MiniMax TTS 实现 | P1 | 待实现 |
+| TTS 策略模式（VoiceServiceFacade + Provider）| **P0** | ✅ 已完成 |
+| MiniMax TTS 实际 API 集成 | P1 | 待实现（占位符已完成）|
 
 ### 16.2 前端
 
@@ -1347,6 +1348,6 @@ Log.d(TAG, "SSE done")
 
 ---
 
-**文档版本**: 2.4
-**最后更新**: 2026-03-29
-**变更说明**: 修正事件时序表；补全所有事件 JSON 示例；完善并发控制规范（3.6 节，含前端 abort、Android cancel、后端 takeUntil 取消传播、TTS 静默兜底）；修正 Android TtsSynthesizingIndicator 命名；响应时间阈值改为累计等待时间；说明 escapeJson 职责约定；修正待办状态；更新前端待办为已完成（16.2 节）；后端 StreamChatService 相关待办需人工确认状态
+**文档版本**: 2.5
+**最后更新**: 2026-03-30
+**变更说明**: 更新待办状态：StreamChatService 识别 THINKING 标记、取消传播+TTS 静默兜底已完成；新增 TTS 策略模式实现（Xfyun/MiniMax占位/NoOp）；audio_done error/noaudio 区分修复

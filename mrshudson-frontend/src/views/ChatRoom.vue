@@ -25,6 +25,10 @@
               </div>
             </div>
             <div class="message-bubble" v-html="formatMessage(msg.content)"></div>
+            <!-- SSE 错误/超时重试按钮（规范 12.1） -->
+            <div v-if="msg.role === 'assistant' && msg.hasError" class="error-retry">
+              <el-button type="primary" size="small" @click="retryLastMessage">重新发送</el-button>
+            </div>
             <!-- 工具调用显示 -->
             <div v-if="msg.toolCalls && msg.toolCalls.length > 0" class="tool-calls">
               <div v-for="(tool, index) in msg.toolCalls" :key="index" class="tool-call">
@@ -81,6 +85,8 @@
             <span></span>
             <span></span>
           </div>
+          <!-- 响应时间阈值分阶段提示（规范 12.2） -->
+          <div v-if="waitMessage" class="wait-message">{{ waitMessage }}</div>
         </div>
       </div>
     </div>
@@ -140,6 +146,7 @@ interface Message {
   isPlaying: boolean
   pausedAt: number              // 暂停位置（秒），0 表示未暂停
   hasPaused: boolean            // 是否曾暂停过
+  hasError?: boolean            // 消息是否出错（SSE 错误/超时），用于显示重试按钮
 }
 
 type TtsStatus =
@@ -156,6 +163,44 @@ const inputMessage = ref('')
 const loading = ref(false)
 const inputDisabled = ref(false)  // 发送期间禁用输入框
 const messageListRef = ref<HTMLElement>()
+
+// 响应时间阈值分阶段提示（规范 12.2）
+const waitMessage = ref<string | null>(null)
+const lastSentMessage = ref<string>('')
+let wait10sTimer: number | null = null
+let wait30sTimer: number | null = null
+
+function startWaitTimers() {
+  clearWaitTimers()
+  waitMessage.value = null
+  // 10s 后提示 "AI 正在处理中..."
+  wait10sTimer = window.setTimeout(() => {
+    if (loading.value && !hasAiMessageContent.value) {
+      waitMessage.value = 'AI 正在处理中...'
+    }
+  }, 10000)
+  // 30s 后提示 "响应较慢，请稍候..."
+  wait30sTimer = window.setTimeout(() => {
+    if (loading.value && !hasAiMessageContent.value) {
+      waitMessage.value = '响应较慢，请稍候...'
+    }
+  }, 30000)
+}
+
+function clearWaitTimers() {
+  if (wait10sTimer) { clearTimeout(wait10sTimer); wait10sTimer = null }
+  if (wait30sTimer) { clearTimeout(wait30sTimer); wait30sTimer = null }
+  waitMessage.value = null
+}
+
+// 重试：重新发送最后一条用户消息
+function retryLastMessage() {
+  const msg = lastSentMessage.value
+  if (!msg) return
+  // 移除出错的 AI 消息
+  messages.value = messages.value.filter(m => !m.hasError)
+  sendStreamContent(msg)
+}
 
 // 计算是否有AI消息占位符（用于避免双气泡）
 const hasAiMessagePlaceholder = computed(() => {
@@ -342,6 +387,8 @@ let currentSseClient: SseClient | null = null
 async function sendStreamContent(content: string) {
   loading.value = true
   inputDisabled.value = true  // 发送开始，禁用输入框
+  lastSentMessage.value = content  // 记录最后发送的消息，用于重试
+  startWaitTimers()  // 启动等待阈值计时
 
   const aiMsg: Message = {
     id: 'stream-' + Date.now(),
@@ -388,11 +435,13 @@ async function sendStreamContent(content: string) {
       },
 
       onFirstContent: () => {
+        clearWaitTimers()  // 首字节到达，清除等待提示
         console.log('[SSE] 收到首个内容')
       },
 
       onThinking: (text: string, conversationId: number | null, messageId: number | null) => {
-        // 首次收到 messageId 时，将占位消息 id 更新为后端真实 messageId
+        clearWaitTimers()  // 首字节到达，清除等待提示
+        console.log('[SSE] thinking:', text.substring(0, 50))
         if (messageId !== null && resolvedMessageId === null) {
           resolvedMessageId = String(messageId)
           aiMsg.id = resolvedMessageId
@@ -573,12 +622,15 @@ async function sendStreamContent(content: string) {
 
       onError: (error: string) => {
         console.error('[SSE] error:', error)
+        clearWaitTimers()
         ElMessage.error(error)
         aiMsg.content = '抱歉，服务器返回异常，请稍后重试。'
+        aiMsg.hasError = true
       },
 
       onDone: () => {
         console.log('[SSE] done')
+        clearWaitTimers()
         inputDisabled.value = false  // SSE 完成，恢复输入框
         loading.value = false
         currentSseClient = null
@@ -586,6 +638,7 @@ async function sendStreamContent(content: string) {
 
       onClose: () => {
         console.log('[SSE] 连接已关闭')
+        clearWaitTimers()
         // 确保 inputDisabled 被恢复（兜底）
         inputDisabled.value = false
         loading.value = false
@@ -610,12 +663,15 @@ async function sendStreamContent(content: string) {
     }
   } catch (error: any) {
     console.error('流式接收失败:', error)
+    clearWaitTimers()
     ElMessage.error(error.message || '网络异常，请重试')
     aiMsg.content = '抱歉，服务器返回异常，请稍后重试。'
+    aiMsg.hasError = true
     currentSseClient = null
   } finally {
     loading.value = false
     inputDisabled.value = false  // 出错也要恢复输入框
+    clearWaitTimers()
     currentAiMsg = null
     currentSseClient = null
     scrollToBottom()
@@ -685,6 +741,10 @@ const handleVoiceRecord = async (audioBlob: Blob, duration: number) => {
     createdAt: new Date().toISOString(),
     thinkingContent: undefined,
     isThinkingExpanded: false,
+    ttsStatus: 'no_audio',
+    isPlaying: false,
+    pausedAt: 0,
+    hasPaused: false,
   }
   messages.value.push(userMsg)
   scrollToBottom()
@@ -712,6 +772,7 @@ const handleVoiceRecord = async (audioBlob: Blob, duration: number) => {
         isThinkingExpanded: false,
         toolCalls: res.data.functionCalls,
         audioUrl: res.data.audioUrl,
+        ttsStatus: (res.data.audioUrl ? 'ready' : 'no_audio') as TtsStatus,
         isPlaying: false,
         pausedAt: 0,
         hasPaused: false
@@ -728,6 +789,10 @@ const handleVoiceRecord = async (audioBlob: Blob, duration: number) => {
         createdAt: new Date().toISOString(),
         thinkingContent: undefined,
         isThinkingExpanded: false,
+        ttsStatus: 'no_audio',
+        isPlaying: false,
+        pausedAt: 0,
+        hasPaused: false,
       })
     }
   } catch (error) {
@@ -737,7 +802,13 @@ const handleVoiceRecord = async (audioBlob: Blob, duration: number) => {
       id: 'error-' + Date.now(),
       role: 'assistant',
       content: '对话已开始，有什么我可以帮你？',
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      thinkingContent: undefined,
+      isThinkingExpanded: false,
+      ttsStatus: 'no_audio',
+      isPlaying: false,
+      pausedAt: 0,
+      hasPaused: false,
     })
   } finally {
     loading.value = false
@@ -892,6 +963,7 @@ onUnmounted(() => {
     currentSseClient.abort()
     currentSseClient = null
   }
+  clearWaitTimers()
 })
 </script>
 
@@ -1103,5 +1175,18 @@ onUnmounted(() => {
     transform: translateY(-10px);
     opacity: 1;
   }
+}
+
+/* 响应时间阈值等待提示 */
+.wait-message {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #909399;
+  text-align: center;
+}
+
+/* 错误重试按钮 */
+.error-retry {
+  margin-top: 8px;
 }
 </style>

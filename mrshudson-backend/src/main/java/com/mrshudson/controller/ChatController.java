@@ -40,11 +40,18 @@ public class ChatController {
         // 生成AI回复的语音（仅当启用TTS时）
         log.info("TTS开关状态: enableTts={}, content长度={}", voiceProperties.isEnableTts(),
                 response.getContent() != null ? response.getContent().length() : 0);
+        // 生成AI回复的语音（仅当启用TTS时）
+        log.info("TTS开关状态: enableTts={}, content长度={}", voiceProperties.isEnableTts(),
+                response.getContent() != null ? response.getContent().length() : 0);
         if (voiceProperties.isEnableTts() && response.getContent() != null && !response.getContent().isEmpty()) {
-            log.info("开始生成语音...");
-            String audioUrl = voiceService.textToSpeech(response.getContent());
-            log.info("语音生成结果: audioUrl={}", audioUrl);
-            response.setAudioUrl(audioUrl);
+            try {
+                log.info("开始生成语音...");
+                String audioUrl = voiceService.textToSpeech(response.getContent());
+                log.info("语音生成结果: audioUrl={}", audioUrl);
+                response.setAudioUrl(audioUrl);
+            } catch (Exception e) {
+                log.warn("TTS 合成失败，跳过语音", e);
+            }
         }
 
         return Result.success(response);
@@ -178,7 +185,16 @@ public class ChatController {
         }
 
         // 调用语音合成
-        String audioUrl = voiceService.textToSpeech(request.getText());
+        String audioUrl;
+        try {
+            audioUrl = voiceService.textToSpeech(request.getText());
+        } catch (Exception e) {
+            log.warn("TTS 合成失败: {}", e.getMessage());
+            return Result.success(TtsResponse.builder()
+                    .success(false)
+                    .errorMessage("语音合成失败: " + e.getMessage())
+                    .build());
+        }
 
         if (audioUrl != null) {
             // 预估音频时长（大致估算：1个汉字约0.3秒）

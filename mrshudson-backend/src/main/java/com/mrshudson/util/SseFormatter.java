@@ -133,9 +133,19 @@ public final class SseFormatter {
     return toJson(SseEvent.error(message));
   }
 
+  /** 错误信息（带可选 conversationId） */
+  public static String error(String message, Long conversationId) {
+    return toJson(SseEvent.error(message, conversationId));
+  }
+
   /** 流式完成 */
   public static String done() {
     return toJson(SseEvent.done());
+  }
+
+  /** 流式完成（带可选 conversationId） */
+  public static String done(Long conversationId) {
+    return toJson(SseEvent.done(conversationId));
   }
 
   /** @deprecated 请使用 audioDone() */

@@ -22,10 +22,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
+import kotlinx.coroutines.delay
 import java.time.LocalDateTime
 import javax.inject.Inject
-
-private const val TAG = "ChatViewModel"
 
 /**
  * AI 对话页面的 UI 状态
@@ -38,7 +37,8 @@ data class ChatUiState(
     val isLoading: Boolean = false,
     val isSending: Boolean = false,
     val error: String? = null,
-    val lastTokenUsage: TokenUsageInfo? = null
+    val lastTokenUsage: TokenUsageInfo? = null,
+    val firstByteReceived: Boolean = false  // 首字节（thinking/content）是否已到达
 )
 
 /**
@@ -88,8 +88,16 @@ class ChatViewModel @Inject constructor(
     // 跟踪流式消息的 coroutine job，用于切换会话时取消
     private var streamJob: Job? = null
 
+    // 60s 累计超时 Job（规范 12.2 节）
+    private var cumulativeTimeoutJob: Job? = null
+
     // 最近一次发送失败的内容，用于重试
     private var lastFailedContent: String? = null
+
+    companion object {
+        private const val TAG = "ChatViewModel"
+        private const val CUMULATIVE_TIMEOUT_MS = 60_000L  // 规范 12.2 节：60s 累计等待超时
+    }
 
     init {
         // 初始化时加载会话列表
@@ -98,6 +106,7 @@ class ChatViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
+        cumulativeTimeoutJob?.cancel()
         streamJob?.cancel()
         audioPlayer.release()
     }
@@ -144,6 +153,7 @@ class ChatViewModel @Inject constructor(
      */
     fun selectConversation(conversationId: Long) {
         // 切换会话时取消当前流式任务
+        cumulativeTimeoutJob?.cancel()
         streamJob?.cancel()
         streamJob = null
 
@@ -267,7 +277,23 @@ class ChatViewModel @Inject constructor(
 
         // 取消之前的流式任务
         streamJob?.cancel()
+        cumulativeTimeoutJob?.cancel()
         lastFailedContent = content  // 记录本次发送内容，用于重试
+
+        // 规范 12.2 节：启动 60s 累计超时计时
+        cumulativeTimeoutJob = viewModelScope.launch {
+            delay(CUMULATIVE_TIMEOUT_MS)
+            if (_uiState.value.isSending && !_uiState.value.firstByteReceived) {
+                Log.w(TAG, "累计等待超时（${CUMULATIVE_TIMEOUT_MS}ms），主动断连")
+                streamJob?.cancel()
+                _uiState.update {
+                    it.copy(
+                        isSending = false,
+                        error = "响应超时，请检查网络后重试"
+                    )
+                }
+            }
+        }
         streamJob = viewModelScope.launch {
             // 先添加用户消息到列表（乐观更新）
             val userMessage = Message(
@@ -279,7 +305,8 @@ class ChatViewModel @Inject constructor(
             _uiState.update {
                 it.copy(
                     messages = it.messages + userMessage,
-                    isSending = true
+                    isSending = true,
+                    firstByteReceived = false  // 重置首字节状态
                 )
             }
 
@@ -315,6 +342,11 @@ class ChatViewModel @Inject constructor(
                     is StreamEvent.Thinking -> {
                         // 规范 14.3：思考过程调试日志
                         Log.d(TAG, "SSE thinking: ${event.text.take(50)}")
+                        // 规范 12.2 节：首字节到达，取消累计超时
+                        if (!_uiState.value.firstByteReceived) {
+                            cumulativeTimeoutJob?.cancel()
+                            _uiState.update { it.copy(firstByteReceived = true) }
+                        }
                         // 思考过程增量事件
                         // 首次收到后端 messageId 时更新
                         if (backendMessageId == null && event.messageId != null) {
@@ -336,6 +368,11 @@ class ChatViewModel @Inject constructor(
                     is StreamEvent.Content -> {
                         // 规范 14.3：内容调试日志
                         Log.d(TAG, "SSE content: ${event.text}")
+                        // 规范 12.2 节：首字节到达，取消累计超时
+                        if (!_uiState.value.firstByteReceived) {
+                            cumulativeTimeoutJob?.cancel()
+                            _uiState.update { it.copy(firstByteReceived = true) }
+                        }
                         // 首次收到后端 messageId 时更新
                         // 首次收到后端 messageId 时更新
                         if (backendMessageId == null && event.messageId != null) {
@@ -461,6 +498,7 @@ class ChatViewModel @Inject constructor(
                     is StreamEvent.Done -> {
                         // 规范 14.3：done 调试日志
                         Log.d(TAG, "SSE done")
+                        cumulativeTimeoutJob?.cancel()
                         // 流式完成
                         val newConversationId = event.conversationId
                         if (_uiState.value.currentConversationId == null && newConversationId != null) {
@@ -474,6 +512,7 @@ class ChatViewModel @Inject constructor(
                     }
                     is StreamEvent.Error -> {
                         // lastFailedContent 已在 sendMessageStream 开头设置
+                        cumulativeTimeoutJob?.cancel()
                         _uiState.update {
                             it.copy(
                                 isSending = false,

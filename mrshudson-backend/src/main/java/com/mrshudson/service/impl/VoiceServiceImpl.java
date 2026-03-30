@@ -1,14 +1,11 @@
 package com.mrshudson.service.impl;
 
 import cn.xfyun.api.IatClient;
-import cn.xfyun.api.TtsClient;
-import cn.xfyun.model.response.TtsResponse;
 import cn.xfyun.model.response.iat.IatResponse;
 import cn.xfyun.service.iat.AbstractIatWebSocketListener;
-import cn.xfyun.service.tts.AbstractTtsWebSocketListener;
 import com.mrshudson.config.VoiceProperties;
-import com.mrshudson.service.GitHubStorageService;
 import com.mrshudson.service.VoiceService;
+import com.mrshudson.service.tts.TtsProvider;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.Response;
@@ -18,8 +15,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -36,7 +31,7 @@ public class VoiceServiceImpl implements VoiceService {
     private final VoiceProperties voiceProperties;
 
     @Autowired(required = false)
-    private GitHubStorageService gitHubStorageService;
+    private TtsProvider ttsProvider;
 
     @Override
     public String speechToText(MultipartFile audioFile) {
@@ -148,129 +143,11 @@ public class VoiceServiceImpl implements VoiceService {
         if (text == null || text.isEmpty()) {
             return null;
         }
-
-        String appId = voiceProperties.getXfyunAppId();
-        String apiKey = voiceProperties.getXfyunApiKey();
-        String apiSecret = voiceProperties.getXfyunApiSecret();
-        if (appId == null || appId.isEmpty() || apiSecret == null || apiSecret.isEmpty() || apiKey == null || apiKey.isEmpty()) {
-            log.warn("讯飞API配置不完整，跳过语音合成");
+        if (ttsProvider == null) {
+            log.debug("TTS Provider 未配置，跳过语音合成");
             return null;
         }
-
-        String truncatedText = text;
-        if (text.length() > 1000) {
-            truncatedText = text.substring(0, 1000) + "...";
-            log.warn("文本过长，已截断至1000字符");
-        }
-
-        try {
-            if (voiceProperties.isMockMode()) {
-                log.info("[模拟模式] 语音合成请求，文本长度: {} 字符", truncatedText.length());
-                Thread.sleep(300);
-                return null;
-            }
-
-            return synthesizeByXfyunSdk(truncatedText);
-
-        } catch (Exception e) {
-            log.error("语音合成失败, textLength={}", truncatedText.length(), e);
-            return null;
-        }
-    }
-
-    /**
-     * 使用讯飞SDK进行语音合成
-     */
-    private String synthesizeByXfyunSdk(String text) throws Exception {
-        log.info("使用讯飞SDK进行语音合成，文本长度: {} 字符", text.length());
-
-        String appId = voiceProperties.getXfyunAppId();
-        String apiSecret = voiceProperties.getXfyunApiSecret();
-        String apiKey = voiceProperties.getXfyunApiKey();
-
-        if (appId == null || appId.isEmpty() || apiSecret == null || apiSecret.isEmpty() || apiKey == null || apiKey.isEmpty()) {
-            log.warn("讯飞API配置不完整，跳过语音合成");
-            return null;
-        }
-
-        String fileName = "tts_" + System.currentTimeMillis() + ".mp3";
-        String storagePath = voiceProperties.getTtsStoragePath();
-        Path absolutePath = Paths.get(storagePath).toAbsolutePath().normalize();
-        Path filePath = absolutePath.resolve(fileName);
-
-        Files.createDirectories(absolutePath);
-
-        CompletableFuture<Boolean> resultFuture = new CompletableFuture<>();
-
-        // 创建TtsClient
-        TtsClient client = new TtsClient.Builder()
-                .signature(appId, apiKey, apiSecret)
-                .vcn(voiceProperties.getXfyunTtsVoice())
-                .speed(50)
-                .volume(50)
-                .pitch(50)
-                .aue("lame")
-                .build();
-
-        // 发送请求
-        client.send(text, new AbstractTtsWebSocketListener(filePath.toFile()) {
-            @Override
-            public void onSuccess(byte[] bytes) {
-                // SDK会自动写入文件
-            }
-
-            @Override
-            public void onBusinessFail(WebSocket webSocket, TtsResponse ttsResponse) {
-                log.error("语音合成业务失败: {}", ttsResponse);
-                resultFuture.complete(false);
-            }
-
-            @Override
-            public void onFail(WebSocket webSocket, Throwable t, Response response) {
-                log.error("语音合成失败: {}", t.getMessage(), t);
-                resultFuture.completeExceptionally(t);
-            }
-
-            @Override
-            public void onClosed(WebSocket webSocket, int code, String reason) {
-                log.info("语音合成连接关闭: code={}, reason={}", code, reason);
-                if (!resultFuture.isDone()) {
-                    resultFuture.complete(true);
-                }
-            }
-        });
-
-        // 等待结果
-        Boolean success = resultFuture.get();
-
-        if (success) {
-            log.info("语音合成成功，文件: {}, 绝对路径: {}, 大小: {} bytes",
-                    fileName, filePath.toString(), Files.size(filePath));
-
-            // 尝试上传到 GitHub
-            if (gitHubStorageService != null && voiceProperties.isUploadToGithub()) {
-                try {
-                    byte[] fileContent = Files.readAllBytes(filePath);
-                    String gitHubUrl = gitHubStorageService.uploadFile(fileName, fileContent);
-                    if (gitHubUrl != null) {
-                        log.info("TTS 文件已上传到 GitHub: {}", gitHubUrl);
-                        // 删除本地文件以节省空间
-                        Files.deleteIfExists(filePath);
-                        return gitHubUrl;
-                    }
-                } catch (Exception e) {
-                    log.warn("上传到 GitHub 失败，回退到本地存储: {}", e.getMessage());
-                }
-            }
-
-            // 返回本地 URL
-            String baseUrl = voiceProperties.getTtsBaseUrl();
-            if (baseUrl != null && !baseUrl.isEmpty()) {
-                return baseUrl + "/" + storagePath + fileName;
-            }
-            return "/" + storagePath + fileName;
-        } else {
-            return null;
-        }
+        // 委托给 TtsProvider，异常向上传播以便调用方区分 error vs noaudio
+        return ttsProvider.synthesize(text);
     }
 }

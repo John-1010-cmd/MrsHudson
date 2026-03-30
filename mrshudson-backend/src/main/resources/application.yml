@@ -80,6 +80,11 @@ voice:
   mock-text: "你好，请帮我查询一下今天的天气"
   # 是否启用语音合成TTS（开发环境建议关闭，生产环境开启）
   enable-tts: true
+  # TTS 提供商策略模式：xfyun（默认）/ minimax（占位）/ noop
+  tts-provider: ${TTS_PROVIDER:xfyun}
+  # MiniMax TTS 配置（当 tts-provider=minimax 时生效，暂为占位）
+  minimax-api-key: ${MINIMAX_TTS_API_KEY:}
+  minimax-tts-voice: male-qn-qingse
   # TTS音频文件存储路径（相对路径，基于应用启动目录）
   tts-storage-path: uploads/tts/
   # TTS 音频访问基础URL（本地开发使用 localhost，部署时改为实际服务器地址）

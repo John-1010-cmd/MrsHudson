@@ -242,13 +242,27 @@ public class SseEvent {
    * 创建错误事件
    */
   public static SseEvent error(String message) {
-    return SseEvent.builder().type("error").message(message).build();
+    return error(message, null);
+  }
+
+  /**
+   * 创建错误事件（带可选 conversationId）
+   */
+  public static SseEvent error(String message, Long conversationId) {
+    return SseEvent.builder().type("error").message(message).conversationId(conversationId).build();
   }
 
   /**
    * 创建完成事件
    */
   public static SseEvent done() {
-    return SseEvent.builder().type("done").build();
+    return done(null);
+  }
+
+  /**
+   * 创建完成事件（带可选 conversationId）
+   */
+  public static SseEvent done(Long conversationId) {
+    return SseEvent.builder().type("done").conversationId(conversationId).build();
   }
 }

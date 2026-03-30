@@ -153,8 +153,8 @@ export class SseClient {
     const trimmed = line.trim()
     if (!trimmed) return null
     if (trimmed.startsWith('data:')) {
-      // 提取 data: 后面的内容，并去除所有空白（包括换行符）
-      const dataContent = trimmed.slice(5).replace(/\s+/g, '').trim()
+      // 提取 data: 后面的内容，仅去除前导空白（保留 JSON 值中的空格）
+      const dataContent = trimmed.slice(5).trimStart()
       if (dataContent.startsWith('{') && dataContent.endsWith('}')) {
         return dataContent
       }
@@ -178,7 +178,7 @@ export class SseClient {
           this._firstContentReceived = true
           this.options.onFirstContent?.()
         }
-        this.options.onContent?.(data.text || data.content || '', conversationId, messageId)
+        this.options.onContent?.(data.text || '', conversationId, messageId)
         break
       case 'content_done':
         this.options.onContentDone?.(conversationId, messageId)

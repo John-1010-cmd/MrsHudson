@@ -48,6 +48,22 @@ public class VoiceProperties {
     private boolean enableTts = false;
 
     /**
+     * TTS 提供商选择：xfyun / minimax / noop
+     * 遵循规范第八节策略模式
+     */
+    private String ttsProvider = "xfyun";
+
+    /**
+     * MiniMax TTS API Key（当 tts-provider=minimax 时使用）
+     */
+    private String minimaxApiKey;
+
+    /**
+     * MiniMax TTS 发音人（当 tts-provider=minimax 时使用）
+     */
+    private String minimaxTtsVoice = "male-qn-qingse";
+
+    /**
      * 是否启用模拟模式（不调用真实API，返回模拟数据）
      */
     private boolean mockMode = true;
@@ -70,5 +86,5 @@ public class VoiceProperties {
     /**
      * 是否上传到 GitHub
      */
-    private boolean uploadToGithub = true;
+    private boolean uploadToGithub = false;
 }
