@@ -122,9 +122,9 @@ public class StreamChatService {
       }
       Long messageId = saveAssistantMessage(userId, conversationId, cachedResponse, null, null);
       checkAndGenerateTitle(conversationId, userMessage);
-      // 发送 cache_hit 内容事件，然后走完整的 content_done + TTS + audio_done + done 流程
+      // 发送 cache_hit 事件，然后走完整的 content_done + TTS + audio_done + done 流程
       return buildAsyncTtsFlux(
-          Flux.just(SseFormatter.cacheHit(escapeJson(cachedResponse))),
+          Flux.just(SseFormatter.cacheHit(cachedResponse)),
           cachedResponse, conversationId, messageId);
     }
 
@@ -141,7 +141,7 @@ public class StreamChatService {
         Long messageId = saveAssistantMessage(userId, conversationId, response, null, null);
         checkAndGenerateTitle(conversationId, userMessage);
         return buildAsyncTtsFlux(
-            Flux.just(SseFormatter.content(escapeJson(response), conversationId, messageId)),
+            Flux.just(SseFormatter.content(response, conversationId, messageId)),
             response, conversationId, messageId);
       }
       // 如果路由说已处理但没有响应内容，继续走AI流程（可能是需要AI执行工具）
@@ -155,7 +155,7 @@ public class StreamChatService {
         if (clarification != null) {
           Long messageId = saveAssistantMessage(userId, conversationId, clarification, null, null);
           checkAndGenerateTitle(conversationId, userMessage);
-          return buildAsyncTtsFlux(Flux.just(SseFormatter.clarification(escapeJson(clarification))),
+          return buildAsyncTtsFlux(Flux.just(SseFormatter.clarification(clarification)),
               clarification, conversationId, messageId);
         }
       }
@@ -420,17 +420,6 @@ public class StreamChatService {
   }
 
   /**
-   * 转义 JSON 字符串中的特殊字符
-   */
-  private String escapeJson(String text) {
-    if (text == null) {
-      return "";
-    }
-    return text.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
-        .replace("\r", "\\r").replace("\t", "\\t");
-  }
-
-  /**
    * 执行流式AI调用（支持工具调用）
    *
    * @param messages 消息列表（会被修改，添加工具调用和结果）
@@ -543,17 +532,17 @@ public class StreamChatService {
           // 增加活跃订阅计数
           activeSubscriptions.incrementAndGet();
           continueAiStream(messages, tools, toolCallInfos, sink, aiFinalContent,
-              activeSubscriptions, userMessage, intentType, userId, conversationId, messageId);
+              activeSubscriptions, userMessage, intentType, userId, conversationId, messageId, cancelSink);
         }
       } else if (chunk.startsWith("[THINKING]")) {
         // 思考推理过程：发送 thinking 事件，不累加到 aiFinalContent
         String thinkingText = chunk.substring("[THINKING]".length());
         log.debug("AI 思考过程: {}", thinkingText.substring(0, Math.min(50, thinkingText.length())));
-        sink.tryEmitNext(SseFormatter.thinking(escapeJson(thinkingText), conversationId, messageId));
+        sink.tryEmitNext(SseFormatter.thinking(thinkingText, conversationId, messageId));
       } else {
         // 正式回复：累加到 aiFinalContent，发送 content 事件
         aiFinalContent.set(aiFinalContent.get() + chunk);
-        sink.tryEmitNext(SseFormatter.content(escapeJson(chunk), conversationId, messageId));
+        sink.tryEmitNext(SseFormatter.content(chunk, conversationId, messageId));
       }
     }, error -> {
       // 处理错误
@@ -580,7 +569,8 @@ public class StreamChatService {
   private void continueAiStream(List<Message> messages, List<Tool> tools,
       List<SendMessageResponse.ToolCallInfo> toolCallInfos, Sinks.Many<String> sink,
       AtomicReference<String> aiFinalContent, AtomicInteger activeSubscriptions, String userMessage,
-      IntentType intentType, Long userId, Long conversationId, Long messageId) {
+      IntentType intentType, Long userId, Long conversationId, Long messageId,
+      Sinks.One<Void> cancelSink) {
 
     log.debug("继续调用 AI 获取下一轮响应，当前消息数: {}", messages.size());
 
@@ -588,7 +578,9 @@ public class StreamChatService {
     AIProvider provider = aiClientFactory.getCurrentProvider();
     Flux<String> continueStream =
         (provider == AIProvider.KIMI ? kimiClient.streamChatCompletion(messages, tools)
-            : miniMaxClient.streamChatCompletion(messages, tools)).doOnError(e -> {
+            : miniMaxClient.streamChatCompletion(messages, tools))
+                .takeUntilOther(cancelSink.asMono())  // 客户端断开时终止后续 AI 流
+                .doOnError(e -> {
               log.error("继续 AI 调用异常: {}", e.getMessage(), e);
               sink.tryEmitError(e);
               if (activeSubscriptions.decrementAndGet() == 0) {
@@ -669,17 +661,17 @@ public class StreamChatService {
           // 递归继续
           activeSubscriptions.incrementAndGet();
           continueAiStream(messages, tools, toolCallInfos, sink, aiFinalContent,
-              activeSubscriptions, userMessage, intentType, userId, conversationId, messageId);
+              activeSubscriptions, userMessage, intentType, userId, conversationId, messageId, cancelSink);
         }
       } else if (chunk.startsWith("[THINKING]")) {
         // 思考推理过程：发送 thinking 事件，不累加到 aiFinalContent
         String thinkingText = chunk.substring("[THINKING]".length());
         log.debug("AI 思考过程（继续）: {}", thinkingText.substring(0, Math.min(50, thinkingText.length())));
-        sink.tryEmitNext(SseFormatter.thinking(escapeJson(thinkingText), conversationId, messageId));
+        sink.tryEmitNext(SseFormatter.thinking(thinkingText, conversationId, messageId));
       } else {
         // 正式回复：累加到 aiFinalContent，发送 content 事件
         aiFinalContent.set(aiFinalContent.get() + chunk);
-        sink.tryEmitNext(SseFormatter.content(escapeJson(chunk), conversationId, messageId));
+        sink.tryEmitNext(SseFormatter.content(chunk, conversationId, messageId));
       }
     }, error -> {
       // 处理错误

@@ -1,7 +1,6 @@
 package com.mrshudson.util;
 
 import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONWriter;
 
 import reactor.core.publisher.Flux;
 
@@ -24,7 +23,7 @@ public final class SseFormatter {
    * 将 SseEvent 对象格式化为 SSE 字符串（Controller 层使用） 输出: data: {"type":"content","text":"Hello"}\n\n
    */
   public static String format(SseEvent event) {
-    return SSE_DATA_PREFIX + JSON.toJSONString(event, JSONWriter.Feature.WriteNulls) + SSE_SUFFIX;
+    return SSE_DATA_PREFIX + JSON.toJSONString(event) + SSE_SUFFIX;
   }
 
   /**
@@ -51,21 +50,36 @@ public final class SseFormatter {
   // ==================== Service 层：返回纯 JSON（不含 data: 前缀）====================
 
   /**
+   * JSON 字符串转义（由 SseFormatter 内部处理，遵循规范 5.5 节职责约定）
+   * 将双引号、反斜杠、换行 Tab 等 JSON 特殊字符进行转义
+   */
+  private static String escapeJson(String text) {
+    if (text == null) return "";
+    return text
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t");
+  }
+
+  /**
    * AI 思考推理过程（增量）
    * 仅当模型返回 reasoning_content 时调用
+   * text 为原始字符串，内部自动完成 JSON 转义
    */
   public static String thinking(String text, Long conversationId, Long messageId) {
-    return toJson(SseEvent.thinking(text, conversationId, messageId));
+    return toJson(SseEvent.thinking(escapeJson(text), conversationId, messageId));
   }
 
-  /** AI 增量内容（带 conversationId / messageId） */
+  /** AI 增量内容（带 conversationId / messageId），内部自动完成 JSON 转义 */
   public static String content(String text, Long conversationId, Long messageId) {
-    return toJson(SseEvent.content(text, conversationId, messageId));
+    return toJson(SseEvent.content(escapeJson(text), conversationId, messageId));
   }
 
-  /** AI 增量内容（不带 ID，向后兼容） */
+  /** AI 增量内容（不带 ID，向后兼容），内部自动完成 JSON 转义 */
   public static String content(String text) {
-    return toJson(SseEvent.content(text));
+    return toJson(SseEvent.content(escapeJson(text)));
   }
 
   /** AI 内容结束 */
@@ -133,7 +147,7 @@ public final class SseFormatter {
   // ==================== 内部工具 ====================
 
   public static String toJson(SseEvent event) {
-    return JSON.toJSONString(event, JSONWriter.Feature.WriteNulls);
+    return JSON.toJSONString(event);
   }
 
   public static Flux<String> formatFlux(Flux<SseEvent> eventFlux) {

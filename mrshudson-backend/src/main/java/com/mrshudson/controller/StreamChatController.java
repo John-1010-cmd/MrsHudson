@@ -42,6 +42,7 @@ public class StreamChatController {
                 .transform(SseFormatter::addSsePrefix)
                 .doOnSubscribe(s -> log.info("SSE 流式响应开始，用户ID: {}", userId))
                 .doOnComplete(() -> log.info("SSE 流式响应完成，用户ID: {}", userId))
+                .doOnCancel(() -> log.info("SSE 客户端断开，用户ID: {}（取消传播已由 Service 层 Flux 内部处理）", userId))
                 .doOnError(e -> log.error("SSE 流式响应异常，用户ID: {}, 错误: {}", userId, e.getMessage(), e));
     }
 }

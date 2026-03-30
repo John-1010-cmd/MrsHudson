@@ -261,6 +261,25 @@ public class MiniMaxClient {
                     if (content != null && !content.isEmpty()) {
                         return Flux.just(content);
                     }
+                    // 工具调用（delta.tool_calls，MiniMax 流式工具调用格式）
+                    var toolCallsArr = delta.getJSONArray("tool_calls");
+                    if (toolCallsArr != null && !toolCallsArr.isEmpty()) {
+                        var toolCallObj = toolCallsArr.getJSONObject(0);
+                        if (toolCallObj != null) {
+                            String id = toolCallObj.getString("id");
+                            var function = toolCallObj.getJSONObject("function");
+                            if (function != null) {
+                                String name = function.getString("name");
+                                String arguments = function.getString("arguments");
+                                if (name != null && arguments != null) {
+                                    String toolCallId = id != null ? id : "tool_" + System.currentTimeMillis();
+                                    String toolCallStr = "[TOOL_CALL]" + toolCallId + ":" + name + ":" + arguments;
+                                    log.debug("检测到MiniMax工具调用（delta）: {}", toolCallStr);
+                                    return Flux.just(toolCallStr);
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // 其次尝试 message.content（Kimi 非流式格式）
