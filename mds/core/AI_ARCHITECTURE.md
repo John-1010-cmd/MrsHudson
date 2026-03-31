@@ -5,9 +5,9 @@
 | 属性 | 内容 |
 |------|------|
 | **文档标题** | MrsHudson 后端 AI 架构设计文档 |
-| **版本** | 3.0 |
+| **版本** | 3.3 |
 | **状态** | 正式版 |
-| **最后更新** | 2026-03-29 |
+| **最后更新** | 2026-03-31 |
 
 ---
 
@@ -18,6 +18,9 @@
 | 1.0 | 2026-03-25 | 初始版本，基于代码实现梳理基础架构 |
 | 2.0 | 2026-03-29 | 增加优化层详细设计、SSE 协议规范 |
 | 3.0 | 2026-03-29 | 完善调用链、缓存体系、待完善项，形成正式文档 |
+| 3.1 | 2026-03-31 | 审阅修正：调用链步骤 ⑤⑦ 描述对齐代码、质量模式数值补充、API 鉴权分层、ADR-001 技术约束、缓存 Key/TTL 描述修正 |
+| 3.2 | 2026-03-31 | 二轮审阅：audio_done 四种状态补充、cache_hit/clarification 字段口径明确、L3 描述修正、数据模型图去重、IntentConfidenceEvaluator 归属明确化、附录 B 链接修正、QueryNormalizer 日期占位符化 |
+| 3.3 | 2026-03-31 | 三轮审阅：组件依赖关系图补充 IntentConfidenceEvaluator、修订历史补充 3.3 版本条目 |
 
 ---
 
@@ -54,7 +57,7 @@
 | 流式对话服务 | SSE 流式响应、TTS 语音合成 | 已上线 |
 | 意图路由系统 | 三层混合路由架构 | 已上线 |
 | 响应缓存系统 | 语义缓存、工具缓存 | 已上线 |
-| 上下文管理系统 | 消息压缩、历史管理 | 部分实现 |
+| 上下文管理系统 | 消息压缩、历史管理 | 部分实现（压缩路径尚未接入主调用链） |
 | 自纠错系统 | 工具结果验证与纠错 | 已上线 |
 | MCP 工具中心 | 天气、日程、待办、路线规划 | 已上线 |
 | 多 Provider 支持 | Kimi / MiniMax 双引擎 | 已上线 |
@@ -151,16 +154,54 @@
 
 | 约束 | 影响 | 缓解措施 |
 |------|------|----------|
-| AI 调用成本敏感 | 需要多层拦截 | 五层拦截架构 |
+| AI 调用成本敏感 | 需要多层拦截 | 五层拦截架构（见下文） |
 | AI 响应时间波动 | 需要流式输出 | SSE 实时推送 |
 | 上下文长度限制 | 需要压缩策略 | ContextManager 自动压缩 |
 | TTS 合成耗时 | 需要异步处理 | 后台异步合成 |
+
+**五层拦截架构**
+
+```
+用户请求
+  │
+  ▼
+┌─────────────────────────────────────────────────┐
+│ L1 响应缓存 (SemanticCacheService)               │  ← 命中直接返回，跳过全部后续
+│   语义相似度匹配                                 │
+└──────────────┬──────────────────────────────────┘
+               │ 未命中
+  ▼
+┌─────────────────────────────────────────────────┐
+│ L2 意图向量缓存 (IntentCacheStore)    [规划中]   │  ← 命中直接返回意图结果
+│   三级缓存：内存 → Redis → 向量搜索              │
+└──────────────┬──────────────────────────────────┘
+               │ 未命中
+  ▼
+┌─────────────────────────────────────────────────┐
+│ L3 意图路由 (IntentRouter)                       │  ← 规则/轻量AI 拦截简单查询
+│   三层混合：规则 → 轻量AI → 完整AI               │
+└──────────────┬──────────────────────────────────┘
+               │ 未拦截
+  ▼
+┌─────────────────────────────────────────────────┐
+│ L4 置信度评估 (IntentConfidenceEvaluator)        │  ← 置信度不足返回澄清提示
+│   低置信度 → clarification，不调用 AI             │
+└──────────────┬──────────────────────────────────┘
+               │ 置信度充足
+  ▼
+┌─────────────────────────────────────────────────┐
+│ L5 AI 调用 (AIClientFactory)                     │  ← 兜底：前四层均未拦截时执行
+│   Kimi / MiniMax 双引擎                          │
+└─────────────────────────────────────────────────┘
+```
+
+> **当前状态**：L2（意图向量缓存）尚未实现，实际生效的为 L1 + L3 + L4 + L5 四层。
 
 ### 3.3 关键限制
 
 1. **上下文压缩阈值**: 15 条消息触发压缩，保留最近 6 条
 2. **TTS 超时**: 10 秒超时保护，超时后后台继续合成
-3. **缓存 TTL**: 语义缓存 30 天，工具缓存按工具类型定制
+3. **缓存 TTL**: 语义缓存由 `VectorStore` 过期策略管理，工具缓存按工具类型定制（通过 `OptimProperties` 配置）
 4. **递归深度**: 工具调用当前无硬限制（规划中）
 
 ---
@@ -194,16 +235,16 @@
 │  │ IntentRouter │CostOptimizer │ContextManager│QualityOptim. ││
 │  │ 意图路由      │ 响应缓存      │ 上下文压缩    │ 质量优化      ││
 │  ├──────────────┼──────────────┼──────────────┼──────────────┤│
-│  │SemanticCache │ ToolCache    │TokenTracker  │ModelRouter   ││
-│  │ 语义缓存      │ 工具缓存      │ Token 统计   │ 模型路由      ││
+│  │SemanticCache │ ToolCache    │TokenTracker  │IntentEval.   ││
+│  │ 语义缓存      │ 工具缓存      │ Token 统计   │ 置信度评估    ││
 │  └──────────────┴──────────────┴──────────────┴──────────────┘│
 └─────────────────────────────┬─────────────────────────────────┘
                               │
 ┌─────────────────────────────▼─────────────────────────────────┐
 │                        领域层 (Domain)                        │
 │  ┌──────────────┬──────────────┬──────────────┬──────────────┐│
-│  │ ToolRegistry │SelfCorrecting│FallbackHandler│IntentEval. ││
-│  │ 工具注册中心  │    Agent     │   降级兜底    │ 置信度评估   ││
+│  │ ToolRegistry │SelfCorrecting│FallbackHandler│ModelRouter  ││
+│  │ 工具注册中心  │    Agent     │   降级兜底    │ 模型路由     ││
 │  └──────────────┴──────────────┴──────────────┴──────────────┘│
 └─────────────────────────────┬─────────────────────────────────┘
                               │
@@ -229,6 +270,9 @@
 | **SelfCorrectingAgent** | 工具结果验证与纠错 | `validate()`, `correctAndRetry()` |
 | **AIClientFactory** | AI Provider 工厂 | `getClient()` |
 | **SseFormatter** | SSE 事件格式化 | `formatEvent()` |
+| **IntentConfidenceEvaluator** | 意图置信度评估，低置信度返回澄清 | `evaluate()` |
+| **ModelRouter** | 根据消息复杂度选择模型 | `routeModel()` |
+| **TokenTrackerService** | Token 消耗统计 | `startTracking()`, `getUsage()` |
 
 ### 4.3 组件依赖关系
 
@@ -243,6 +287,7 @@ StreamChatService
     ├─→ TokenTrackerService
     ├─→ QualityOptimizer
     ├─→ ModelRouter
+    ├─→ IntentConfidenceEvaluator
     ├─→ AIClientFactory ──→ KimiClient / MiniMaxClient
     ├─→ ToolRegistry ──→ BaseTool (多个)
     ├─→ SelfCorrectingAgent ──→ ToolResultValidator / FallbackHandler
@@ -268,7 +313,8 @@ StreamChatController.streamSendMessage()
         │     失败 → 记录日志，继续（非阻断）
         │
         ├─ ② 缓存检查 (CostOptimizer)
-        │     命中 → cache_hit SSE + content_done + TTS + done，结束
+        │     命中 → cache_hit SSE + content_done + TTS(audio_done) + done，结束
+        │     注：缓存命中无实际 AI 调用，不发 token_usage
         │     未命中 → 继续
         │
         ├─ ③ 意图路由 (IntentRouter — 三层混合架构)
@@ -276,19 +322,27 @@ StreamChatController.streamSendMessage()
         │     │     命中 → content SSE + content_done + TTS + done，结束
         │     ├─ L2 轻量AI层：L1 未处理时升级
         │     │     命中 → content SSE + content_done + TTS + done，结束
-        │     └─ L3 完整AI层：兜底（isHandled=false 时继续往下）
+        │     └─ L3 完整AI层：返回路由结果（isHandled=true），继续步骤 ④
         │
         ├─ ④ 意图置信度评估 (IntentConfidenceEvaluator)
         │     置信度不足 → clarification SSE + done，结束
         │     置信度充足 → 继续
         │
-        ├─ ⑤ 构建消息列表 (buildMessageList)
-        │     从 DB 取最近20条历史，截取最后10条 + system prompt + 当前消息
+        ├─ ⑤ 构建消息列表 (ContextManager.buildOptimizedContext)
+        │     从 DB 取历史消息，判断是否需要压缩：
+        │       消息数 < 15 → 直接使用完整历史 + system prompt + 当前消息
+        │       消息数 ≥ 15 → 保留最近 6 条原始消息，其余压缩为摘要
+        │                      → 摘要 + 最近 6 条 + system prompt + 当前消息
+        │     压缩失败 → 降级：截断保留最近 N 条，记录 WARN 日志
+        │     ⚠ ContextManager 压缩路径接入中，当前降级为截取最后 N 条
         │
         ├─ ⑥ Token 计数开始 (TokenTrackerService)
         │
-        ├─ ⑦ 质量优化检测 (QualityOptimizer.isComplex)
-        │     仅做复杂度判断 + 日志，不阻断流程
+        ├─ ⑦ 质量优化检测 (QualityOptimizer)
+        │     当前：检测复杂度并记录日志，参数尚未传入 AI 调用（见已知问题）
+        │     预期：根据质量模式（SPEED/BALANCED/QUALITY）调整 maxTokens
+        │            和 temperature，传递给步骤 ⑧ 的 AI 调用请求
+        │     ⚠ QualityOptimizer 与 ModelRouter 当前无联动，见附录 C P1 待办
         │
         └─ ⑧ 执行流式 AI 调用 (executeStreamingAiCallWithTools)
               │
@@ -375,10 +429,10 @@ StreamChatController.streamSendMessage()
 │                        │ created_at       │                     │
 │                        └──────────────────┘                     │
 │                                                                  │
-│   ┌──────────────┐    ┌──────────────┐    ┌──────────────┐     │
-│   │CalendarEvent │    │   TodoItem   │    │    User      │     │
-│   │   (日程表)    │    │   (待办表)   │    │  (用户表)     │     │
-│   └──────────────┘    └──────────────┘    └──────────────┘     │
+│   ┌──────────────┐    ┌──────────────┐                        │
+│   │CalendarEvent │    │   TodoItem   │                        │
+│   │   (日程表)    │    │   (待办表)   │                        │
+│   └──────────────┘    └──────────────┘                        │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -409,26 +463,26 @@ StreamChatController.streamSendMessage()
 
 ### 6.3 缓存数据结构
 
-**语义响应缓存（Redis Vector）**
+**语义响应缓存（VectorStore）**
 
 ```
-Key: semantic:cache:{hash(query)}
+按 userId 隔离，通过向量相似度匹配查询：
+  VectorStore.store(userId, query, response, embedding)
+  VectorStore.search(userId, queryEmbedding, similarityThreshold)
 Value: {
   "query": "原始查询",
   "response": "AI 响应内容",
-  "embedding": [向量表示],
-  "ttl": 2592000
+  "embedding": [向量表示]
 }
+TTL: 由 VectorStore 实现的过期策略管理（通过 cleanup() 清理）
 ```
 
-**工具结果缓存（Redis Hash）**
+**工具结果缓存（Redis String）**
 
 ```
-Key: tool:cache:{toolName}:{hash(params)}
-Value: {
-  "result": "工具执行结果",
-  "ttl": 按工具类型定制
-}
+Key: tool:{toolName}:{paramsHash}
+Value: JSON 序列化的工具结果
+TTL: 按工具类型定制（通过 OptimProperties 配置）
 ```
 
 **意图识别缓存（规划中）**
@@ -450,7 +504,7 @@ L3 (向量): intent:vector:{hash(normalizedQuery)}
 | **意图路由** | `optim.intent` | 三层路由：规则 → 轻量AI → 完整AI | 已上线 |
 | **意图向量缓存** | `optim.intent` | 意图识别结果持久化，三级缓存 | 规划中 |
 | **响应缓存** | `optim.cache` + `optim.cost` | 语义缓存、工具结果缓存 | 已上线 |
-| **上下文压缩** | `optim.compress` + `optim.context` | 消息压缩、历史管理 | 部分实现 |
+| **上下文压缩** | `optim.compress` + `optim.context` | 消息压缩、历史管理 | 部分实现（压缩路径尚未接入主调用链） |
 | **自纠错** | `optim.correction` | 工具结果验证、纠错重试 | 已上线 |
 | **降级兜底** | `optim.fallback` | 工具失败、AI 异常时的兜底 | 已上线 |
 | **质量/成本** | `optim.quality` + `optim.cost` | 质量模式、模型路由、Token 统计 | 已上线 |
@@ -491,7 +545,7 @@ return tryFullAiLayer(query, intentType);
     │
     ▼
 QueryNormalizer
-    示例："今天" → "2026-03-29"
+    示例："今天" → "{current_date}"
     │
     ▼
 IntentCacheStore（三级查找）
@@ -509,9 +563,11 @@ IntentCacheStore（三级查找）
 
 | 模式 | maxTokens | temperature | 适用场景 |
 |------|-----------|-------------|----------|
-| SPEED | 较低 | 较低 | 简单问答、闲聊 |
-| BALANCED | 默认 | 默认 | 通用场景 |
-| QUALITY | 提升至 2x | 提升 0.2 | 复杂分析、创意写作 |
+| SPEED | 400 | 0.2 | 简单问答、闲聊 |
+| BALANCED | 800 | 0.3 | 通用场景（默认） |
+| QUALITY | 2000 | 0.7 | 复杂分析、创意写作 |
+
+> 以上为 `QualityProperties` 中的默认值，可通过 `ai.quality.max-tokens` / `ai.quality.temperature` 配置覆盖。
 
 **模型路由策略**
 
@@ -527,8 +583,8 @@ IntentCacheStore（三级查找）
 
 | 缓存类型 | 实现类 | 用途 | TTL |
 |---------|--------|------|-----|
-| 语义响应缓存 | SemanticCacheService | AI 完整响应缓存，向量相似度匹配 | 30 天 |
-| 工具结果缓存 | ToolCacheManager | 工具调用结果缓存 | 按工具类型定制 |
+| 语义响应缓存 | SemanticCacheService | AI 完整响应缓存，向量相似度匹配 | 由 `VectorStore` 过期策略管理 |
+| 工具结果缓存 | ToolCacheManager | 工具调用结果缓存 | 按工具类型定制（`OptimProperties` 配置） |
 | 意图识别缓存 | IntentCacheStore | 意图识别结果缓存（规划中） | L1: 5分钟 / L2: 7天 / L3: 30天 |
 
 ---
@@ -609,12 +665,14 @@ continueAiStream() 递归调用 AI
 | `content_done` | AI 文本生成完毕 | `{"type":"content_done"}` |
 | `tool_call` | 工具调用通知 | `{"type":"tool_call","toolCall":{...}}` |
 | `tool_result` | 工具执行结果 | `{"type":"tool_result","toolResult":{...}}` |
-| `audio_done` | TTS 合成结束 | `{"type":"audio_done","url":"..."}` |
-| `token_usage` | Token 消耗统计 | `{"type":"token_usage","tokenUsage":{...}}` |
+| `audio_done` | TTS 合成结束（详见 [SSE+TTS 规范 §3.4](./SSE_TTS_UNIFIED_SPEC.md)） | 成功: `{"type":"audio_done","url":"...","conversationId":1,"messageId":2}` / 超时: `{"type":"audio_done","timeout":true,...}` / 无音频: `{"type":"audio_done","noaudio":true,...}` / 异常: `{"type":"audio_done","error":"...","conversationId":1,"messageId":2}` |
+| `token_usage` | Token 消耗统计 | `{"type":"token_usage","tokenUsage":{"inputTokens":10,"outputTokens":50,"duration":1200,"model":"moonshot-v1-8k"}}` |
 | `cache_hit` | 响应缓存命中 | `{"type":"cache_hit","content":"..."}` |
 | `clarification` | 意图澄清提示 | `{"type":"clarification","content":"..."}` |
 | `error` | 错误信息 | `{"type":"error","message":"..."}` |
 | `done` | 流结束（必发） | `{"type":"done"}` |
+
+> **conversationId / messageId 说明**：`content`、`content_done`、`audio_done` 必须包含这两个字段；`cache_hit` 和 `clarification` 在路由阶段产生，此时尚未创建 AI 消息，不携带这两个字段；其余事件按需携带。完整字段定义见 [SSE+TTS 规范](./SSE_TTS_UNIFIED_SPEC.md)。
 
 ### 9.2 合法事件序列
 
@@ -628,9 +686,9 @@ continueAiStream() 递归调用 AI
 [thinking*] → (tool_call → tool_result)+ → content+ → content_done → audio_done → token_usage → done
 ```
 
-**③ 缓存命中流**
+**③ 缓存命中流**（无实际 AI 调用，不发 token_usage）
 ```
-cache_hit → content_done → audio_done → token_usage → done
+cache_hit → content_done → audio_done → done
 ```
 
 **④ 意图澄清流**
@@ -684,6 +742,11 @@ clarification → done
 | `/api/quality/metrics` | GET | 质量模式使用统计 |
 
 ### 10.2 鉴权
+
+| 前缀 | 权限要求 | 说明 |
+|------|---------|------|
+| `/api/admin/**` | 管理员角色 | 系统级操作：缓存清理、成本统计、指标重置 |
+| `/api/quality/**` | 管理员角色 | 质量模式管理（当前要求管理员，后续可降为用户级） |
 
 当前通过 JWT 解析 `userId` 判断管理员身份。生产环境建议改为数据库角色表或配置文件白名单。
 
@@ -767,7 +830,7 @@ clarification → done
 
 | 文档 | 路径 |
 |------|------|
-| SSE+TTS 统一规范 | [SSE_TTS_UNIFIED_SPEC.md](./core/SSE_TTS_UNIFIED_SPEC.md) |
+| SSE+TTS 统一规范 | [SSE_TTS_UNIFIED_SPEC.md](./SSE_TTS_UNIFIED_SPEC.md) |
 | 意图向量缓存设计 | [.spec-workflow/specs/ai-agent-optimization-v2/intent-vector-cache-design.md](../.spec-workflow/specs/ai-agent-optimization-v2/intent-vector-cache-design.md) |
 | CLAUDE.md | [CLAUDE.md](../CLAUDE.md) |
 
@@ -792,12 +855,13 @@ clarification → done
 **决策**: 使用 SSE (Server-Sent Events)
 
 **理由**:
-- 实现简单，基于 HTTP
-- 前端兼容性好
-- 单向通信足够满足需求
-- 自动重连机制
+1. **通信方向匹配**：AI 流式响应是纯服务器推送，用户无需在流式传输中途发送新消息；SSE 的单向模型与此完全匹配。
+2. **基础设施兼容**：SSE 基于标准 HTTP，可直接通过现有 Nginx 反向代理和 CDN，无需额外配置 WebSocket 升级握手和长连接保持。
+3. **实现复杂度低**：WebSocket 需要管理连接生命周期、心跳、Session 状态；Spring WebFlux 对 SSE 有原生支持（`ServerSentEvent<T>`），代码量更少。
+4. **自动重连**：浏览器原生 EventSource 支持 last-event-id 自动重连，无需手动实现。
+5. **未来可扩展**：如后续需要双向实时通道（如推送通知），可通过独立的 WebSocket 端点叠加，不影响当前流式对话的 SSE 实现。
 
-**替代方案**: WebSocket（双向通信过度设计）
+**替代方案**: WebSocket
 
 #### ADR-002: 三层意图路由架构
 
