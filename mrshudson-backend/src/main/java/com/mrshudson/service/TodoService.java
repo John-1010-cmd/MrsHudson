@@ -52,13 +52,14 @@ public interface TodoService {
     Optional<TodoItem> getTodoById(Long todoId);
 
     /**
-     * 完成待办事项
+     * 完成/取消完成待办事项
      *
      * @param userId 用户ID
      * @param todoId 待办事项ID
-     * @return 是否成功
+     * @param completed 是否完成
+     * @return 更新后的待办事项
      */
-    boolean completeTodo(Long userId, Long todoId);
+    TodoItem completeTodo(Long userId, Long todoId, Boolean completed);
 
     /**
      * 删除待办事项

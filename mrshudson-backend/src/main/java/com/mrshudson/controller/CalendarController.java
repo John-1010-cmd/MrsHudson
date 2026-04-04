@@ -2,9 +2,8 @@ package com.mrshudson.controller;
 
 import com.mrshudson.domain.dto.*;
 import com.mrshudson.domain.entity.CalendarEvent;
-import com.mrshudson.domain.entity.User;
 import com.mrshudson.service.CalendarService;
-import jakarta.servlet.http.HttpSession;
+import com.mrshudson.util.CurrentUserUtil;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,6 +26,7 @@ import java.util.stream.Collectors;
 public class CalendarController {
 
     private final CalendarService calendarService;
+    private final CurrentUserUtil currentUserUtil;
 
     /**
      * 获取事件列表
@@ -34,11 +34,10 @@ public class CalendarController {
     @GetMapping("/events")
     public Result<List<EventResponse>> getEvents(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
-            HttpSession session) {
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
 
-        User currentUser = (User) session.getAttribute("user");
-        if (currentUser == null) {
+        Long userId = currentUserUtil.getCurrentUserId();
+        if (userId == null) {
             return Result.error(401, "请先登录");
         }
 
@@ -53,9 +52,9 @@ public class CalendarController {
         LocalDateTime start = startDate.atStartOfDay();
         LocalDateTime end = endDate.atTime(LocalTime.MAX);
 
-        log.info("用户{}查询日历事件: {} 至 {}", currentUser.getId(), startDate, endDate);
+        log.info("用户{}查询日历事件: {} 至 {}", userId, startDate, endDate);
 
-        List<CalendarEvent> events = calendarService.getEvents(currentUser.getId(), start, end);
+        List<CalendarEvent> events = calendarService.getEvents(userId, start, end);
         List<EventResponse> responses = events.stream()
                 .map(EventResponse::fromEntity)
                 .collect(Collectors.toList());
@@ -68,17 +67,16 @@ public class CalendarController {
      */
     @GetMapping("/events/upcoming")
     public Result<List<EventResponse>> getUpcomingEvents(
-            @RequestParam(defaultValue = "5") int limit,
-            HttpSession session) {
+            @RequestParam(defaultValue = "5") int limit) {
 
-        User currentUser = (User) session.getAttribute("user");
-        if (currentUser == null) {
+        Long userId = currentUserUtil.getCurrentUserId();
+        if (userId == null) {
             return Result.error(401, "请先登录");
         }
 
-        log.info("用户{}查询即将开始的事件, 限制: {}", currentUser.getId(), limit);
+        log.info("用户{}查询即将开始的事件, 限制: {}", userId, limit);
 
-        List<CalendarEvent> events = calendarService.getUpcomingEvents(currentUser.getId(), limit);
+        List<CalendarEvent> events = calendarService.getUpcomingEvents(userId, limit);
         List<EventResponse> responses = events.stream()
                 .map(EventResponse::fromEntity)
                 .collect(Collectors.toList());
@@ -91,18 +89,17 @@ public class CalendarController {
      */
     @PostMapping("/events")
     public Result<EventResponse> createEvent(
-            @Valid @RequestBody CreateEventRequest request,
-            HttpSession session) {
+            @Valid @RequestBody CreateEventRequest request) {
 
-        User currentUser = (User) session.getAttribute("user");
-        if (currentUser == null) {
+        Long userId = currentUserUtil.getCurrentUserId();
+        if (userId == null) {
             return Result.error(401, "请先登录");
         }
 
-        log.info("用户{}创建日历事件: {}", currentUser.getId(), request.getTitle());
+        log.info("用户{}创建日历事件: {}", userId, request.getTitle());
 
         CalendarEvent event = calendarService.createEvent(
-                currentUser.getId(),
+                userId,
                 request.getTitle(),
                 request.getDescription(),
                 request.getStartTime(),
@@ -120,11 +117,10 @@ public class CalendarController {
      */
     @GetMapping("/events/{id}")
     public Result<EventResponse> getEventById(
-            @PathVariable Long id,
-            HttpSession session) {
+            @PathVariable Long id) {
 
-        User currentUser = (User) session.getAttribute("user");
-        if (currentUser == null) {
+        Long userId = currentUserUtil.getCurrentUserId();
+        if (userId == null) {
             return Result.error(401, "请先登录");
         }
 
@@ -133,7 +129,7 @@ public class CalendarController {
             return Result.error(404, "事件不存在");
         }
 
-        if (!event.getUserId().equals(currentUser.getId())) {
+        if (!event.getUserId().equals(userId)) {
             return Result.error(403, "无权访问此事件");
         }
 
@@ -146,22 +142,21 @@ public class CalendarController {
     @PutMapping("/events/{id}")
     public Result<EventResponse> updateEvent(
             @PathVariable Long id,
-            @RequestBody UpdateEventRequest request,
-            HttpSession session) {
+            @RequestBody UpdateEventRequest request) {
 
-        User currentUser = (User) session.getAttribute("user");
-        if (currentUser == null) {
+        Long userId = currentUserUtil.getCurrentUserId();
+        if (userId == null) {
             return Result.error(401, "请先登录");
         }
 
-        log.info("用户{}更新日历事件: {}", currentUser.getId(), id);
+        log.info("用户{}更新日历事件: {}", userId, id);
 
         CalendarEvent existingEvent = calendarService.getEventById(id).orElse(null);
         if (existingEvent == null) {
             return Result.error(404, "事件不存在");
         }
 
-        if (!existingEvent.getUserId().equals(currentUser.getId())) {
+        if (!existingEvent.getUserId().equals(userId)) {
             return Result.error(403, "无权更新此事件");
         }
 
@@ -175,7 +170,7 @@ public class CalendarController {
         updateEntity.setCategory(request.getCategory());
         updateEntity.setReminderMinutes(request.getReminderMinutes());
 
-        CalendarEvent updated = calendarService.updateEvent(currentUser.getId(), id, updateEntity);
+        CalendarEvent updated = calendarService.updateEvent(userId, id, updateEntity);
         return Result.success(EventResponse.fromEntity(updated));
     }
 
@@ -184,17 +179,16 @@ public class CalendarController {
      */
     @DeleteMapping("/events/{id}")
     public Result<Void> deleteEvent(
-            @PathVariable Long id,
-            HttpSession session) {
+            @PathVariable Long id) {
 
-        User currentUser = (User) session.getAttribute("user");
-        if (currentUser == null) {
+        Long userId = currentUserUtil.getCurrentUserId();
+        if (userId == null) {
             return Result.error(401, "请先登录");
         }
 
-        log.info("用户{}删除日历事件: {}", currentUser.getId(), id);
+        log.info("用户{}删除日历事件: {}", userId, id);
 
-        boolean success = calendarService.deleteEvent(currentUser.getId(), id);
+        boolean success = calendarService.deleteEvent(userId, id);
         if (success) {
             return Result.success(null);
         } else {

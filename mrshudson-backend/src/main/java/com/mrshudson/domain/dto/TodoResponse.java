@@ -18,6 +18,7 @@ public class TodoResponse {
     private String description;
     private String priority;
     private String status;
+    private Boolean completed;
     private LocalDateTime dueDate;
     private LocalDateTime completedAt;
     private LocalDateTime createdAt;
@@ -37,6 +38,7 @@ public class TodoResponse {
         response.setDescription(todo.getDescription());
         response.setPriority(todo.getPriority());
         response.setStatus(todo.getStatus());
+        response.setCompleted("COMPLETED".equals(todo.getStatus()));
         response.setDueDate(todo.getDueDate());
         response.setCompletedAt(todo.getCompletedAt());
         response.setCreatedAt(todo.getCreatedAt());

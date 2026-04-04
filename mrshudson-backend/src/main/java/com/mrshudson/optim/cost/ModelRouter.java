@@ -1,5 +1,7 @@
 package com.mrshudson.optim.cost;
 
+import com.mrshudson.optim.quality.QualityProperties;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -12,7 +14,10 @@ import java.util.Set;
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class ModelRouter {
+
+    private final QualityProperties qualityProperties;
 
     /**
      * 小模型（用于简单问题）
@@ -143,12 +148,30 @@ public class ModelRouter {
 
     /**
      * 获取合适的模型
+     * <p>
+     * 联动策略（与 QualityOptimizer 协调）：
+     * - QUALITY 模式：强制使用大模型（质量优先）
+     * - SPEED 模式：强制使用小模型（速度优先）
+     * - BALANCED 模式：根据消息复杂度动态选择
      *
      * @param message 用户消息
      * @return 模型名称
      */
     public String getModel(String message) {
-        return shouldUseSmallModel(message) ? smallModel : largeModel;
+        QualityProperties.Mode currentMode = qualityProperties.getMode();
+
+        // 根据质量模式进行模型选择
+        return switch (currentMode) {
+            case QUALITY -> {
+                log.debug("QUALITY 模式：使用大模型 {}", largeModel);
+                yield largeModel;
+            }
+            case SPEED -> {
+                log.debug("SPEED 模式：使用小模型 {}", smallModel);
+                yield smallModel;
+            }
+            case BALANCED -> shouldUseSmallModel(message) ? smallModel : largeModel;
+        };
     }
 
     /**

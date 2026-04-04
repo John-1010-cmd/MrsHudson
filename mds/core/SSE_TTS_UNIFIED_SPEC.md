@@ -1,8 +1,8 @@
 # SSE 流式响应 + TTS 语音合成统一规范
 
-**文档版本**: 2.5
+**文档版本**: 2.6
 **创建日期**: 2026-03-24
-**最后更新**: 2026-03-31
+**最后更新**: 2026-04-04
 **文档状态**: 正式版
 
 ---
@@ -161,6 +161,79 @@ data: {"type":"done"}\n\n
 > - 所有消息相关事件（`content`、`content_done`、`audio_done`）必须包含 `conversationId` 和 `messageId` 字段
 > - 发送期间前端输入框必须 disable，后端串行处理，不支持并发发送（详见 3.6 节）
 
+### 3.2 thinking 事件
+
+```json
+{"type":"thinking","text":"用户问的是一个简单的数学问题...","conversationId":123,"messageId":456}
+```
+
+- 在 `content` 事件之前发送
+- 可多次发送（增量流式）
+- 模型不支持思考模式时不发送此事件
+- 前端/Android 收到后折叠展示，不影响正式回复气泡
+
+### 3.3 content_done 事件
+
+```json
+{"type":"content_done","conversationId":123,"messageId":456}
+```
+
+表示 AI 正式回复文本已全部生成，TTS 可在后台开始。
+
+### 3.4 audio_done 事件
+
+```json
+// TTS 成功
+{"type":"audio_done","conversationId":123,"messageId":456,"url":"https://example.com/audio/xxx.mp3"}
+
+// TTS 超时（超过 10 秒）
+{"type":"audio_done","conversationId":123,"messageId":456,"timeout":true}
+
+// TTS 失败
+{"type":"audio_done","conversationId":123,"messageId":456,"error":"TTS_FAILED"}
+
+// TTS 成功但返回 URL 为空
+{"type":"audio_done","conversationId":123,"messageId":456,"noaudio":true}
+```
+
+**各状态处理规则**：
+
+| 字段 | 含义 | 展示行为 | 数据库 audioUrl |
+|------|------|----------|----------------|
+| `url` 有值 | TTS 成功 | 显示播放按钮 | 已写入 |
+| `timeout: true` | 超时，后台继续合成 | 静默，不显示按钮 | 合成完成后异步写入 |
+| `error` 有值 | 合成异常 | 静默，不显示按钮 | null |
+| `noaudio: true` | 提供商返回空 | 静默，不显示按钮 | null |
+
+> **产品决策**：`timeout`、`error`、`noaudio` 三种状态均**静默处理**，不向用户展示错误提示，不影响文字回复的正常显示。语音是增强功能，失败不应打断对话体验。
+>
+> `timeout` 与 `noaudio` 的区别：`timeout` 表示后台合成仍在进行，历史消息可能有 URL；`noaudio` 表示合成已完成但无结果，历史消息也不会有 URL。
+
+### 3.5 事件时序说明
+
+正确的事件顺序如下（工具调用发生在正式回复**之前**）：
+
+| 阶段 | type | 说明 | 是否必须 |
+|------|------|------|---------|
+| **阶段一：思考** | `thinking` | AI 思考推理过程，可多次 | 可选 |
+| **阶段二：工具调用**（可多轮） | `tool_call` | 工具调用请求 | 可选 |
+| | `tool_result` | 工具执行结果，与 tool_call 一一对应 | 可选 |
+| **阶段三：正式回复** | `content` | AI 正式回复，可多次 | 必须（至少一次） |
+| **阶段四：结束** | `content_done` | AI 内容结束，**TTS 后台开始**，仅一次 | 必须 |
+| | `audio_done` | TTS 结束，**展示播放按钮**，仅一次（详见 §6.1：超时从 content_done 起计 10s） | 必须 |
+| | `token_usage` | Token 消耗统计（缓存命中时不发送） | 可选 |
+| | `done` | SSE 连接关闭，仅一次 | 必须 |
+
+> 各阶段说明：
+> - thinking 可**多次出现**：无工具调用时在阶段一单独出现；有工具调用时可在每轮 tool_call 之前各自出现（即阶段二内每轮工具调用前均可能有 thinking）
+> - 无工具调用时：thinking（可选）→ content → content_done → audio_done → done
+> - 有工具调用时：[thinking（可选）→ tool_call → tool_result] × N → thinking（可选）→ content → content_done → audio_done → done
+
+
+---
+
+## 四、SSE 事件序列
+
 ### 3.6 并发控制规范
 
 **基本约定**：前端/Android 发送期间输入框 disable，同一用户同一时刻只有一条 SSE 流在运行。
@@ -253,7 +326,10 @@ async function sendStreamContent(content: string) {
   const sseClient = new SseClient({ ... })
   currentSseClient = sseClient
   await sseClient.stream()
-  currentSseClient = null
+  // 防止竞态：只有当前 client 仍是活跃 client 时才清空
+  if (currentSseClient === sseClient) {
+    currentSseClient = null
+  }
 }
 
 // 切换会话时中断旧连接
@@ -301,79 +377,6 @@ override fun onCleared() {
 }
 ```
 
-### 3.2 thinking 事件
-
-```json
-{"type":"thinking","text":"用户问的是一个简单的数学问题...","conversationId":123,"messageId":456}
-```
-
-- 在 `content` 事件之前发送
-- 可多次发送（增量流式）
-- 模型不支持思考模式时不发送此事件
-- 前端/Android 收到后折叠展示，不影响正式回复气泡
-
-### 3.3 content_done 事件
-
-```json
-{"type":"content_done","conversationId":123,"messageId":456}
-```
-
-表示 AI 正式回复文本已全部生成，TTS 可在后台开始。
-
-### 3.4 audio_done 事件
-
-```json
-// TTS 成功
-{"type":"audio_done","conversationId":123,"messageId":456,"url":"https://example.com/audio/xxx.mp3"}
-
-// TTS 超时（超过 10 秒）
-{"type":"audio_done","conversationId":123,"messageId":456,"timeout":true}
-
-// TTS 失败
-{"type":"audio_done","conversationId":123,"messageId":456,"error":"TTS_FAILED"}
-
-// TTS 成功但返回 URL 为空
-{"type":"audio_done","conversationId":123,"messageId":456,"noaudio":true}
-```
-
-**各状态处理规则**：
-
-| 字段 | 含义 | 展示行为 | 数据库 audioUrl |
-|------|------|----------|----------------|
-| `url` 有值 | TTS 成功 | 显示播放按钮 | 已写入 |
-| `timeout: true` | 超时，后台继续合成 | 静默，不显示按钮 | 合成完成后异步写入 |
-| `error` 有值 | 合成异常 | 静默，不显示按钮 | null |
-| `noaudio: true` | 提供商返回空 | 静默，不显示按钮 | null |
-
-> **产品决策**：`timeout`、`error`、`noaudio` 三种状态均**静默处理**，不向用户展示错误提示，不影响文字回复的正常显示。语音是增强功能，失败不应打断对话体验。
->
-> `timeout` 与 `noaudio` 的区别：`timeout` 表示后台合成仍在进行，历史消息可能有 URL；`noaudio` 表示合成已完成但无结果，历史消息也不会有 URL。
-
-### 3.5 事件时序说明
-
-正确的事件顺序如下（工具调用发生在正式回复**之前**）：
-
-| 阶段 | type | 说明 | 是否必须 |
-|------|------|------|---------|
-| **阶段一：思考** | `thinking` | AI 思考推理过程，可多次 | 可选 |
-| **阶段二：工具调用**（可多轮） | `tool_call` | 工具调用请求 | 可选 |
-| | `tool_result` | 工具执行结果，与 tool_call 一一对应 | 可选 |
-| **阶段三：正式回复** | `content` | AI 正式回复，可多次 | 必须（至少一次） |
-| **阶段四：结束** | `content_done` | AI 内容结束，**TTS 后台开始**，仅一次 | 必须 |
-| | `audio_done` | TTS 结束，**展示播放按钮**，仅一次 | 必须 |
-| | `token_usage` | Token 消耗统计（缓存命中时不发送） | 可选 |
-| | `done` | SSE 连接关闭，仅一次 | 必须 |
-
-> 各阶段说明：
-> - thinking 可**多次出现**：无工具调用时在阶段一单独出现；有工具调用时可在每轮 tool_call 之前各自出现（即阶段二内每轮工具调用前均可能有 thinking）
-> - 无工具调用时：thinking（可选）→ content → content_done → audio_done → done
-> - 有工具调用时：[thinking（可选）→ tool_call → tool_result] × N → thinking（可选）→ content → content_done → audio_done → done
-
-
----
-
-## 四、SSE 事件序列
-
 ### 4.1 完整事件序列（含思考过程）
 
 ```
@@ -399,10 +402,11 @@ data: {"type":"content_done","conversationId":1,"messageId":2}\n\n
                                                              [TTS 合成中...]
 
 data: {"type":"audio_done","url":"https://...","conversationId":1,"messageId":2}\n\n
-// 注：token_usage 事件省略，格式同 4.1
-
+data: {"type":"token_usage","inputTokens":128,"outputTokens":64,"duration":1230,"model":"MiniMax-M2.7"}\n\n
 data: {"type":"done"}\n\n
 ```
+
+> **注**：此场景为模型不支持 thinking（如 moonshot-v1-8k），不是缓存命中，应照常发送 token_usage。格式同 §4.1。
 
 ### 4.3 含工具调用的完整序列
 
@@ -534,7 +538,11 @@ if (delta != null) {
     // 工具调用（delta.tool_calls）
     var toolCallsArr = delta.getJSONArray("tool_calls");
     if (toolCallsArr != null && !toolCallsArr.isEmpty()) {
-        // 解析并返回 [TOOL_CALL]id:name:arguments
+        var tc = toolCallsArr.getJSONObject(0);
+        String id = tc.getString("id");
+        String name = tc.getJSONObject("function").getString("name");
+        String arguments = tc.getJSONObject("function").getString("arguments");
+        return Flux.just("[TOOL_CALL]" + id + ":" + name + ":" + arguments);
     }
 }
 // 降级：读 message 字段（非流式兼容）
@@ -568,8 +576,8 @@ private void handleChunk(String chunk, Sinks.Many<String> sink,
     } else if (chunk.startsWith("[THINKING]")) {
         // 思考过程：发送 thinking 事件，不累加到 aiFinalContent
         String thinkingText = chunk.substring("[THINKING]".length());
-        // escapeJson 在 Service 层调用，SseFormatter 接收已转义的字符串直接拼接 JSON
-        // 职责说明：SseFormatter 负责 JSON 结构拼接，转义由调用方在传入前完成
+        // escapeJson 在 SseFormatter 内部封装，调用方传入原始字符串即可
+        // 职责说明：SseFormatter 负责 JSON 结构拼接和 JSON 转义，调用方无需手动转义
         sink.tryEmitNext(SseFormatter.thinking(escapeJson(thinkingText), conversationId, messageId));
     } else {
         // 正式回复：累加到 aiFinalContent，发送 content 事件
@@ -579,7 +587,7 @@ private void handleChunk(String chunk, Sinks.Many<String> sink,
 }
 ```
 
-> **escapeJson 职责说明**：`SseFormatter` 的各方法接收已转义的字符串，直接拼入 JSON 字符串。转义由 Service 层在调用前完成，这是当前的实现约定。如后续重构，可将转义内聚到 `SseFormatter` 内部，调用方传入原始字符串即可。
+> **escapeJson 职责说明**：`SseFormatter` 内部封装了 `escapeJson()`，调用方传入原始字符串即可。JSON 转义由 `SseFormatter` 自动完成，`SseFormatter` 仅负责 JSON 结构拼接，调用方无需手动转义。
 >
 > `aiFinalContent` 只累加正式 `content`，TTS 合成和数据库存储均使用此值，思考过程不参与。`continueAiStream` 中同样调用此方法，确保工具调用后的第二轮思考也被正确路由。
 
@@ -616,6 +624,8 @@ public Flux<String> streamSendMessage(@Valid @RequestBody SendMessageRequest req
                                                └─────────────────── 计时起点
 ```
 
+> **注意**：此处 10s 超时仅针对 TTS 合成，与 §12.2 中 60s 的 SSE 连接级超时相互独立。连接级超时从用户发送消息起计，TTS 超时从 AI 内容结束（content_done）起计。
+
 ### 6.2 超时容忍度分析
 
 | TTS 提供商 | 典型耗时 | 10s 超时 |
@@ -640,6 +650,11 @@ TTS 音频文件存储于**本服务器本地磁盘**（`voice.tts-storage-path`
 - URL 无过期问题，历史消息直接使用 `audioUrl` 字段即可
 - 无需重新请求 TTS，无需鉴权（静态文件直接访问）
 - 如启用 GitHub 上传（`voice.upload-to-github=true`），URL 为 GitHub Raw URL，同样无过期
+
+**生产环境建议**：
+- 通过域名（而非 IP）配置 `tts-base-url`，避免服务迁移后 URL 失效
+- 如需迁移服务，注意配置历史 URL 重定向或使用 CDN 统一域名
+- 考虑使用对象存储（如 OSS/S3）替代本地磁盘，提升可靠性和可扩展性
 
 ### 7.2 历史消息加载规范
 
@@ -1370,6 +1385,6 @@ Log.d(TAG, "SSE done")
 
 ---
 
-**文档版本**: 2.5
-**最后更新**: 2026-03-31
-**变更说明**: ① 头部版本号统一为 2.5；② §3.1 补充 audio_done 四状态互斥说明；③ §3.5 时序表补充 token_usage（可选，缓存命中不发送）；④ §4 新增缓存命中(§4.4)和意图澄清(§4.5)完整序列示例
+**文档版本**: 2.7
+**最后更新**: 2026-04-04
+**变更说明**: ① 版本号更新为 2.6；② §3.5 时序表 audio_done 补充超时计时说明（引用 §6.1）；③ §4.2 token_usage 注释修正（模型不支持 thinking 不等于缓存命中）；④ §3.6 前端切换会话示例补充竞态保护（身份校验）；⑤ §6.1 补充 TTS 超时与连接级超时的差异说明；⑥ §7.1 补充生产环境建议（域名配置、迁移注意事项）

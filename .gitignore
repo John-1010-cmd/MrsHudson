@@ -266,3 +266,10 @@ failsafe-reports/
 kubernetes/secrets/
 helm/charts/
 .terraform/
+
+# ============================================
+# 补充配置 (2026-04-04)
+# ============================================
+.specify/
+/package-lock.json
+/package.json

@@ -9,12 +9,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
 /**
- * 质量模式控制层
+ * 质量模式控制层（管理员接口）
  * 提供质量模式的查询和设置功能
+ *
+ * @deprecated 原路径 /api/quality 已迁移到 /api/admin/quality，统一管理员 API 前缀
  */
 @Slf4j
 @RestController
-@RequestMapping("/api/quality")
+@RequestMapping("/api/admin/quality")
 @RequiredArgsConstructor
 public class QualityController {
 

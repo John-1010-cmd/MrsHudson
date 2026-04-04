@@ -39,38 +39,34 @@
 
     <!-- 底部快速添加 -->
     <div class="quick-add">
-      <div class="quick-add-input-wrapper">
+      <div class="quick-add-form">
+        <el-select
+          v-model="newTodoPriority"
+          placeholder="优先级"
+          size="large"
+          class="priority-select"
+        >
+          <el-option label="高" value="HIGH" />
+          <el-option label="中" value="MEDIUM" />
+          <el-option label="低" value="LOW" />
+        </el-select>
         <el-input
           v-model="newTodoTitle"
           placeholder="添加新的待办事项..."
           size="large"
           @keyup.enter="handleQuickAdd"
-          class="quick-add-input"
+          class="title-input"
+        />
+        <el-button
+          type="primary"
+          @click="handleQuickAdd"
+          :disabled="!newTodoTitle.trim()"
+          :loading="adding"
+          size="large"
         >
-          <template #prepend>
-            <el-select
-              v-model="newTodoPriority"
-              placeholder="优先级"
-              size="large"
-              style="width: 90px"
-            >
-              <el-option label="高" value="HIGH" />
-              <el-option label="中" value="MEDIUM" />
-              <el-option label="低" value="LOW" />
-            </el-select>
-          </template>
-          <template #append>
-            <el-button
-              type="primary"
-              @click="handleQuickAdd"
-              :disabled="!newTodoTitle.trim()"
-              :loading="adding"
-            >
-              <el-icon><Plus /></el-icon>
-              添加
-            </el-button>
-          </template>
-        </el-input>
+          <el-icon><Plus /></el-icon>
+          添加
+        </el-button>
       </div>
     </div>
   </div>
@@ -301,33 +297,58 @@ onMounted(() => {
   border-top: 1px solid #e8e8e8;
 }
 
-.quick-add-input-wrapper {
+.quick-add-form {
+  display: flex;
+  align-items: center;
+  gap: 0;
   background: #fff;
   border-radius: 12px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   padding: 4px;
 }
 
-.quick-add-input :deep(.el-input__wrapper) {
-  box-shadow: none;
+.priority-select {
+  width: 70px;
+  flex-shrink: 0;
 }
 
-.quick-add-input :deep(.el-input-group__prepend) {
-  background: transparent;
-  box-shadow: none;
+.priority-select :deep(.el-input__wrapper) {
+  background: #f5f5f5;
+  border-radius: 8px 0 0 8px;
+  box-shadow: none !important;
+  padding: 0 8px;
+}
+
+.priority-select :deep(.el-input__inner) {
+  text-align: center;
+  font-size: 14px;
   padding: 0;
 }
 
-.quick-add-input :deep(.el-input-group__append) {
-  background: transparent;
-  box-shadow: none;
-  padding: 0;
+.priority-select :deep(.el-input__suffix) {
+  display: none;
 }
 
-.quick-add-input :deep(.el-button) {
-  border-radius: 8px;
-  margin: 0 4px;
-  height: 36px;
+.title-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.title-input :deep(.el-input__wrapper) {
+  box-shadow: none !important;
+  background: transparent;
+}
+
+.title-input :deep(.el-input__inner) {
+  font-size: 14px;
+}
+
+.quick-add-form .el-button {
+  border-radius: 0 8px 8px 0;
+  margin-left: 0;
+  height: 40px;
+  padding: 0 20px;
+  font-size: 14px;
 }
 
 /* 响应式布局 */
@@ -351,6 +372,32 @@ onMounted(() => {
 
   .tab-count {
     display: none;
+  }
+
+  .quick-add-form {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .priority-select {
+    width: 80px;
+    order: 1;
+  }
+
+  .priority-select :deep(.el-input__wrapper) {
+    border-radius: 8px;
+  }
+
+  .title-input {
+    width: 100%;
+    order: 2;
+  }
+
+  .quick-add-form .el-button {
+    width: 100%;
+    border-radius: 8px;
+    order: 3;
   }
 }
 

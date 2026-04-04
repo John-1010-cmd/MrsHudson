@@ -242,9 +242,9 @@ public class TodoTool implements BaseTool {
             // TODO: 从上下文中获取当前用户ID
             Long userId = 1L;
 
-            boolean success = todoService.completeTodo(userId, todoId);
+            TodoItem todo = todoService.completeTodo(userId, todoId, true);
 
-            if (success) {
+            if (todo != null) {
                 return "✅ 待办事项已完成！做得好！";
             } else {
                 return "完成失败：待办事项不存在或您没有权限";

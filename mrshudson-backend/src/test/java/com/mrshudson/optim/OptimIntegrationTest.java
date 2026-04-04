@@ -27,6 +27,7 @@ import com.mrshudson.optim.compress.ConversationSummarizer;
 import com.mrshudson.optim.intent.IntentRouter;
 import com.mrshudson.optim.intent.IntentType;
 import com.mrshudson.optim.intent.RouteResult;
+import com.mrshudson.optim.intent.cache.IntentCacheStore;
 import com.mrshudson.optim.monitor.CostMonitorService;
 
 /**
@@ -63,6 +64,9 @@ public class OptimIntegrationTest {
   @Autowired
   private CompressionConfig compressionConfig;
 
+  @Autowired
+  private IntentCacheStore intentCacheStore;
+
   private static final Long TEST_USER_ID = 999L;
 
   @BeforeEach
@@ -70,6 +74,11 @@ public class OptimIntegrationTest {
     // 清理测试数据
     semanticCacheService.clearAll(TEST_USER_ID);
     toolCacheManager.invalidate(null, null);
+
+    // 清理意图缓存（L2 Redis 持久化，跨 JVM 残留会污染测试）
+    if (intentCacheStore != null) {
+      intentCacheStore.invalidate(TEST_USER_ID);
+    }
 
     // 重置统计
     if (semanticCacheService instanceof com.mrshudson.optim.cache.impl.SemanticCacheServiceImpl) {

@@ -1,11 +1,13 @@
 package com.mrshudson.controller;
 
-import com.mrshudson.domain.dto.*;
+import com.mrshudson.domain.dto.CompleteTodoRequest;
+import com.mrshudson.domain.dto.CreateTodoRequest;
+import com.mrshudson.domain.dto.Result;
+import com.mrshudson.domain.dto.TodoResponse;
+import com.mrshudson.domain.dto.UpdateTodoRequest;
 import com.mrshudson.domain.entity.TodoItem;
-
-import com.mrshudson.domain.entity.User;
 import com.mrshudson.service.TodoService;
-import jakarta.servlet.http.HttpSession;
+import com.mrshudson.util.CurrentUserUtil;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,27 +26,27 @@ import java.util.stream.Collectors;
 public class TodoController {
 
     private final TodoService todoService;
+    private final CurrentUserUtil currentUserUtil;
 
     /**
      * 获取待办列表
      */
     @GetMapping
     public Result<List<TodoResponse>> getTodos(
-            @RequestParam(required = false) String status,
-            HttpSession session) {
+            @RequestParam(required = false) String status) {
 
-        User currentUser = (User) session.getAttribute("user");
-        if (currentUser == null) {
+        Long userId = currentUserUtil.getCurrentUserId();
+        if (userId == null) {
             return Result.error(401, "请先登录");
         }
 
-        log.info("用户{}查询待办列表, 状态筛选: {}", currentUser.getId(), status);
+        log.info("用户{}查询待办列表, 状态筛选: {}", userId, status);
 
         List<TodoItem> todos;
         if (status != null) {
-            todos = todoService.getTodosByStatus(currentUser.getId(), status);
+            todos = todoService.getTodosByStatus(userId, status);
         } else {
-            todos = todoService.getTodos(currentUser.getId());
+            todos = todoService.getTodos(userId);
         }
 
         List<TodoResponse> responses = todos.stream()
@@ -59,18 +61,17 @@ public class TodoController {
      */
     @PostMapping
     public Result<TodoResponse> createTodo(
-            @Valid @RequestBody CreateTodoRequest request,
-            HttpSession session) {
+            @Valid @RequestBody CreateTodoRequest request) {
 
-        User currentUser = (User) session.getAttribute("user");
-        if (currentUser == null) {
+        Long userId = currentUserUtil.getCurrentUserId();
+        if (userId == null) {
             return Result.error(401, "请先登录");
         }
 
-        log.info("用户{}创建待办事项: {}", currentUser.getId(), request.getTitle());
+        log.info("用户{}创建待办事项: {}", userId, request.getTitle());
 
         TodoItem todo = todoService.createTodo(
-                currentUser.getId(),
+                userId,
                 request.getTitle(),
                 request.getDescription(),
                 request.getPriority(),
@@ -85,11 +86,10 @@ public class TodoController {
      */
     @GetMapping("/{id}")
     public Result<TodoResponse> getTodoById(
-            @PathVariable Long id,
-            HttpSession session) {
+            @PathVariable Long id) {
 
-        User currentUser = (User) session.getAttribute("user");
-        if (currentUser == null) {
+        Long userId = currentUserUtil.getCurrentUserId();
+        if (userId == null) {
             return Result.error(401, "请先登录");
         }
 
@@ -98,7 +98,7 @@ public class TodoController {
             return Result.error(404, "待办事项不存在");
         }
 
-        if (!todo.getUserId().equals(currentUser.getId())) {
+        if (!todo.getUserId().equals(userId)) {
             return Result.error(403, "无权访问此待办事项");
         }
 
@@ -111,22 +111,21 @@ public class TodoController {
     @PutMapping("/{id}")
     public Result<TodoResponse> updateTodo(
             @PathVariable Long id,
-            @RequestBody UpdateTodoRequest request,
-            HttpSession session) {
+            @RequestBody UpdateTodoRequest request) {
 
-        User currentUser = (User) session.getAttribute("user");
-        if (currentUser == null) {
+        Long userId = currentUserUtil.getCurrentUserId();
+        if (userId == null) {
             return Result.error(401, "请先登录");
         }
 
-        log.info("用户{}更新待办事项: {}", currentUser.getId(), id);
+        log.info("用户{}更新待办事项: {}", userId, id);
 
         TodoItem existingTodo = todoService.getTodoById(id).orElse(null);
         if (existingTodo == null) {
             return Result.error(404, "待办事项不存在");
         }
 
-        if (!existingTodo.getUserId().equals(currentUser.getId())) {
+        if (!existingTodo.getUserId().equals(userId)) {
             return Result.error(403, "无权更新此待办事项");
         }
 
@@ -138,31 +137,30 @@ public class TodoController {
         updateEntity.setStatus(request.getStatus());
         updateEntity.setDueDate(request.getDueDate());
 
-        TodoItem updated = todoService.updateTodo(currentUser.getId(), id, updateEntity);
+        TodoItem updated = todoService.updateTodo(userId, id, updateEntity);
         return Result.success(TodoResponse.fromEntity(updated));
     }
 
     /**
-     * 完成待办事项
+     * 完成/取消完成待办事项
      */
-    @PutMapping("/{id}/complete")
-    public Result<Void> completeTodo(
+    @PatchMapping("/{id}/complete")
+    public Result<TodoResponse> completeTodo(
             @PathVariable Long id,
-            HttpSession session) {
+            @RequestBody CompleteTodoRequest request) {
 
-        User currentUser = (User) session.getAttribute("user");
-        if (currentUser == null) {
+        Long userId = currentUserUtil.getCurrentUserId();
+        if (userId == null) {
             return Result.error(401, "请先登录");
         }
 
-        log.info("用户{}完成待办事项: {}", currentUser.getId(), id);
+        log.info("用户{}完成待办事项: {}, completed: {}", userId, id, request.getCompleted());
 
-        boolean success = todoService.completeTodo(currentUser.getId(), id);
-        if (success) {
-            return Result.success(null);
-        } else {
+        TodoItem todo = todoService.completeTodo(userId, id, request.getCompleted());
+        if (todo == null) {
             return Result.error(404, "待办事项不存在或无权完成");
         }
+        return Result.success(TodoResponse.fromEntity(todo));
     }
 
     /**
@@ -170,17 +168,16 @@ public class TodoController {
      */
     @DeleteMapping("/{id}")
     public Result<Void> deleteTodo(
-            @PathVariable Long id,
-            HttpSession session) {
+            @PathVariable Long id) {
 
-        User currentUser = (User) session.getAttribute("user");
-        if (currentUser == null) {
+        Long userId = currentUserUtil.getCurrentUserId();
+        if (userId == null) {
             return Result.error(401, "请先登录");
         }
 
-        log.info("用户{}删除待办事项: {}", currentUser.getId(), id);
+        log.info("用户{}删除待办事项: {}", userId, id);
 
-        boolean success = todoService.deleteTodo(currentUser.getId(), id);
+        boolean success = todoService.deleteTodo(userId, id);
         if (success) {
             return Result.success(null);
         } else {

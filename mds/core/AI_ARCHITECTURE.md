@@ -5,9 +5,9 @@
 | 属性 | 内容 |
 |------|------|
 | **文档标题** | MrsHudson 后端 AI 架构设计文档 |
-| **版本** | 3.3 |
+| **版本** | 3.5 |
 | **状态** | 正式版 |
-| **最后更新** | 2026-03-31 |
+| **最后更新** | 2026-04-04 |
 
 ---
 
@@ -21,6 +21,8 @@
 | 3.1 | 2026-03-31 | 审阅修正：调用链步骤 ⑤⑦ 描述对齐代码、质量模式数值补充、API 鉴权分层、ADR-001 技术约束、缓存 Key/TTL 描述修正 |
 | 3.2 | 2026-03-31 | 二轮审阅：audio_done 四种状态补充、cache_hit/clarification 字段口径明确、L3 描述修正、数据模型图去重、IntentConfidenceEvaluator 归属明确化、附录 B 链接修正、QueryNormalizer 日期占位符化 |
 | 3.3 | 2026-03-31 | 三轮审阅：组件依赖关系图补充 IntentConfidenceEvaluator、修订历史补充 3.3 版本条目 |
+| 3.4 | 2026-04-01 | 四轮审阅：L2 命中语义明确化、调用链 L3 描述歧义修正、事件表 thinking 字段补全、缓存命中消息 ID 来源说明、模型路由中等模型补全 |
+| 3.5 | 2026-04-04 | 五轮审阅：L3 意图路由三层架构明确轻量/完整模型语义、QueryNormalizer 采用具体日期方案、VectorStore TTL 明确为 Redis 原生 TTL、模型路由简化为两档、Admin API 路径统一、待办事项补充负责人字段、缓存命中流补充无 thinking 说明 |
 
 ---
 
@@ -172,7 +174,7 @@
                │ 未命中
   ▼
 ┌─────────────────────────────────────────────────┐
-│ L2 意图向量缓存 (IntentCacheStore)    [规划中]   │  ← 命中直接返回意图结果
+│ L2 意图向量缓存 (IntentCacheStore)    [规划中]   │  ← 命中返回 IntentResult，跳过 AI 识别直接进入意图处理
 │   三级缓存：内存 → Redis → 向量搜索              │
 └──────────────┬──────────────────────────────────┘
                │ 未命中
@@ -201,7 +203,7 @@
 
 1. **上下文压缩阈值**: 15 条消息触发压缩，保留最近 6 条
 2. **TTS 超时**: 10 秒超时保护，超时后后台继续合成
-3. **缓存 TTL**: 语义缓存由 `VectorStore` 过期策略管理，工具缓存按工具类型定制（通过 `OptimProperties` 配置）
+3. **缓存 TTL**: 语义缓存使用 Redis 原生 TTL（如 7 天），工具缓存按工具类型定制（通过 `OptimProperties` 配置）
 4. **递归深度**: 工具调用当前无硬限制（规划中）
 
 ---
@@ -320,9 +322,12 @@ StreamChatController.streamSendMessage()
         ├─ ③ 意图路由 (IntentRouter — 三层混合架构)
         │     ├─ L1 规则层：关键词匹配 + 置信度评分
         │     │     命中 → content SSE + content_done + TTS + done，结束
-        │     ├─ L2 轻量AI层：L1 未处理时升级
+        │     ├─ L2 轻量AI层：调用轻量模型（如 Claude Sonnet）进行意图识别
         │     │     命中 → content SSE + content_done + TTS + done，结束
-        │     └─ L3 完整AI层：返回路由结果（isHandled=true），继续步骤 ④
+        │     │     未命中 → 返回意图类型，继续步骤 ④
+        │     └─ L3 完整AI层：调用完整模型（如 Claude Opus）进行意图识别
+        │           返回意图类型（约 50-100 tokens），继续步骤 ④
+        │           注：此处仅做意图分类，不生成最终回复，与步骤 ⑧ 的生成调用独立
         │
         ├─ ④ 意图置信度评估 (IntentConfidenceEvaluator)
         │     置信度不足 → clarification SSE + done，结束
@@ -368,6 +373,7 @@ StreamChatController.streamSendMessage()
               └── AI 流正常完成 → 收尾流程：
                     ├─ content_done SSE
                     ├─ 异步 TTS 语音合成（10s 超时保护）
+                    │     └─ audio_done SSE（成功/超时/失败）
                     ├─ token_usage SSE
                     ├─ done SSE
                     ├─ 异步：CostOptimizer.saveCache
@@ -463,7 +469,7 @@ StreamChatController.streamSendMessage()
 
 ### 6.3 缓存数据结构
 
-**语义响应缓存（VectorStore）**
+**语义响应缓存（Redis Vector）**
 
 ```
 按 userId 隔离，通过向量相似度匹配查询：
@@ -474,7 +480,7 @@ Value: {
   "response": "AI 响应内容",
   "embedding": [向量表示]
 }
-TTL: 由 VectorStore 实现的过期策略管理（通过 cleanup() 清理）
+TTL: Redis 原生 TTL 自动过期（通过 EXPIRE 命令设置，如 7 天）
 ```
 
 **工具结果缓存（Redis String）**
@@ -520,13 +526,14 @@ if (ruleResult != null && ruleResult.isHandled()) {
 // ruleResult 中已含初步 intentType，传递给下层
 IntentType intentType = ruleResult != null ? ruleResult.getIntentType() : IntentType.GENERAL_CHAT;
 
-// 第2层：轻量AI提取（intentType 作为上下文提示）
+// 第2层：轻量AI提取（调用轻量模型如 Claude Sonnet，intentType 作为上下文提示）
 RouteResult lightweightResult = tryLightweightAiLayer(userId, query, intentType);
 if (lightweightResult != null && lightweightResult.isHandled()) {
     return lightweightResult;
 }
 
-// 第3层：完整AI调用（兜底）
+// 第3层：完整AI调用（调用完整模型如 Claude Opus，仅做意图分类，约 50-100 tokens）
+// 注：此处返回意图类型，不生成最终回复，避免与主流程的生成调用（步骤 ⑧）重复
 return tryFullAiLayer(query, intentType);
 ```
 
@@ -538,6 +545,15 @@ return tryFullAiLayer(query, intentType);
 | `hybrid` | HybridIntentRouter | 三层混合（默认） | 通用场景 |
 | `ai-only` | (直接调用AI) | 无路由拦截 | 冷启动、测试 |
 
+**三层模型选择说明**
+
+| 层级 | 模型类型 | Token 消耗 | 用途 |
+|------|---------|-----------|------|
+| L1 规则层 | 无 AI 调用 | 0 | 关键词匹配 |
+| L2 轻量AI层 | 轻量模型（如 Claude Sonnet） | 20-50 tokens | 简单意图识别 |
+| L3 完整AI层 | 完整模型（如 Claude Opus） | 50-100 tokens | 复杂意图分类 |
+| 步骤 ⑧ 生成调用 | 完整模型 + 完整上下文 | 500-2000 tokens | 最终回复生成 |
+
 ### 7.3 意图向量缓存（规划中）
 
 ```
@@ -545,7 +561,8 @@ return tryFullAiLayer(query, intentType);
     │
     ▼
 QueryNormalizer
-    示例："今天" → "{current_date}"
+    示例："今天天气怎么样" → "2026-03-23天气怎么样"
+    说明：将相对时间转换为具体日期，便于精确匹配
     │
     ▼
 IntentCacheStore（三级查找）
@@ -556,6 +573,23 @@ IntentCacheStore（三级查找）
     ├─ 命中 → 直接返回，跳过 AI 识别
     └─ 未命中 → 进入现有三层路由 → 结果回写缓存
 ```
+
+**归一化策略说明**
+
+采用**具体日期方案**：
+- "今天" → 当前日期（如 "2026-03-23"）
+- "明天" → 次日日期（如 "2026-03-24"）
+- "这周" → 当前周范围（如 "2026-03-23 至 2026-03-29"）
+
+优点：
+- 查询逻辑简单，向量语义精确
+- 无需占位符展开，减少复杂度
+
+缺点：
+- 缓存按日期隔离，每天的"今天"都是新查询
+- 缓存只在当天有效，跨日期不复用
+
+> **设计权衡**：虽然跨日期复用率降低，但向量语义更准确，且避免了占位符展开的额外开销。对于高频查询（如"今天天气"），单日内的复用已能显著降低成本。
 
 ### 7.4 质量模式与模型路由
 
@@ -574,8 +608,9 @@ IntentCacheStore（三级查找）
 | 条件 | 选择模型 | 示例 |
 |------|----------|------|
 | 消息 ≤ 20字 / 问候语 / 简单问答 | 小模型 (moonshot-v1-8k) | "你好"、"谢谢" |
-| 消息 > 100字 / 含"为什么/分析/对比" | 大模型 (moonshot-v1-32k) | 长文本分析 |
-| 默认 | 中等模型 | 一般对话 |
+| 其他 | 标准模型 (moonshot-v1-32k) | 一般对话、复杂分析 |
+
+> **说明**：当前采用两档路由策略，小模型处理简单查询，标准模型处理其他所有场景。未来可根据实际需求引入中等模型（如 moonshot-v1-128k）形成三档路由。
 
 **已知问题**: `QualityOptimizer` 与 `ModelRouter` 当前无联动，V2 由 `StrategyEngine` 统一。
 
@@ -583,7 +618,7 @@ IntentCacheStore（三级查找）
 
 | 缓存类型 | 实现类 | 用途 | TTL |
 |---------|--------|------|-----|
-| 语义响应缓存 | SemanticCacheService | AI 完整响应缓存，向量相似度匹配 | 由 `VectorStore` 过期策略管理 |
+| 语义响应缓存 | SemanticCacheService | AI 完整响应缓存，向量相似度匹配 | Redis 原生 TTL（如 7 天） |
 | 工具结果缓存 | ToolCacheManager | 工具调用结果缓存 | 按工具类型定制（`OptimProperties` 配置） |
 | 意图识别缓存 | IntentCacheStore | 意图识别结果缓存（规划中） | L1: 5分钟 / L2: 7天 / L3: 30天 |
 
@@ -660,13 +695,13 @@ continueAiStream() 递归调用 AI
 
 | 事件 | 用途 | payload 示例 |
 |------|------|-------------|
-| `thinking` | AI 思考推理过程（增量） | `{"type":"thinking","text":"..."}` |
-| `content` | 流式文本内容（增量） | `{"type":"content","text":"今天天气"}` |
-| `content_done` | AI 文本生成完毕 | `{"type":"content_done"}` |
+| `thinking` | AI 思考推理过程（增量） | `{"type":"thinking","text":"...","conversationId":1,"messageId":2}` |
+| `content` | 流式文本内容（增量） | `{"type":"content","text":"今天天气","conversationId":1,"messageId":2}` |
+| `content_done` | AI 文本生成完毕 | `{"type":"content_done","conversationId":1,"messageId":2}` |
 | `tool_call` | 工具调用通知 | `{"type":"tool_call","toolCall":{...}}` |
 | `tool_result` | 工具执行结果 | `{"type":"tool_result","toolResult":{...}}` |
 | `audio_done` | TTS 合成结束（详见 [SSE+TTS 规范 §3.4](./SSE_TTS_UNIFIED_SPEC.md)） | 成功: `{"type":"audio_done","url":"...","conversationId":1,"messageId":2}` / 超时: `{"type":"audio_done","timeout":true,...}` / 无音频: `{"type":"audio_done","noaudio":true,...}` / 异常: `{"type":"audio_done","error":"...","conversationId":1,"messageId":2}` |
-| `token_usage` | Token 消耗统计 | `{"type":"token_usage","tokenUsage":{"inputTokens":10,"outputTokens":50,"duration":1200,"model":"moonshot-v1-8k"}}` |
+| `token_usage` | Token 消耗统计 | `{"type":"token_usage","inputTokens":128,"outputTokens":64,"duration":1230,"model":"MiniMax-M2.7"}` |
 | `cache_hit` | 响应缓存命中 | `{"type":"cache_hit","content":"..."}` |
 | `clarification` | 意图澄清提示 | `{"type":"clarification","content":"..."}` |
 | `error` | 错误信息 | `{"type":"error","message":"..."}` |
@@ -686,12 +721,13 @@ continueAiStream() 递归调用 AI
 [thinking*] → (tool_call → tool_result)+ → content+ → content_done → audio_done → token_usage → done
 ```
 
-**③ 缓存命中流**（无实际 AI 调用，不发 token_usage）
+**③ 缓存命中流**（无实际 AI 调用，无 thinking 事件，不发 token_usage）
 ```
 cache_hit → content_done → audio_done → done
 ```
+> 缓存命中时，后端仍会先创建 AI 消息记录（写入缓存内容）并获得 messageId，因此 content_done 和 audio_done 能携带有效的 conversationId / messageId。
 
-**④ 意图澄清流**
+**④ 意图澄清流**（意图不明确时，只需 clarification + done，无 TTS 合成，不发 `content_done` / `audio_done` / `token_usage`）
 ```
 clarification → done
 ```
@@ -737,16 +773,17 @@ clarification → done
 | `/api/admin/cache/clear/tool` | POST | 清除工具缓存 |
 | `/api/admin/cache/clear/all` | POST | 清除全部缓存 |
 | `/api/admin/cache/stats` | GET | 缓存统计 |
-| `/api/quality/mode` | GET | 查询当前质量模式 |
-| `/api/quality/mode` | PUT | 切换质量模式 |
-| `/api/quality/metrics` | GET | 质量模式使用统计 |
+| `/api/admin/quality/mode` | GET | 查询当前质量模式 |
+| `/api/admin/quality/mode` | PUT | 切换质量模式 |
+| `/api/admin/quality/metrics` | GET | 质量模式使用统计 |
+
+> **路径迁移计划**：质量模式接口计划从 `/api/quality/**` 迁移到 `/api/admin/quality/**`，统一管理员 API 前缀。
 
 ### 10.2 鉴权
 
 | 前缀 | 权限要求 | 说明 |
 |------|---------|------|
-| `/api/admin/**` | 管理员角色 | 系统级操作：缓存清理、成本统计、指标重置 |
-| `/api/quality/**` | 管理员角色 | 质量模式管理（当前要求管理员，后续可降为用户级） |
+| `/api/admin/**` | 管理员角色 | 系统级操作：缓存清理、成本统计、指标重置、质量模式管理 |
 
 当前通过 JWT 解析 `userId` 判断管理员身份。生产环境建议改为数据库角色表或配置文件白名单。
 
@@ -836,15 +873,16 @@ clarification → done
 
 ### 附录 C：待办事项
 
-| 优先级 | 事项 | 状态 | 预计完成时间 |
-|--------|------|------|--------------|
-| P0 | 意图向量缓存落地 | 规划中 | 待定 |
-| P0 | 自纠错阈值调优 | 规划中 | 待定 |
-| P1 | 接通 ContextManager 压缩路径 | 待开发 | 待定 |
-| P1 | 工具调用递归深度限制 | 待开发 | 待定 |
-| P1 | QualityOptimizer 与 ModelRouter 联动 | 待开发 | V2 |
-| P1 | 缓存策略精细化 | 待开发 | 待定 |
-| P2 | 前端接入管理后台数据接口 | 待开发 | 待定 |
+| 优先级 | 事项 | 负责人 | 状态 | 预计完成时间 |
+|--------|------|--------|------|--------------|
+| P0 | 意图向量缓存落地 | TBD | 规划中 | 待定 |
+| P0 | 自纠错阈值调优 | TBD | 规划中 | 待定 |
+| P1 | 接通 ContextManager 压缩路径 | TBD | 待开发 | 待定 |
+| P1 | 工具调用递归深度限制 | TBD | 待开发 | 待定 |
+| P1 | QualityOptimizer 与 ModelRouter 联动 | TBD | 待开发 | V2 |
+| P1 | 缓存策略精细化 | TBD | 待开发 | 待定 |
+| P1 | 质量模式接口路径迁移到 /api/admin/quality/** | TBD | 待开发 | 待定 |
+| P2 | 前端接入管理后台数据接口 | TBD | 待开发 | 待定 |
 
 ### 附录 D：架构决策记录 (ADR)
 

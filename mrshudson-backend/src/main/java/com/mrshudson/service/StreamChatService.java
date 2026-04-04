@@ -31,6 +31,7 @@ import com.mrshudson.optim.context.ContextManager;
 import com.mrshudson.optim.correction.SelfCorrectingAgent;
 import com.mrshudson.optim.correction.ValidationResult;
 import com.mrshudson.optim.cost.CostOptimizer;
+import com.mrshudson.optim.cost.ModelRouter;
 import com.mrshudson.optim.fallback.FallbackHandler;
 import com.mrshudson.optim.intent.IntentConfidenceEvaluator;
 import com.mrshudson.optim.intent.IntentResult;
@@ -71,6 +72,7 @@ public class StreamChatService {
   private final AsyncTaskService asyncTaskService;
   private final SelfCorrectingAgent selfCorrectingAgent;
   private final FallbackHandler fallbackHandler;
+  private final ModelRouter modelRouter;
 
   /**
    * 构建系统提示词（精简版）
@@ -155,8 +157,11 @@ public class StreamChatService {
         if (clarification != null) {
           Long messageId = saveAssistantMessage(userId, conversationId, clarification, null, null);
           checkAndGenerateTitle(conversationId, userMessage);
-          return buildAsyncTtsFlux(Flux.just(SseFormatter.clarification(clarification)),
-              clarification, conversationId, messageId);
+          // 无 TTS，意图澄清只需 clarification + done，不发 content_done / audio_done / token_usage
+          return Flux.just(
+                SseFormatter.clarification(clarification),
+                SseFormatter.done()
+            );
         }
       }
     }
@@ -200,7 +205,8 @@ public class StreamChatService {
 
     Flux<String> aiStream = executeStreamingAiCallWithTools(messages,
         toolRegistry.getToolDefinitions(), userId, conversationId, messageId, toolCallInfos,
-        aiFinalContent, tokenUsageRef, userMessage, intentType, cancelSink);
+        aiFinalContent, tokenUsageRef, userMessage, intentType, new AtomicInteger(0),
+              cancelSink);
 
     // 10. 订阅 AI 流，内容推入 mainSink，完成时触发异步 TTS
     AtomicInteger outputTokens = new AtomicInteger(0);
@@ -290,6 +296,11 @@ public class StreamChatService {
   }
 
   private static final long TTS_TIMEOUT_MS = 10000;
+
+  /**
+   * 工具调用递归深度限制
+   */
+  private static final int MAX_TOOL_RECURSION_DEPTH = 5;
 
   private void emitTokenUsageAndDone(Sinks.Many<String> sink, TokenUsage usage) {
     if (usage != null) {
@@ -428,6 +439,7 @@ public class StreamChatService {
       Long userId, Long conversationId, Long messageId,
       List<SendMessageResponse.ToolCallInfo> toolCallInfos, AtomicReference<String> aiFinalContent,
       AtomicReference<TokenUsage> tokenUsageRef, String userMessage, IntentType intentType,
+      AtomicInteger recursionDepth,
       Sinks.One<Void> cancelSink) {
 
     // 用于收集所有事件的 Sinks
@@ -438,8 +450,11 @@ public class StreamChatService {
 
     // 订阅 AI 流式响应，通过 takeUntilOther 编织取消信号
     AIProvider provider = aiClientFactory.getCurrentProvider();
+    // 使用 ModelRouter 动态选择模型（仅对 Kimi 生效）
+    String selectedModel = modelRouter.getModel(userMessage);
+    log.debug("ModelRouter 选择模型: {}，用户消息: {}", selectedModel, userMessage.substring(0, Math.min(50, userMessage.length())));
     Flux<String> aiStream =
-        (provider == AIProvider.KIMI ? kimiClient.streamChatCompletion(messages, tools)
+        (provider == AIProvider.KIMI ? kimiClient.streamChatCompletion(messages, tools, selectedModel)
             : miniMaxClient.streamChatCompletion(messages, tools))
                 .takeUntilOther(cancelSink.asMono())  // 客户端断开时终止 AI 流
                 .doOnSubscribe(s -> log.debug("AI 流式响应开始")).doOnError(e -> {
@@ -524,7 +539,8 @@ public class StreamChatService {
           // 增加活跃订阅计数
           activeSubscriptions.incrementAndGet();
           continueAiStream(messages, tools, toolCallInfos, sink, aiFinalContent,
-              activeSubscriptions, userMessage, intentType, userId, conversationId, messageId, cancelSink);
+              activeSubscriptions, userMessage, intentType, userId, conversationId, messageId, recursionDepth,
+              cancelSink);
         }
       } else if (chunk.startsWith("[THINKING]")) {
         // 思考推理过程：发送 thinking 事件，不累加到 aiFinalContent
@@ -562,14 +578,28 @@ public class StreamChatService {
       List<SendMessageResponse.ToolCallInfo> toolCallInfos, Sinks.Many<String> sink,
       AtomicReference<String> aiFinalContent, AtomicInteger activeSubscriptions, String userMessage,
       IntentType intentType, Long userId, Long conversationId, Long messageId,
+      AtomicInteger recursionDepth,
       Sinks.One<Void> cancelSink) {
 
-    log.debug("继续调用 AI 获取下一轮响应，当前消息数: {}", messages.size());
+
+    // 检查递归深度，防止无限递归
+    int currentDepth = recursionDepth.incrementAndGet();
+    if (currentDepth > MAX_TOOL_RECURSION_DEPTH) {
+      log.warn("工具调用递归深度超过限制: {}/{}，停止递归", currentDepth, MAX_TOOL_RECURSION_DEPTH);
+      sink.tryEmitNext(SseFormatter.error("工具调用次数过多，请简化您的请求", conversationId));
+      if (activeSubscriptions.decrementAndGet() == 0) {
+        sink.tryEmitComplete();
+      }
+      return;
+    }
+    log.debug("当前工具调用递归深度: {}/{}", currentDepth, MAX_TOOL_RECURSION_DEPTH);
 
     // 继续订阅 AI 响应
     AIProvider provider = aiClientFactory.getCurrentProvider();
+    // 使用 ModelRouter 动态选择模型（仅对 Kimi 生效）
+    String continueModel = modelRouter.getModel(userMessage);
     Flux<String> continueStream =
-        (provider == AIProvider.KIMI ? kimiClient.streamChatCompletion(messages, tools)
+        (provider == AIProvider.KIMI ? kimiClient.streamChatCompletion(messages, tools, continueModel)
             : miniMaxClient.streamChatCompletion(messages, tools))
                 .takeUntilOther(cancelSink.asMono())  // 客户端断开时终止后续 AI 流
                 .doOnError(e -> {
@@ -653,7 +683,8 @@ public class StreamChatService {
           // 递归继续
           activeSubscriptions.incrementAndGet();
           continueAiStream(messages, tools, toolCallInfos, sink, aiFinalContent,
-              activeSubscriptions, userMessage, intentType, userId, conversationId, messageId, cancelSink);
+              activeSubscriptions, userMessage, intentType, userId, conversationId, messageId, recursionDepth,
+              cancelSink);
         }
       } else if (chunk.startsWith("[THINKING]")) {
         // 思考推理过程：发送 thinking 事件，不累加到 aiFinalContent
@@ -679,39 +710,22 @@ public class StreamChatService {
       }
     });
   }
-
   /**
    * 构建消息列表
+   * 使用 ContextManager 进行智能上下文压缩
    */
   private List<Message> buildMessageList(Long userId, Long conversationId, String userContent) {
     List<Message> messages = new ArrayList<>();
     messages.add(Message.system(buildSystemPrompt()));
 
-    // 查询历史消息
-    LambdaQueryWrapper<ChatMessage> wrapper = new LambdaQueryWrapper<ChatMessage>()
-        .eq(ChatMessage::getUserId, userId).orderByDesc(ChatMessage::getCreatedAt).last("LIMIT 20");
-
-    if (conversationId != null) {
-      wrapper.eq(ChatMessage::getConversationId, conversationId);
-    }
-
-    List<ChatMessage> history = chatMessageMapper.selectList(wrapper);
-    Collections.reverse(history);
-
-    // 取最�?0�?
-    int startIndex = Math.max(0, history.size() - 10);
-    for (int i = startIndex; i < history.size(); i++) {
-      ChatMessage msg = history.get(i);
-      if ("USER".equalsIgnoreCase(msg.getRole())) {
-        messages.add(Message.user(msg.getContent()));
-      } else if ("ASSISTANT".equalsIgnoreCase(msg.getRole())) {
-        messages.add(Message.assistant(msg.getContent()));
-      }
-    }
+    // 使用 ContextManager 获取优化后的历史消息（支持压缩）
+    List<Message> optimizedHistory = contextManager.buildOptimizedContext(conversationId, userId);
+    messages.addAll(optimizedHistory);
 
     messages.add(Message.user(userContent));
     return messages;
   }
+
 
   /**
    * 构建澄清提示

@@ -2,13 +2,12 @@ package com.mrshudson.controller;
 
 import com.mrshudson.domain.dto.Result;
 import com.mrshudson.domain.entity.Reminder;
-import com.mrshudson.domain.entity.User;
 import com.mrshudson.service.ReminderService;
+import com.mrshudson.util.CurrentUserUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
-import jakarta.servlet.http.HttpSession;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,20 +23,21 @@ import java.util.stream.Collectors;
 public class ReminderController {
 
     private final ReminderService reminderService;
+    private final CurrentUserUtil currentUserUtil;
 
     /**
      * 获取当前用户的所有提醒
      */
     @GetMapping
-    public Result<List<ReminderResponse>> getReminders(HttpSession session) {
-        User currentUser = (User) session.getAttribute("user");
-        if (currentUser == null) {
+    public Result<List<ReminderResponse>> getReminders() {
+        Long userId = currentUserUtil.getCurrentUserId();
+        if (userId == null) {
             return Result.error(401, "请先登录");
         }
 
-        log.info("用户{}查询所有提醒", currentUser.getId());
+        log.info("用户{}查询所有提醒", userId);
 
-        List<Reminder> reminders = reminderService.getAllReminders(currentUser.getId());
+        List<Reminder> reminders = reminderService.getAllReminders(userId);
         List<ReminderResponse> responses = reminders.stream()
                 .map(ReminderResponse::fromEntity)
                 .collect(Collectors.toList());
@@ -49,15 +49,15 @@ public class ReminderController {
      * 获取未读提醒列表
      */
     @GetMapping("/unread")
-    public Result<List<ReminderResponse>> getUnreadReminders(HttpSession session) {
-        User currentUser = (User) session.getAttribute("user");
-        if (currentUser == null) {
+    public Result<List<ReminderResponse>> getUnreadReminders() {
+        Long userId = currentUserUtil.getCurrentUserId();
+        if (userId == null) {
             return Result.error(401, "请先登录");
         }
 
-        log.info("用户{}查询未读提醒", currentUser.getId());
+        log.info("用户{}查询未读提醒", userId);
 
-        List<Reminder> reminders = reminderService.getUnreadReminders(currentUser.getId());
+        List<Reminder> reminders = reminderService.getUnreadReminders(userId);
         List<ReminderResponse> responses = reminders.stream()
                 .map(ReminderResponse::fromEntity)
                 .collect(Collectors.toList());
@@ -69,13 +69,13 @@ public class ReminderController {
      * 获取未读提醒数量
      */
     @GetMapping("/unread-count")
-    public Result<Map<String, Integer>> getUnreadCount(HttpSession session) {
-        User currentUser = (User) session.getAttribute("user");
-        if (currentUser == null) {
+    public Result<Map<String, Integer>> getUnreadCount() {
+        Long userId = currentUserUtil.getCurrentUserId();
+        if (userId == null) {
             return Result.error(401, "请先登录");
         }
 
-        List<Reminder> unreadReminders = reminderService.getUnreadReminders(currentUser.getId());
+        List<Reminder> unreadReminders = reminderService.getUnreadReminders(userId);
         int count = unreadReminders.size();
 
         Map<String, Integer> result = new HashMap<>();
@@ -88,13 +88,13 @@ public class ReminderController {
      * 标记提醒为已读
      */
     @PutMapping("/{id}/read")
-    public Result<Void> markAsRead(@PathVariable Long id, HttpSession session) {
-        User currentUser = (User) session.getAttribute("user");
-        if (currentUser == null) {
+    public Result<Void> markAsRead(@PathVariable Long id) {
+        Long userId = currentUserUtil.getCurrentUserId();
+        if (userId == null) {
             return Result.error(401, "请先登录");
         }
 
-        log.info("用户{}标记提醒{}为已读", currentUser.getId(), id);
+        log.info("用户{}标记提醒{}为已读", userId, id);
 
         boolean success = reminderService.markAsRead(id);
         if (success) {
@@ -108,15 +108,15 @@ public class ReminderController {
      * 批量标记提醒为已读
      */
     @PutMapping("/read-all")
-    public Result<Void> markAllAsRead(HttpSession session) {
-        User currentUser = (User) session.getAttribute("user");
-        if (currentUser == null) {
+    public Result<Void> markAllAsRead() {
+        Long userId = currentUserUtil.getCurrentUserId();
+        if (userId == null) {
             return Result.error(401, "请先登录");
         }
 
-        log.info("用户{}批量标记所有提醒为已读", currentUser.getId());
+        log.info("用户{}批量标记所有提醒为已读", userId);
 
-        List<Reminder> unreadReminders = reminderService.getUnreadReminders(currentUser.getId());
+        List<Reminder> unreadReminders = reminderService.getUnreadReminders(userId);
         for (Reminder reminder : unreadReminders) {
             reminderService.markAsRead(reminder.getId());
         }
@@ -130,14 +130,13 @@ public class ReminderController {
     @PutMapping("/{id}/snooze")
     public Result<ReminderResponse> snooze(
             @PathVariable Long id,
-            @RequestParam Integer minutes,
-            HttpSession session) {
-        User currentUser = (User) session.getAttribute("user");
-        if (currentUser == null) {
+            @RequestParam Integer minutes) {
+        Long userId = currentUserUtil.getCurrentUserId();
+        if (userId == null) {
             return Result.error(401, "请先登录");
         }
 
-        log.info("用户{}延迟提醒{}: {}分钟", currentUser.getId(), id, minutes);
+        log.info("用户{}延迟提醒{}: {}分钟", userId, id, minutes);
 
         Reminder snoozedReminder = reminderService.snooze(id, minutes);
         if (snoozedReminder == null) {

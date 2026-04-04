@@ -60,8 +60,30 @@ public class VoiceProperties {
 
     /**
      * MiniMax TTS 发音人（当 tts-provider=minimax 时使用）
+     * 可选值: English_expressive_narrator, female-tianmei 等
      */
-    private String minimaxTtsVoice = "male-qn-qingse";
+    private String minimaxTtsVoice = "English_expressive_narrator";
+
+    /**
+     * MiniMax TTS 模型（当 tts-provider=minimax 时使用）
+     * 可选值: speech-2.8-hd, speech-2.8-turbo, speech-2.6-hd, speech-2.6-turbo
+     */
+    private String minimaxTtsModel = "speech-2.6-turbo";
+
+    /**
+     * MiniMax TTS 语音速度（0.5-2.0）
+     */
+    private double minimaxTtsSpeed = 1.0;
+
+    /**
+     * MiniMax TTS 轮询最大次数
+     */
+    private int minimaxTtsMaxPolls = 30;
+
+    /**
+     * MiniMax TTS 轮询间隔（毫秒）
+     */
+    private int minimaxTtsPollInterval = 1000;
 
     /**
      * 是否启用模拟模式（不调用真实API，返回模拟数据）

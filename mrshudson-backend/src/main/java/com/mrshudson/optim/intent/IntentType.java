@@ -27,7 +27,7 @@ public enum IntentType {
      * 例："我今天有什么安排"、"下周的会议"
      */
     CALENDAR_QUERY("calendar_query", "日历查询",
-            new HashSet<>(Arrays.asList("日程", "会议", "安排", "日历", "今天", "明天", "下周", "这周", "有什么")),
+            new HashSet<>(Arrays.asList("日程", "会议", "安排", "日历", "今天", "明天", "下周", "这周")),
             0.7),
 
     /**

@@ -301,4 +301,54 @@ public class KimiClient {
     public Flux<String> streamChatCompletion(List<Message> messages) {
         return streamChatCompletion(messages, null);
     }
+
+    /**
+     * 流式对话完成（指定模型）
+     * 支持 ModelRouter 动态选择模型
+     *
+     * @param messages 消息列表
+     * @param tools    工具列表（可选）
+     * @param model    模型名称（如 moonshot-v1-8k, moonshot-v1-32k）
+     * @return 流式响应
+     */
+    public Flux<String> streamChatCompletion(List<Message> messages, List<Tool> tools, String model) {
+        String url = kimiProperties.getBaseUrl() + "/chat/completions";
+
+        // 从配置读取参数
+        double temperature = optimProperties.getKimiParams() != null
+                ? optimProperties.getKimiParams().getTemperature()
+                : kimiProperties.getTemperature();
+        int maxTokens = optimProperties.getKimiParams() != null
+                ? optimProperties.getKimiParams().getMaxTokens()
+                : kimiProperties.getMaxTokens();
+
+        // 构建请求（启用流式）
+        ChatRequest request = ChatRequest.builder()
+                .model(model)
+                .messages(messages)
+                .tools(tools)
+                .temperature(temperature)
+                .maxTokens(maxTokens)
+                .stream(true)
+                .build();
+
+        // 序列化请求体
+        String requestBody = JSON.toJSONString(request, MESSAGE_NAME_FILTER,
+                com.alibaba.fastjson2.JSONWriter.Feature.WriteMapNullValue);
+
+        log.debug("Kimi流式API请求体(模型: {}): {}", model, requestBody);
+
+        return webClient.post()
+                .uri(url)
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + kimiProperties.getApiKey())
+                .bodyValue(requestBody)
+                .retrieve()
+                .bodyToFlux(String.class)
+                .doOnSubscribe(s -> log.debug("Kimi流式响应开始, 模型: {}", model))
+                .doOnNext(chunk -> log.trace("收到SSE数据块: {}", chunk))
+                .doOnError(e -> log.error("Kimi流式响应异常: {}", e.getMessage(), e))
+                .doOnComplete(() -> log.debug("Kimi流式响应完成, 模型: {}", model))
+                .flatMap(this::parseSseData);
+    }
 }

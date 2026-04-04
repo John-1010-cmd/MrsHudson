@@ -4,7 +4,8 @@
     <div class="message-list" ref="messageListRef">
       <!-- 消息列表内容 -->
       <template v-if="messages.length > 0">
-        <div v-for="msg in messages" :key="msg.id"
+        <!-- 过滤掉正在加载中的空 AI 消息（避免双气泡） -->
+        <div v-for="msg in messages.filter(m => !(m.role === 'assistant' && m.id.startsWith('stream-') && m.content.length === 0))" :key="msg.id"
           :class="['message', msg.role === 'user' ? 'user-message' : 'ai-message']">
           <div class="message-avatar">
             <el-avatar v-if="msg.role === 'assistant'" :size="40" :style="{ background: '#409eff' }">

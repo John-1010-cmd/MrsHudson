@@ -100,22 +100,27 @@ public class TodoServiceImpl implements TodoService {
 
     @Override
     @Transactional
-    public boolean completeTodo(Long userId, Long todoId) {
+    public TodoItem completeTodo(Long userId, Long todoId, Boolean completed) {
         TodoItem todo = todoItemMapper.selectById(todoId);
         if (todo == null) {
             log.warn("完成待办失败，待办事项不存在: {}", todoId);
-            return false;
+            return null;
         }
 
         if (!todo.getUserId().equals(userId)) {
             log.warn("完成待办失败，用户{}无权完成待办{}", userId, todoId);
-            return false;
+            return null;
         }
 
-        todo.setStatus(TodoItem.Status.COMPLETED.name());
-        todo.setCompletedAt(LocalDateTime.now());
+        if (Boolean.TRUE.equals(completed)) {
+            todo.setStatus(TodoItem.Status.COMPLETED.name());
+            todo.setCompletedAt(LocalDateTime.now());
+        } else {
+            todo.setStatus(TodoItem.Status.PENDING.name());
+            todo.setCompletedAt(null);
+        }
         todoItemMapper.updateById(todo);
-        log.info("用户{}完成了待办事项: {}", userId, todoId);
+        log.info("用户{}完成待办事项: {}, completed: {}", userId, todoId, completed);
 
         // 发布变更事件，触发缓存清除
         eventPublisher.publishEvent(new TodoChangeEvent(this, userId, todoId, TodoChangeEvent.OperationType.COMPLETE));
@@ -123,7 +128,7 @@ public class TodoServiceImpl implements TodoService {
         // 清除用户缓存（包括语义缓存）
         cacheInvalidationService.invalidateUserCache(userId);
 
-        return true;
+        return todo;
     }
 
     @Override

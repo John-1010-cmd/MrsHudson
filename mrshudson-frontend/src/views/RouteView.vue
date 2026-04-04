@@ -168,12 +168,17 @@ const handlePlanRoute = async () => {
 </script>
 
 <style scoped>
+.route-view::-webkit-scrollbar {
+  display: none;
+}
 .route-view {
   padding: 20px;
   max-width: 800px;
   margin: 0 auto;
-  height: calc(100vh - 100px);
-  overflow: hidden;
+  min-height: calc(100vh - 100px);
+  overflow: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   display: flex;
   flex-direction: column;
 }
@@ -236,16 +241,21 @@ const handlePlanRoute = async () => {
 /* 结果卡片 - 可滚动 */
 .route-result-card {
   flex: 1;
-  overflow: hidden;
+  overflow: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   display: flex;
   flex-direction: column;
 }
 
 .route-result-card :deep(.el-card__body) {
-  overflow: hidden;
+  overflow: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   display: flex;
   flex-direction: column;
   flex: 1;
+  padding: 16px 4px 16px 16px;
 }
 
 .result-header {
@@ -261,7 +271,9 @@ const handlePlanRoute = async () => {
 }
 
 .route-detail {
-  overflow: hidden;
+  overflow: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -297,43 +309,47 @@ const handlePlanRoute = async () => {
   color: #909399;
 }
 
-/* 路线步骤 - 可滚动区域 */
+/* 路线步骤 - 可滚动区域 - 强制显示滚动条 */
 .route-steps {
   flex: 1;
   overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   overflow-x: hidden;
-  margin: 0 -20px;
-  padding: 0 20px;
+  padding: 0 16px 0 0;
   min-height: 200px;
 }
 
-/* 滚动条样式 - 始终显示 */
+/* Webkit 滚动条 - 始终显示 */
 .route-steps::-webkit-scrollbar {
-  width: 10px;
-  background-color: #f5f7fa;
+  -webkit-appearance: none;
+  width: 12px;
+  background-color: #e4e7ed;
+  border-radius: 6px;
+  display: none;
 }
 
 .route-steps::-webkit-scrollbar-track {
-  background: #f5f7fa;
-  border-radius: 5px;
-  border: 1px solid #e4e7ed;
+  background: #e4e7ed;
+  border-radius: 6px;
+  border: 1px solid #c0c4cc;
 }
 
 .route-steps::-webkit-scrollbar-thumb {
-  background: #c0c4cc;
-  border-radius: 5px;
-  border: 2px solid #f5f7fa;
+  background: #909399;
+  border-radius: 6px;
+  border: 2px solid #e4e7ed;
   min-height: 60px;
 }
 
 .route-steps::-webkit-scrollbar-thumb:hover {
-  background: #909399;
+  background: #606266;
 }
 
 /* Firefox 滚动条 */
 .route-steps {
-  scrollbar-width: auto;
-  scrollbar-color: #c0c4cc #f5f7fa;
+  scrollbar-width: none;
+  scrollbar-color: #909399 #e4e7ed;
 }
 
 .steps-content {

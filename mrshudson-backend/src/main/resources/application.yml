@@ -10,18 +10,18 @@ spring:
 
   # Database
   datasource:
-    url: jdbc:mysql://localhost:3306/mrshudson?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
-    username: mrshudson
-    password: mrshudson_pass
+    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/mrshudson?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
+    username: ${MYSQL_USER:mrshudson}
+    password: ${MYSQL_PASSWORD:mrshudson_pass}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   # Redis
   data:
     redis:
-      host: localhost
-      port: 6379
-      password: mrshudson_redis
-      database: 0
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:mrshudson_redis}
+      database: ${REDIS_DATABASE:0}
       timeout: 5s
 
   # Jackson
@@ -132,6 +132,56 @@ job:
   reminder:
     # 提醒任务开关（开发期间可关闭）
     enabled: false
+
+# Intent Vector Cache Configuration (三级意图缓存)
+# L1: 内存缓存 (Caffeine) - 5分钟 TTL
+# L2: Redis Hash - 7天 TTL
+# L3: Redis Vector (HNSW) - 30天 TTL (需要 Redis 7.2+ with RediSearch)
+intent:
+  cache:
+    enabled: ${INTENT_CACHE_ENABLED:true}
+    l1:
+      enabled: ${INTENT_CACHE_L1_ENABLED:true}
+      max-size: 500
+      ttl: PT5M  # ISO-8601 duration format (5 minutes)
+    l2:
+      enabled: ${INTENT_CACHE_L2_ENABLED:true}
+      key-prefix: "intent:L2"
+      ttl: P7D   # ISO-8601 duration format (7 days)
+    l3:
+      enabled: ${INTENT_CACHE_L3_ENABLED:false}  # 默认禁用，需要 Redis 7.2+ with RediSearch
+      index-name: "intent_l3_vector_idx"
+      similarity-threshold: ${INTENT_CACHE_L3_SIMILARITY_THRESHOLD:0.92}
+      ttl: P30D  # ISO-8601 duration format (30 days)
+      vector-dimension: ${INTENT_CACHE_L3_VECTOR_DIMENSION:768}  # MiniMax: 768, Kimi: 1536
+    circuit-breaker:
+      enabled: ${INTENT_CACHE_CB_ENABLED:true}
+      failure-threshold: ${INTENT_CACHE_CB_FAILURE_THRESHOLD:10}
+      wait-duration-in-open-state: ${INTENT_CACHE_CB_WAIT_DURATION:60s}
+      success-threshold: ${INTENT_CACHE_CB_SUCCESS_THRESHOLD:3}
+      sliding-window-size: ${INTENT_CACHE_CB_WINDOW_SIZE:100}
+
+# Actuator / Micrometer Configuration
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus  # 暴露关键端点
+      base-path: /actuator  # 基础路径
+  endpoint:
+    health:
+      show-details: when-authorized  # 认证后显示详细健康信息
+    metrics:
+      enabled: true
+    prometheus:
+      enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    export:
+      prometheus:
+        enabled: true
+        descriptions: true
 
 # JWT Configuration
 jwt:

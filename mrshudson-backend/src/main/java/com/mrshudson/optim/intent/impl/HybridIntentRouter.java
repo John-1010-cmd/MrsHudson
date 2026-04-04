@@ -1,6 +1,8 @@
 package com.mrshudson.optim.intent.impl;
 
 import com.mrshudson.optim.config.OptimProperties;
+import com.mrshudson.optim.intent.cache.IntentCacheStore;
+import com.mrshudson.optim.intent.cache.dto.IntentCacheEntry;
 import com.mrshudson.optim.intent.handler.AbstractIntentHandler;
 import com.mrshudson.optim.intent.IntentHandler;
 import com.mrshudson.optim.intent.IntentRouter;
@@ -17,6 +19,7 @@ import org.springframework.stereotype.Component;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -33,6 +36,7 @@ public class HybridIntentRouter implements IntentRouter {
     private final OptimProperties optimProperties;
     private final List<IntentHandler> handlers;
     private final MetricsService metricsService;
+    private final IntentCacheStore intentCacheStore;
 
     // 统计信息
     private final AtomicLong ruleLayerCalls = new AtomicLong(0);
@@ -54,10 +58,31 @@ public class HybridIntentRouter implements IntentRouter {
         long startTime = System.currentTimeMillis();
         log.debug("开始意图路由，用户ID: {}, 查询: {}", userId, query);
 
+        // L2 缓存查询：IntentCacheStore
+        if (intentCacheStore != null && userId != null) {
+            Optional<IntentCacheEntry> cacheResult = intentCacheStore.lookup(query, userId);
+            if (cacheResult.isPresent()) {
+                IntentCacheEntry entry = cacheResult.get();
+                log.debug("缓存命中，用户ID: {}, 意图: {}, 耗时: {}ms",
+                    userId, entry.getIntentType(), System.currentTimeMillis() - startTime);
+                return RouteResult.builder()
+                    .handled(true)
+                    .response(null) // 缓存命中不返回响应，只返回意图识别结果
+                    .intentType(IntentType.valueOf(entry.getIntentType()))
+                    .confidence(entry.getConfidence())
+                    .parameters(Map.of()) // 简化处理，实际可从缓存恢复参数
+                    .routerLayer("intent_cache")
+                    .processTimeMs(System.currentTimeMillis() - startTime)
+                    .build();
+            }
+        }
+
         // 第1层：规则提取
         RouteResult ruleResult = tryRuleLayer(userId, query);
         if (ruleResult != null && ruleResult.isHandled()) {
             log.debug("规则层处理成功，耗时: {}ms", System.currentTimeMillis() - startTime);
+            // 缓存结果
+            cacheResult(userId, query, ruleResult);
             return copyWithProcessTime(ruleResult, System.currentTimeMillis() - startTime);
         }
 
@@ -303,6 +328,29 @@ public class HybridIntentRouter implements IntentRouter {
         fullAiCalls.set(0);
         fullAiSuccess.set(0);
         log.info("意图路由器统计信息已重置");
+    }
+
+    /**
+     * 缓存路由结果
+     */
+    private void cacheResult(Long userId, String query, RouteResult result) {
+        if (intentCacheStore == null || userId == null || result == null) {
+            return;
+        }
+        try {
+            IntentCacheEntry entry = IntentCacheEntry.builder()
+                .userId(userId)
+                .intentType(result.getIntentType().name())
+                .confidence(result.getConfidence())
+                .needsClarification(false)
+                .createdAt(java.time.LocalDateTime.now())
+                .ttlSeconds((int) java.time.Duration.ofDays(7).getSeconds()) // L2 TTL
+                .accessCount(1)
+                .build();
+            intentCacheStore.store(query, userId, entry);
+        } catch (Exception e) {
+            log.warn("缓存结果失败: {}", e.getMessage());
+        }
     }
 
     /**
