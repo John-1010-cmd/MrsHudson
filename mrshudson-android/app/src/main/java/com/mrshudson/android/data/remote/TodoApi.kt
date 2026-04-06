@@ -1,5 +1,6 @@
 package com.mrshudson.android.data.remote
 
+import com.mrshudson.android.data.remote.dto.CompleteTodoRequest
 import com.mrshudson.android.data.remote.dto.CreateTodoRequest
 import com.mrshudson.android.data.remote.dto.TodoDto
 import com.mrshudson.android.data.remote.dto.UpdateTodoRequest
@@ -7,6 +8,7 @@ import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.PUT
 import retrofit2.http.Path
@@ -71,15 +73,17 @@ interface TodoApi {
 
     /**
      * 完成待办事项
-     * 将指定的待办事项标记为已完成
+     * 将指定的待办事项标记为已完成或取消完成
      *
      * @param id 待办ID
-     * @return 完成结果
+     * @param request 完成请求（completed=true 标记完成，false 取消完成）
+     * @return 更新后的待办事项信息
      */
-    @PUT("todos/{id}/complete")
+    @PATCH("todos/{id}/complete")
     suspend fun completeTodo(
-        @Path("id") id: Long
-    ): Response<ResultDto<Unit>>
+        @Path("id") id: Long,
+        @Body request: CompleteTodoRequest
+    ): Response<ResultDto<TodoDto>>
 
     /**
      * 删除待办事项

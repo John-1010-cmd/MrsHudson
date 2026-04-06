@@ -3,10 +3,24 @@ server:
   servlet:
     session:
       timeout: 7d
+    # 强制使用 UTF-8 编码（解决中文乱码）
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
 
 spring:
   application:
     name: mrshudson
+  # 强制使用 UTF-8 编码
+  banner:
+    charset: UTF-8
+  main:
+    banner-mode: console
+  # 输出编码配置
+  output:
+    ansi:
+      enabled: always
 
   # Database
   datasource:
@@ -44,19 +58,17 @@ mybatis-plus:
       logic-delete-value: 1
       logic-not-delete-value: 0
 
-# Logging
+# Logging (配置在 logback-spring.xml 中)
 logging:
   level:
     com.mrshudson: DEBUG
     org.springframework.web: INFO
-  pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
 
 # AI Model Configuration
 # 支持: kimi, minimax
 # 备选: zhipu(智谱GLM4), qwen(通义千问) - 暂未实现
 ai:
-  provider: ${AI_PROVIDER:minimax}
+  provider: ${AI_PROVIDER:kimi}
   kimi:
     api-key: ${KIMI_API_KEY:}
     base-url: https://api.moonshot.cn/v1

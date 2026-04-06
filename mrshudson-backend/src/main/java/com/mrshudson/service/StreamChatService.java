@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -151,7 +152,9 @@ public class StreamChatService {
 
     // 5. 仅在路由未处理时检查是否需要澄清（使用 IntentConfidenceEvaluator）
     if (!routeResult.isHandled()) {
-      IntentResult intentResult = intentConfidenceEvaluator.evaluate(userMessage, intentType);
+      // 传入路由结果中的参数，如果成功提取到参数则提升置信度
+      IntentResult intentResult = intentConfidenceEvaluator.evaluate(userMessage, intentType, 
+          routeResult.getParameters());
       if (intentResult.needsClarification()) {
         String clarification = buildClarificationPrompt(userMessage, intentResult);
         if (clarification != null) {
@@ -210,15 +213,41 @@ public class StreamChatService {
 
     // 10. 订阅 AI 流，内容推入 mainSink，完成时触发异步 TTS
     AtomicInteger outputTokens = new AtomicInteger(0);
+    AtomicBoolean firstByteSent = new AtomicBoolean(false);
+    long startTime = System.currentTimeMillis();
+
+    // 规范 12.2：响应时间阈值日志（10s/30s/60s）
+    CompletableFuture.runAsync(() -> {
+      try {
+        while (!firstByteSent.get()) {
+          Thread.sleep(1000);
+          long elapsed = System.currentTimeMillis() - startTime;
+          if (elapsed >= 60000) {
+            log.warn("AI 响应超时（60s 无首字节），userId={}, messageId={}", userId, messageId);
+            break;
+          } else if (elapsed >= 30000) {
+            log.warn("AI 响应较慢（30s 无首字节），userId={}, messageId={}", userId, messageId);
+          } else if (elapsed >= 10000) {
+            log.info("AI 处理中（10s 无首字节），userId={}, messageId={}", userId, messageId);
+          }
+        }
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+    });
 
     aiStream.subscribe(chunk -> {
       outputTokens.addAndGet(tokenTrackerService.estimateTokens(chunk));
       // executeStreamingAiCallWithTools 内部已将 content 包装为 JSON 事件，直接转发
       mainSink.tryEmitNext(chunk);
+      // 规范 12.2：首字节发送后启动响应时间阈值日志
+      if (firstByteSent.compareAndSet(false, true)) {
+        log.info("AI 首字节已发送，开始计时，userId={}, messageId={}", userId, messageId);
+      }
     }, error -> {
       log.error("AI 流异常", error);
-      mainSink.tryEmitNext(SseFormatter.error(error.getMessage()));
-      mainSink.tryEmitNext(SseFormatter.done());
+      mainSink.tryEmitNext(SseFormatter.error(error.getMessage(), conversationId));
+      mainSink.tryEmitNext(SseFormatter.done(conversationId));
       mainSink.tryEmitComplete();
     }, () -> {
       // AI 内容流结束
@@ -228,6 +257,10 @@ public class StreamChatService {
 
       String finalContent = aiFinalContent.get();
       if (finalContent == null || finalContent.isEmpty()) {
+        // 规范要求：即使空内容也必须发送 content_done，保持事件序列完整
+        contentDoneEmitted.set(true);
+        mainSink.tryEmitNext(SseFormatter.contentDone(conversationId, messageId));
+        mainSink.tryEmitNext(SseFormatter.audioDone(null, false, null, conversationId, messageId)); // noaudio
         emitTokenUsageAndDone(mainSink, usage);
         return;
       }
@@ -545,7 +578,7 @@ public class StreamChatService {
       } else if (chunk.startsWith("[THINKING]")) {
         // 思考推理过程：发送 thinking 事件，不累加到 aiFinalContent
         String thinkingText = chunk.substring("[THINKING]".length());
-        log.debug("AI 思考过程: {}", thinkingText.substring(0, Math.min(50, thinkingText.length())));
+        log.info("AI 思考过程: {}", thinkingText.substring(0, Math.min(50, thinkingText.length())));
         sink.tryEmitNext(SseFormatter.thinking(thinkingText, conversationId, messageId));
       } else {
         // 正式回复：累加到 aiFinalContent，发送 content 事件
@@ -689,7 +722,7 @@ public class StreamChatService {
       } else if (chunk.startsWith("[THINKING]")) {
         // 思考推理过程：发送 thinking 事件，不累加到 aiFinalContent
         String thinkingText = chunk.substring("[THINKING]".length());
-        log.debug("AI 思考过程（继续）: {}", thinkingText.substring(0, Math.min(50, thinkingText.length())));
+        log.info("AI 思考过程（继续）: {}", thinkingText.substring(0, Math.min(50, thinkingText.length())));
         sink.tryEmitNext(SseFormatter.thinking(thinkingText, conversationId, messageId));
       } else {
         // 正式回复：累加到 aiFinalContent，发送 content 事件

@@ -355,23 +355,168 @@ public class HybridIntentRouter implements IntentRouter {
 
     /**
      * 简单的意图识别器
+     * 创建类意图优先于查询类意图匹配
+     * 特定实体关键词优先于通用创建关键词
      */
     private static class IntentRecognizer {
+
+        // 创建类关键词 - 出现这些词时优先考虑创建意图
+        private static final String[] CREATE_KEYWORDS = {
+            "创建", "添加", "新建", "增加", "记", "记录"
+        };
+
+        // 删除/取消类关键词
+        private static final String[] DELETE_KEYWORDS = {
+            "删除", "取消", "移除", "删掉", "去掉"
+        };
+
+        // 完成类关键词
+        private static final String[] COMPLETE_KEYWORDS = {
+            "完成", "做完", "划掉", "结束", "搞定"
+        };
+
+        // 待办特定关键词（高优先级）
+        private static final String[] TODO_SPECIFIC_KEYWORDS = {
+            "待办", "任务", "todo"
+        };
+
+        // 日历特定关键词（高优先级）
+        private static final String[] CALENDAR_SPECIFIC_KEYWORDS = {
+            "会议", "日程", "约会", "日历"
+        };
+
         static IntentType recognize(String query) {
             String lowerQuery = query.toLowerCase();
+            log.debug("[IntentRecognizer] 开始识别意图: {}", query);
 
-            // 检查各意图类型的关键词
+            // 第一步：优先检查特定实体关键词（避免"创建"通用词的歧义）
+            // 检查待办相关（高优先级）
+            for (String keyword : TODO_SPECIFIC_KEYWORDS) {
+                if (lowerQuery.contains(keyword)) {
+                    log.debug("[IntentRecognizer] 匹配到待办关键词: {}", keyword);
+                    // 同时有创建关键词，确定是创建待办
+                    if (hasCreateKeyword(lowerQuery)) {
+                        log.debug("[IntentRecognizer] 识别为 TODO_CREATE（有创建关键词）");
+                        return IntentType.TODO_CREATE;
+                    }
+                    // 没有创建关键词，可能是待办查询
+                    log.debug("[IntentRecognizer] 识别为 TODO_QUERY（无创建关键词）");
+                    return IntentType.TODO_QUERY;
+                }
+            }
+
+            // 检查日历相关（高优先级）
+            for (String keyword : CALENDAR_SPECIFIC_KEYWORDS) {
+                if (lowerQuery.contains(keyword)) {
+                    log.debug("[IntentRecognizer] 匹配到日历关键词: {}", keyword);
+                    // 同时有创建关键词，确定是创建日程
+                    if (hasCreateKeyword(lowerQuery)) {
+                        log.debug("[IntentRecognizer] 识别为 CALENDAR_CREATE（有创建关键词）");
+                        return IntentType.CALENDAR_CREATE;
+                    }
+                    // 没有创建关键词，可能是日程查询
+                    log.debug("[IntentRecognizer] 识别为 CALENDAR_QUERY（无创建关键词）");
+                    return IntentType.CALENDAR_QUERY;
+                }
+            }
+
+            // 第二步：检查是否是创建类操作（通用创建关键词）
+            if (hasCreateKeyword(lowerQuery)) {
+                log.debug("[IntentRecognizer] 有创建关键词，检查通用匹配");
+                // 检查日历创建
+                if (containsAnyKeyword(lowerQuery, IntentType.CALENDAR_CREATE.getKeywords())) {
+                    log.debug("[IntentRecognizer] 识别为 CALENDAR_CREATE（通用匹配）");
+                    return IntentType.CALENDAR_CREATE;
+                }
+                // 检查待办创建
+                if (containsAnyKeyword(lowerQuery, IntentType.TODO_CREATE.getKeywords())) {
+                    log.debug("[IntentRecognizer] 识别为 TODO_CREATE（通用匹配）");
+                    return IntentType.TODO_CREATE;
+                }
+            }
+
+            // 第三步：检查删除/取消操作
+            if (hasDeleteKeyword(lowerQuery)) {
+                log.debug("[IntentRecognizer] 有删除关键词，检查通用匹配");
+                // 优先检查日程删除
+                if (containsAnyKeyword(lowerQuery, IntentType.CALENDAR_DELETE.getKeywords())) {
+                    log.debug("[IntentRecognizer] 识别为 CALENDAR_DELETE");
+                    return IntentType.CALENDAR_DELETE;
+                }
+                // 检查待办删除
+                if (containsAnyKeyword(lowerQuery, IntentType.TODO_DELETE.getKeywords())) {
+                    log.debug("[IntentRecognizer] 识别为 TODO_DELETE");
+                    return IntentType.TODO_DELETE;
+                }
+            }
+
+            // 第四步：检查完成操作
+            if (hasCompleteKeyword(lowerQuery)) {
+                log.debug("[IntentRecognizer] 有完成关键词，检查通用匹配");
+                // 检查待办完成
+                if (containsAnyKeyword(lowerQuery, IntentType.TODO_COMPLETE.getKeywords())) {
+                    log.debug("[IntentRecognizer] 识别为 TODO_COMPLETE");
+                    return IntentType.TODO_COMPLETE;
+                }
+            }
+
+            // 第五步：按原有顺序检查其他意图类型
             for (IntentType type : IntentType.values()) {
+                // 跳过创建类意图（已处理）
+                if (type == IntentType.CALENDAR_CREATE || type == IntentType.TODO_CREATE) {
+                    continue;
+                }
                 if (type.getKeywords() != null && !type.getKeywords().isEmpty()) {
                     for (String keyword : type.getKeywords()) {
                         if (lowerQuery.contains(keyword.toLowerCase())) {
+                            log.debug("[IntentRecognizer] 识别为 {}（关键词: {}）", type, keyword);
                             return type;
                         }
                     }
                 }
             }
 
+            log.debug("[IntentRecognizer] 无法识别意图，返回 UNKNOWN");
             return IntentType.UNKNOWN;
+        }
+
+        private static boolean hasCreateKeyword(String query) {
+            for (String keyword : CREATE_KEYWORDS) {
+                if (query.contains(keyword)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static boolean hasDeleteKeyword(String query) {
+            for (String keyword : DELETE_KEYWORDS) {
+                if (query.contains(keyword)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static boolean hasCompleteKeyword(String query) {
+            for (String keyword : COMPLETE_KEYWORDS) {
+                if (query.contains(keyword)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static boolean containsAnyKeyword(String query, java.util.Set<String> keywords) {
+            if (keywords == null || keywords.isEmpty()) {
+                return false;
+            }
+            for (String keyword : keywords) {
+                if (query.contains(keyword.toLowerCase())) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 }

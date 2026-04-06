@@ -185,9 +185,10 @@ public class SemanticCacheService implements CostOptimizer {
             redisTemplate.opsForValue().set(cacheKey, response, Duration.ofHours(cacheTtlHours));
 
             // 同时保存关键词用于语义匹配
+            // key格式：ai:semantic_cache:{userId}:keyword:{hash}，与checkSemanticMatch查询模式一致
             String normalizedMessage = normalizeText(message);
             Set<String> keywords = extractKeywords(normalizedMessage);
-            String keywordKey = cacheKey + ":keyword:";
+            String keywordKey = CACHE_PREFIX + userId + ":keyword:" + Integer.toHexString(message.hashCode());
             redisTemplate.opsForValue().set(keywordKey, String.join(",", keywords), Duration.ofHours(cacheTtlHours));
 
             log.debug("缓存已保存，用户: {}, 关键词数: {}", userId, keywords.size());

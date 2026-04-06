@@ -34,21 +34,16 @@ import javax.inject.Singleton
 @Singleton
 class ChatRepositoryImpl @Inject constructor(
     private val chatApi: ChatApi,
-    private val okHttpClient: OkHttpClient
+    private val okHttpClient: OkHttpClient,
+    @javax.inject.Named("sse") private val sseOkHttpClient: OkHttpClient,
+    private val baseUrl: String
 ) : ChatRepository, BaseApi {
 
     /**
      * 获取 API Base URL
      * 用于 SseClient 构建流式请求 URL
      */
-    private fun getBaseUrl(): String {
-        return chatApi.let {
-            val retrofitField = it::class.java.getDeclaredField("retrofit")
-            retrofitField.isAccessible = true
-            val retrofit = retrofitField.get(it) as retrofit2.Retrofit
-            retrofit.baseUrl().toString()
-        }
-    }
+    private fun getBaseUrl(): String = baseUrl
 
     override fun sendMessage(message: String, conversationId: Long?): Flow<ApiResult<SendMessageResult>> = flow {
         emit(ApiResult.Loading)
@@ -89,22 +84,45 @@ class ChatRepositoryImpl @Inject constructor(
     override fun getHistory(conversationId: Long, limit: Int): Flow<ApiResult<List<Message>>> = flow {
         emit(ApiResult.Loading)
         try {
+            android.util.Log.d("ChatRepository", "开始获取历史消息: conversationId=$conversationId, limit=$limit")
             val response = chatApi.getHistory(conversationId, limit)
+            android.util.Log.d("ChatRepository", "获取历史消息响应: ${response.code()}")
+            
             val result = handleResultResponse(response)
 
             when (result) {
                 is ApiResult.Success -> {
                     val historyResponse = result.data
+                    android.util.Log.d("ChatRepository", "历史消息响应数据: $historyResponse")
+                    
                     val messageDtos = historyResponse.messages ?: emptyList()
-                    val messages = messageDtos.map { it.toDomainModel() }
+                    android.util.Log.d("ChatRepository", "消息DTO列表大小: ${messageDtos.size}")
+                    
+                    val messages = messageDtos.mapIndexed { index, dto ->
+                        try {
+                            dto.toDomainModel()
+                        } catch (e: Exception) {
+                            android.util.Log.e("ChatRepository", "转换第 $index 条消息失败: $dto", e)
+                            // 返回一个默认消息，避免整个列表加载失败
+                            createMessage(
+                                id = index.toLong(),
+                                role = "assistant",
+                                content = "[消息加载失败]",
+                                createdAt = System.currentTimeMillis().toString()
+                            )
+                        }
+                    }
+                    android.util.Log.d("ChatRepository", "成功转换 ${messages.size} 条消息")
                     emit(ApiResult.Success(messages))
                 }
                 is ApiResult.Error -> {
+                    android.util.Log.e("ChatRepository", "获取历史消息失败: ${result.code}, ${result.message}")
                     emit(ApiResult.Error(result.code, result.message))
                 }
                 is ApiResult.Loading -> { /* ignore */ }
             }
         } catch (e: Exception) {
+            android.util.Log.e("ChatRepository", "获取历史消息异常", e)
             emit(ApiResult.Error(-1, e.message ?: "获取历史消息失败，请检查网络连接"))
         }
     }
@@ -180,10 +198,11 @@ class ChatRepositoryImpl @Inject constructor(
     private fun SendMessageResponse.toDomainModel(): Message {
         // 解析 messageId，支持普通数字和 cache_ 前缀格式
         val parsedId = try {
-            if (messageId.startsWith("cache_")) {
-                messageId.removePrefix("cache_").toLong()
+            val msgId = messageId ?: System.currentTimeMillis().toString()
+            if (msgId.startsWith("cache_")) {
+                msgId.removePrefix("cache_").toLong()
             } else {
-                messageId.toLong()
+                msgId.toLong()
             }
         } catch (e: NumberFormatException) {
             System.currentTimeMillis() // 解析失败使用时间戳
@@ -192,8 +211,8 @@ class ChatRepositoryImpl @Inject constructor(
         return createMessage(
             id = parsedId,
             role = "assistant", // 发送消息返回的都是 AI 回复
-            content = content,
-            createdAt = createdAt,
+            content = content ?: "",
+            createdAt = createdAt ?: System.currentTimeMillis().toString(),
             audioUrl = audioUrl
         )
     }
@@ -203,18 +222,63 @@ class ChatRepositoryImpl @Inject constructor(
      * 后端返回: id (String), role, content, createdAt, functionCall, audioUrl, thinkingContent
      */
     private fun MessageDto.toDomainModel(): Message {
+        // 修复 localhost URL
+        val fixedAudioUrl = audioUrl?.let { fixLocalhostUrl(it) }
+        
+        // 安全解析 messageId，支持普通数字和 cache_ 前缀格式
+        val parsedId = try {
+            val idValue = id ?: System.currentTimeMillis().toString()
+            if (idValue.startsWith("cache_")) {
+                idValue.removePrefix("cache_").toLong()
+            } else {
+                idValue.toLong()
+            }
+        } catch (e: NumberFormatException) {
+            android.util.Log.e("ChatRepository", "无法解析消息ID: $id，使用时间戳代替")
+            System.currentTimeMillis()
+        }
+        
         val msg = createMessage(
-            id = id.toLong(),
-            role = role,
-            content = content,
-            createdAt = createdAt,
-            audioUrl = audioUrl,
+            id = parsedId,
+            role = role ?: "assistant", // 默认角色
+            content = content ?: "", // 空内容保护
+            createdAt = createdAt ?: System.currentTimeMillis().toString(), // 默认当前时间
+            audioUrl = fixedAudioUrl,
             thinkingContent = thinkingContent
         )
         // 历史消息：根据 audioUrl 设置 ttsStatus
         return msg.copy(
-            ttsStatus = if (!audioUrl.isNullOrBlank()) TtsStatus.READY else TtsStatus.NO_AUDIO
+            ttsStatus = if (!fixedAudioUrl.isNullOrBlank()) TtsStatus.READY else TtsStatus.NO_AUDIO
         )
+    }
+    
+    /**
+     * 修复 localhost URL：将 localhost:port/127.0.0.1:port 替换为实际服务器地址
+     * 正确处理端口号，避免重复端口问题
+     */
+    private fun fixLocalhostUrl(url: String): String {
+        val baseUrl = getBaseUrl()
+        // 从 baseUrl 提取服务器主机（包括端口），去掉 /api/ 等路径
+        // e.g., "http://10.0.2.2:8080/api/" -> "10.0.2.2:8080"
+        val serverHost = baseUrl.replace(Regex("https?://"), "")
+            .replace(Regex("/.*$"), "")
+        
+        android.util.Log.d("ChatRepository", "fixLocalhostUrl: 原始URL=$url, baseUrl=$baseUrl, serverHost=$serverHost")
+        
+        val result = when {
+            url.contains("localhost") -> {
+                // 替换 "localhost:port" 或 "localhost" 为实际服务器地址
+                url.replace(Regex("localhost(:\\d+)?"), serverHost)
+            }
+            url.contains("127.0.0.1") -> {
+                // 替换 "127.0.0.1:port" 或 "127.0.0.1" 为实际服务器地址
+                url.replace(Regex("127\\.0\\.0\\.1(:\\d+)?"), serverHost)
+            }
+            else -> url
+        }
+        
+        android.util.Log.d("ChatRepository", "fixLocalhostUrl: 结果URL=$result")
+        return result
     }
 
     /**
@@ -222,27 +286,37 @@ class ChatRepositoryImpl @Inject constructor(
      */
     private fun ConversationDto.toDomainModel(): Conversation {
         return createConversation(
-            id = id,
-            title = title,
+            id = id ?: 0L,
+            title = title ?: "新对话",
             provider = provider,
             lastMessageAt = lastMessageAt,
             createdAt = createdAt
         )
     }
 
-    override fun streamMessage(message: String, conversationId: Long?): Flow<StreamEvent> {
-        // 使用 SseClient 统一处理 SSE 流
-        val sseClient = SseClient(okHttpClient, getBaseUrl())
-        val requestBody = Gson().toJson(
-            SendMessageRequest(message = message, conversationId = conversationId)
-        )
+    override fun streamMessage(message: String, conversationId: Long?): Flow<StreamEvent> = flow {
+        try {
+            val baseUrl = getBaseUrl()
+            android.util.Log.d("ChatRepository", "SSE baseUrl: $baseUrl")
 
-        android.util.Log.d("ChatRepository", "streamMessage 使用 SseClient")
+            // 使用 SseClient 统一处理 SSE 流（使用 SSE 专用的 OkHttpClient）
+            val sseClient = SseClient(sseOkHttpClient, baseUrl)
+            val requestBody = Gson().toJson(
+                SendMessageRequest(message = message, conversationId = conversationId)
+            )
 
-        return sseClient.stream(
-            endpoint = "chat/stream",
-            requestBody = requestBody
-        )
+            android.util.Log.d("ChatRepository", "streamMessage 请求体: $requestBody")
+
+            sseClient.stream(
+                endpoint = "chat/stream",
+                requestBody = requestBody
+            ).collect { event ->
+                emit(event)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("ChatRepository", "streamMessage 异常", e)
+            emit(StreamEvent.Error(conversationId, "发送消息失败: ${e.message}"))
+        }
     }
 
     override suspend fun textToSpeech(request: TtsRequest): ApiResult<TtsResponse> {

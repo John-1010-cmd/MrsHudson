@@ -277,8 +277,15 @@ public class KimiClient {
                 }
 
                 // 降级：读 message 字段（非流式兼容）
+                // 注意：Kimi 的思考模型 reasoning_content 可能在 message 字段中
                 var message = choice.getJSONObject("message");
                 if (message != null) {
+                    // 优先检查 reasoning_content
+                    String reasoningContent = message.getString("reasoning_content");
+                    if (reasoningContent != null && !reasoningContent.isEmpty()) {
+                        log.debug("Kimi message 字段发现 reasoning_content");
+                        return Flux.just("[THINKING]" + reasoningContent);
+                    }
                     String content = message.getString("content");
                     if (content != null && !content.isEmpty()) {
                         return Flux.just(content);

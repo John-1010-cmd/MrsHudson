@@ -67,3 +67,12 @@ data class UpdateTodoRequest(
     @SerializedName("due_date")
     val dueDate: String? = null
 )
+
+/**
+ * 完成/取消完成待办事项请求
+ *
+ * @property completed 是否完成（true=完成，false=取消完成）
+ */
+data class CompleteTodoRequest(
+    val completed: Boolean
+)

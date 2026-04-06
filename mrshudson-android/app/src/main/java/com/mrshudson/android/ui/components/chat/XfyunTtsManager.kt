@@ -53,6 +53,7 @@ class XfyunTtsManager(private val context: Context) : TextToSpeech.OnInitListene
     private var textToSpeech: TextToSpeech? = null
     private var isTtsReady = false
     private var ttsInitError: String? = null
+    private var initFailed = false  // 初始化失败标记，防止重复尝试
 
     // 缓存目录
     val cacheDir: File by lazy {
@@ -72,26 +73,37 @@ class XfyunTtsManager(private val context: Context) : TextToSpeech.OnInitListene
     /**
      * 初始化 TTS 引擎
      */
-    fun initialize() {
-        // 初始化 Android 系统 TTS
-        textToSpeech = TextToSpeech(context, this)
-        Log.i(TAG, "正在初始化系统 TTS...")
-    }
+        fun initialize() {
+            if (initFailed) {
+                Log.w(TAG, "系统 TTS 初始化之前已彻底失败，跳过重试")
+                return
+            }
+            try {
+                // 初始化 Android 系统 TTS
+                textToSpeech = TextToSpeech(context, this)
+                Log.i(TAG, "正在初始化系统 TTS...")
+            } catch (e: Exception) {
+                Log.e(TAG, "系统 TTS 创建异常，降级处理", e)
+                initFailed = true
+                ttsInitError = "系统 TTS 创建异常: ${e.message}"
+            }
+        }
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             // 设置中文语言
             val result = textToSpeech?.setLanguage(Locale.CHINA)
             if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                Log.w(TAG, "系统 TTS 不支持中文")
+                Log.w(TAG, "系统 TTS 不支持中文，降级处理")
                 ttsInitError = "系统 TTS 不支持中文"
             } else {
                 isTtsReady = true
-                Log.i(TAG, "系统 TTS 初始化成功，可以使用")
+                Log.i(TAG, "系统 TTS 初始化成功")
             }
         } else {
-            Log.e(TAG, "系统 TTS 初始化失败: $status")
+            Log.e(TAG, "系统 TTS 初始化失败: $status，降级处理")
             ttsInitError = "系统 TTS 初始化失败"
+            initFailed = true  // 标记彻底失败，防止重复尝试消耗资源
         }
 
         // 检查讯飞配置

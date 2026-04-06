@@ -101,7 +101,48 @@ public class IntentConfidenceEvaluator {
      * @return 意图识别结果
      */
     public IntentResult evaluate(String message, IntentType intent) {
+        return evaluate(message, intent, null);
+    }
+
+    /**
+     * 评估并返回完整结果（考虑参数提取结果）
+     *
+     * @param message 用户消息
+     * @param intent 意图类型
+     * @param extractedParams 提取到的参数（可选）
+     * @return 意图识别结果
+     */
+    public IntentResult evaluate(String message, IntentType intent, Map<String, Object> extractedParams) {
         double confidence = calculateConfidence(message, intent);
+
+        // 如果成功提取到关键参数，提高置信度
+        if (extractedParams != null && !extractedParams.isEmpty()) {
+            boolean hasKeyParam = false;
+            switch (intent) {
+                case TODO_CREATE:
+                    hasKeyParam = extractedParams.containsKey("title") && 
+                                 extractedParams.get("title") != null &&
+                                 !extractedParams.get("title").toString().isEmpty();
+                    break;
+                case CALENDAR_CREATE:
+                    hasKeyParam = extractedParams.containsKey("title");
+                    break;
+                case WEATHER_QUERY:
+                    hasKeyParam = extractedParams.containsKey("city");
+                    break;
+                case ROUTE_QUERY:
+                    hasKeyParam = extractedParams.containsKey("destination");
+                    break;
+                default:
+                    hasKeyParam = !extractedParams.isEmpty();
+            }
+            
+            if (hasKeyParam) {
+                // 成功提取关键参数，置信度提升到 0.85 以上
+                confidence = Math.max(confidence, 0.85);
+                log.debug("成功提取关键参数，提升置信度至: {}", confidence);
+            }
+        }
 
         // 检查是否需要返回候选意图
         List<IntentType> candidates = null;

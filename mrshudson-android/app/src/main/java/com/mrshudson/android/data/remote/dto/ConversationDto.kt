@@ -12,8 +12,8 @@ import com.google.gson.annotations.SerializedName
  * @property createdAt 创建时间
  */
 data class ConversationDto(
-    val id: Long,
-    val title: String,
+    val id: Long? = null,
+    val title: String? = null,
     val provider: String? = null,
     @SerializedName("last_message_at")
     val lastMessageAt: String? = null,

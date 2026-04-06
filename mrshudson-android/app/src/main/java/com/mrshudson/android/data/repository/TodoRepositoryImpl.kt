@@ -5,6 +5,7 @@ import com.mrshudson.android.data.local.entity.TodoEntity
 import com.mrshudson.android.data.remote.ApiResult
 import com.mrshudson.android.data.remote.BaseApi
 import com.mrshudson.android.data.remote.TodoApi
+import com.mrshudson.android.data.remote.dto.CompleteTodoRequest
 import com.mrshudson.android.data.remote.dto.CreateTodoRequest
 import com.mrshudson.android.data.remote.dto.UpdateTodoRequest
 import com.mrshudson.android.data.remote.dto.TodoDto
@@ -229,15 +230,18 @@ class TodoRepositoryImpl @Inject constructor(
     override fun completeTodo(id: Long): Flow<ApiResult<Unit>> = flow {
         emit(ApiResult.Loading)
 
+        val request = CompleteTodoRequest(completed = true)
+
         if (syncManager.isNetworkAvailable.first()) {
             try {
-                val response = todoApi.completeTodo(id)
+                val response = todoApi.completeTodo(id, request)
                 val result = handleResultResponse(response)
 
                 when (result) {
                     is ApiResult.Success -> {
-                        // 更新本地状态
-                        todoDao.updateStatus(id, "COMPLETED", java.time.LocalDateTime.now().toString())
+                        // 使用服务器返回的数据更新本地状态
+                        val todoDto = result.data
+                        todoDao.insert(todoDto.toEntity())
                         emit(ApiResult.Success(Unit))
                     }
                     is ApiResult.Error -> {

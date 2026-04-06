@@ -65,10 +65,10 @@ data class Message(
     val role: MessageRole,
     val content: String,
     val thinkingContent: String? = null,  // 思考过程，null 表示无或历史消息
-    val isThinkingExpanded: Boolean = false, // 流式时默认 true，历史消息默认 false
+    val isThinkingExpanded: Boolean = true, // 流式接收时默认展开，历史消息加载时应显式设为 false
     val createdAt: LocalDateTime,
     val audioUrl: String? = null,
-    val ttsStatus: TtsStatus = TtsStatus.NO_AUDIO,
+    val ttsStatus: TtsStatus = TtsStatus.PENDING,
     val audioPlayState: AudioPlayState = AudioPlayState.IDLE,
     val pausedPosition: Long = 0L
 ) {
@@ -149,6 +149,7 @@ fun createMessage(
         thinkingContent = thinkingContent,
         isThinkingExpanded = false, // 历史消息默认折叠
         createdAt = dateTime,
-        audioUrl = audioUrl
+        audioUrl = audioUrl,
+        ttsStatus = if (!audioUrl.isNullOrBlank()) TtsStatus.READY else TtsStatus.NO_AUDIO
     )
 }

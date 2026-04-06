@@ -8,31 +8,22 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Logout
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalDrawerSheet
-import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -46,13 +37,12 @@ import com.mrshudson.android.ui.screens.chat.ChatScreen
 import com.mrshudson.android.ui.screens.route.RouteScreen
 import com.mrshudson.android.ui.screens.todo.TodoScreen
 import com.mrshudson.android.ui.screens.weather.WeatherScreen
-import com.mrshudson.android.ui.screens.reminder.ReminderScreen
 import com.mrshudson.android.ui.theme.MrsHudsonTheme
-import kotlinx.coroutines.launch
 
 /**
  * 主页面
- * 包含侧边栏、底部导航栏和五个主要功能模块的切换
+ * 包含底部导航栏和主要功能模块的切换
+ * 侧边栏已隐藏（暂时禁用）
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,61 +55,26 @@ fun MainScreen(
     var selectedNavItem by rememberSaveable { mutableStateOf(BottomNavItem.CHAT) }
     var showMenu by rememberSaveable { mutableStateOf(false) }
 
-    // 侧边栏状态
-    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-    val scope = rememberCoroutineScope()
+    // 侧边栏相关代码已隐藏
+    // val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    // val scope = rememberCoroutineScope()
 
-    // 侧边栏内容
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            ModalDrawerSheet(
-                modifier = Modifier.fillMaxWidth(0.85f)
-            ) {
-                DrawerContent(
-                    selectedNavItem = selectedNavItem,
-                    onNavItemSelected = { item ->
-                        selectedNavItem = item
-                        scope.launch { drawerState.close() }
-                    },
-                    onLogout = {
-                        viewModel.logout()
-                        onLogout()
-                    },
-                    onNavigateToSettings = {
-                        scope.launch { drawerState.close() }
-                        onNavigateToSettings()
-                    }
-                )
-            }
-        },
-        gesturesEnabled = drawerState.isOpen
-    ) {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = {
-                        Text(
-                            text = "MrsHudson",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
-                        )
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    ),
-                    navigationIcon = {
-                        // 侧边栏菜单按钮
-                        IconButton(onClick = {
-                            scope.launch { drawerState.open() }
-                        }) {
-                            Icon(
-                                imageVector = Icons.Default.Menu,
-                                contentDescription = "打开菜单"
-                            )
-                        }
-                    },
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        text = "MrsHudson",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                ),
+                // 侧边栏菜单按钮已隐藏
+                navigationIcon = { },
                     actions = {
                         // 设置/更多菜单按钮
                         IconButton(onClick = { showMenu = true }) {
@@ -190,12 +145,10 @@ fun MainScreen(
                 modifier = Modifier.padding(innerPadding)
             )
         }
-    }
 }
 
-/**
- * 侧边栏内容
- */
+// 侧边栏内容已隐藏（暂时禁用）
+/*
 @Composable
 private fun DrawerContent(
     selectedNavItem: BottomNavItem,
@@ -309,6 +262,7 @@ private fun DrawerContent(
         )
     }
 }
+*/
 
 /**
  * 主内容区域
@@ -325,7 +279,7 @@ private fun MainContent(
         BottomNavItem.TODO -> TodoScreen(modifier = modifier)
         BottomNavItem.WEATHER -> WeatherScreen(modifier = modifier)
         BottomNavItem.ROUTE -> RouteScreen(modifier = modifier)
-        BottomNavItem.REMINDER -> ReminderScreen(modifier = modifier)
+        // BottomNavItem.REMINDER -> ReminderScreen(modifier = modifier) // 已隐藏
     }
 }
 

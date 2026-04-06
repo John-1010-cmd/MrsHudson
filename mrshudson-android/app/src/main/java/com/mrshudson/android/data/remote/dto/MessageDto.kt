@@ -13,10 +13,10 @@ package com.mrshudson.android.data.remote.dto
  * @property thinkingContent 思考推理过程（可选，仅支持推理的模型返回）
  */
 data class MessageDto(
-    val id: String,
-    val role: String,
-    val content: String,
-    val createdAt: String,
+    val id: String? = null,
+    val role: String? = null,
+    val content: String? = null,
+    val createdAt: String? = null,
     val functionCall: String? = null,
     val audioUrl: String? = null,
     val thinkingContent: String? = null
@@ -33,10 +33,10 @@ data class MessageDto(
  * @property audioUrl 语音合成音频URL（AI消息可能有）
  */
 data class SendMessageResponse(
-    val messageId: String,
-    val content: String,
+    val messageId: String? = null,
+    val content: String? = null,
     val functionCalls: List<FunctionCallInfo>? = null,
-    val createdAt: String,
+    val createdAt: String? = null,
     val audioUrl: String? = null
 )
 

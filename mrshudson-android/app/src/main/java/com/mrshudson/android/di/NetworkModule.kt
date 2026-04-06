@@ -104,7 +104,7 @@ object NetworkModule {
     }
 
     /**
-     * 提供 OkHttpClient 实例
+     * 提供 OkHttpClient 实例（用于普通 API 请求）
      * 配置连接超时、读取超时和认证拦截器
      */
     @Provides
@@ -123,6 +123,31 @@ object NetworkModule {
             .addInterceptor(loggingInterceptor)  // 添加日志拦截器
             .build()
     }
+    
+    /**
+     * 提供 SSE 专用的 OkHttpClient 实例
+     * SSE 需要更长的读取超时（60s+），因为服务器推送事件可能间隔较长
+     * 注意：SSE 连接使用 EventSource，它会保持连接开放直到收到数据
+     */
+    @Provides
+    @Singleton
+    @javax.inject.Named("sse")
+    fun provideSseOkHttpClient(
+        authInterceptor: AuthInterceptor,
+        urlRewriteInterceptor: UrlRewriteInterceptor
+    ): OkHttpClient {
+        return OkHttpClient.Builder()
+            // SSE 连接保持时间更长，connectTimeout 保持 30s
+            .connectTimeout(30, TimeUnit.SECONDS)
+            // readTimeout 设置为 0 表示永不超时（由 SseClient 内部管理超时）
+            // 或者设置一个很大的值，确保不先于 SseClient 的 60s 超时触发
+            .readTimeout(0, TimeUnit.SECONDS) // 0 = 无超时，由 SseClient 内部管理
+            .writeTimeout(30, TimeUnit.SECONDS)
+            // SSE 不需要日志拦截器，避免日志过多
+            .addInterceptor(urlRewriteInterceptor)
+            .addInterceptor(authInterceptor)
+            .build()
+    }
 
     /**
      * 提供 GsonConverterFactory 实例
@@ -132,6 +157,16 @@ object NetworkModule {
     @Singleton
     fun provideGsonConverterFactory(): GsonConverterFactory {
         return GsonConverterFactory.create()
+    }
+
+    /**
+     * 提供 Base URL 字符串
+     * 用于 SseClient 和其他需要知道服务器地址的组件
+     */
+    @Provides
+    @Singleton
+    fun provideBaseUrl(@ApplicationContext context: Context): String {
+        return getBaseUrl(context)
     }
 
     /**

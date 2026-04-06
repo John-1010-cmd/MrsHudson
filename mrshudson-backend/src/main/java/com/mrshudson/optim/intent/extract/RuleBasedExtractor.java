@@ -138,9 +138,16 @@ public class RuleBasedExtractor implements ParameterExtractor {
                 case CALENDAR_CREATE:
                     parameters = extractCalendarParameters(query, missingParams);
                     break;
+                case CALENDAR_DELETE:
+                    parameters = extractDeleteCalendarParameters(query, missingParams);
+                    break;
                 case TODO_QUERY:
                 case TODO_CREATE:
                     parameters = extractTodoParameters(query, missingParams);
+                    break;
+                case TODO_DELETE:
+                case TODO_COMPLETE:
+                    parameters = extractTodoOperationParameters(query, missingParams, intentType);
                     break;
                 case ROUTE_QUERY:
                     parameters = extractRouteParameters(query, missingParams);
@@ -193,8 +200,11 @@ public class RuleBasedExtractor implements ParameterExtractor {
         return intentType == IntentType.WEATHER_QUERY
                 || intentType == IntentType.CALENDAR_QUERY
                 || intentType == IntentType.CALENDAR_CREATE
+                || intentType == IntentType.CALENDAR_DELETE
                 || intentType == IntentType.TODO_QUERY
                 || intentType == IntentType.TODO_CREATE
+                || intentType == IntentType.TODO_DELETE
+                || intentType == IntentType.TODO_COMPLETE
                 || intentType == IntentType.ROUTE_QUERY
                 || intentType == IntentType.SMALL_TALK;
     }
@@ -291,6 +301,7 @@ public class RuleBasedExtractor implements ParameterExtractor {
 
         // 提取标题/任务名称
         String title = extractTaskTitle(query);
+        log.debug("[{}] 提取待办标题: query='{}', title='{}'", EXTRACTOR_NAME, query, title);
         if (title != null) {
             params.put("title", title);
         } else {
@@ -317,6 +328,7 @@ public class RuleBasedExtractor implements ParameterExtractor {
             params.put("dueDateTime", dueDateTime.toString());
         }
 
+        log.debug("[{}] 待办参数提取结果: params={}, missing={}", EXTRACTOR_NAME, params, missingParams);
         return params;
     }
 
@@ -353,6 +365,125 @@ public class RuleBasedExtractor implements ParameterExtractor {
         }
 
         return params;
+    }
+
+    /**
+     * 提取删除日程参数
+     *
+     * @param query          用户查询
+     * @param missingParams  缺失参数列表
+     * @return 参数Map
+     */
+    private Map<String, Object> extractDeleteCalendarParameters(String query, List<String> missingParams) {
+        Map<String, Object> params = new HashMap<>();
+
+        // 尝试提取事件ID或标题
+        String eventId = extractEventId(query);
+        if (eventId != null) {
+            params.put("eventId", eventId);
+        } else {
+            // 尝试提取标题作为查询条件
+            String title = extractEventTitleForDelete(query);
+            if (title != null) {
+                params.put("title", title);
+            } else {
+                missingParams.add("eventId或title");
+            }
+        }
+
+        log.debug("[{}] 删除日程参数提取: params={}, missing={}", EXTRACTOR_NAME, params, missingParams);
+        return params;
+    }
+
+    /**
+     * 提取待办操作参数（删除/完成）
+     *
+     * @param query          用户查询
+     * @param missingParams  缺失参数列表
+     * @param intentType     意图类型
+     * @return 参数Map
+     */
+    private Map<String, Object> extractTodoOperationParameters(String query, List<String> missingParams, IntentType intentType) {
+        Map<String, Object> params = new HashMap<>();
+
+        // 尝试提取待办ID
+        String todoId = extractTodoId(query);
+        if (todoId != null) {
+            params.put("todoId", todoId);
+        } else {
+            // 尝试提取标题作为查询条件
+            String title = extractTodoTitleForOperation(query);
+            if (title != null) {
+                params.put("title", title);
+            } else {
+                missingParams.add("todoId或title");
+            }
+        }
+
+        // 记录操作类型
+        params.put("operation", intentType.name().toLowerCase());
+
+        log.debug("[{}] 待办操作参数提取: intent={}, params={}, missing={}", 
+                EXTRACTOR_NAME, intentType, params, missingParams);
+        return params;
+    }
+
+    /**
+     * 从查询中提取日程事件ID
+     */
+    private String extractEventId(String query) {
+        // 匹配"日程1"、"会议2"、"#1"等格式
+        Pattern idPattern = Pattern.compile("(?:日程|会议|事件|编号|#)\\s*(\\d+)");
+        Matcher matcher = idPattern.matcher(query);
+        if (matcher.find()) {
+            return matcher.group(1);
+        }
+        return null;
+    }
+
+    /**
+     * 从删除/取消查询中提取日程标题
+     */
+    private String extractEventTitleForDelete(String query) {
+        // 匹配"取消XX会议"、"删除XX日程"
+        Pattern titlePattern = Pattern.compile("(?:取消|删除|移除)\\s*(.+?)(?:会议|日程|安排|事件)?\\s*$");
+        Matcher matcher = titlePattern.matcher(query);
+        if (matcher.find()) {
+            String title = matcher.group(1).trim();
+            if (title.length() >= 2 && title.length() <= 50) {
+                return title;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 从查询中提取待办ID
+     */
+    private String extractTodoId(String query) {
+        // 匹配"待办1"、"任务2"、"#1"、"第1个"等格式
+        Pattern idPattern = Pattern.compile("(?:待办|任务|todo|#|第)\\s*(\\d+)");
+        Matcher matcher = idPattern.matcher(query);
+        if (matcher.find()) {
+            return matcher.group(1);
+        }
+        return null;
+    }
+
+    /**
+     * 从操作查询中提取待办标题
+     */
+    private String extractTodoTitleForOperation(String query) {
+        // 匹配"完成XX任务"、"删除XX待办"
+        Pattern titlePattern = Pattern.compile("(?:完成|做完|删除|取消|移除)\\s*(.+?)(?:待办|任务|todo)?\\s*$");
+        Matcher matcher = titlePattern.matcher(query);
+        if (matcher.find()) {
+            String title = matcher.group(1).trim();
+            if (title.length() >= 2 && title.length() <= 50) {
+                return title;
+            }
+        }
+        return null;
     }
 
     /**
@@ -604,20 +735,41 @@ public class RuleBasedExtractor implements ParameterExtractor {
      * 提取任务标题
      */
     private String extractTaskTitle(String query) {
-        // 匹配"添加一个XX待办/任务"模式
+        // 模式1: "添加/创建/新建一个待办/任务/提醒，XXX" - 提取逗号后的内容作为标题
+        Pattern commaPattern = Pattern.compile(
+                "(?:创建|添加|新建)\\s*(?:一个|个)?\\s*(?:待办|任务|提醒|事情)[，,、]\\s*(.+?)(?:$|\\s*(?:优先级|截止|期限|提醒))"
+        );
+        Matcher commaMatcher = commaPattern.matcher(query);
+        if (commaMatcher.find()) {
+            String title = commaMatcher.group(1).trim();
+            // 限制长度，避免提取过多内容
+            if (title.length() >= 2 && title.length() <= 100) {
+                return title;
+            }
+        }
+
+        // 模式2: "添加/创建/新建一个XX待办/任务" - XX是标题
+        // 注意：这个模式会匹配"添加一个修复安卓端bug的待办"这样的句子
         Pattern titlePattern = Pattern.compile(
-                "(?:创建|添加|新建)\\s*(?:一个|个)?\\s*([^\\s]{2,30})(?:待办|任务|提醒|事情)"
+                "(?:创建|添加|新建)\\s*(?:一个|个)?\\s*(.+?)(?:的)?(?:待办|任务|提醒|事情)(?:$|\\s|，|,)"
         );
         Matcher matcher = titlePattern.matcher(query);
         if (matcher.find()) {
-            return matcher.group(1);
+            String title = matcher.group(1).trim();
+            // 过滤掉纯量词的内容（如"一个"）
+            if (title.length() >= 2 && !title.equals("一个") && !title.equals("个")) {
+                return title;
+            }
         }
 
-        // 匹配"记得XX"模式
-        Pattern rememberPattern = Pattern.compile("记得([^\\s]{2,30})(?:要|去做|完成)?");
+        // 模式3: 匹配"记得XX"模式
+        Pattern rememberPattern = Pattern.compile("记得(.+?)(?:要|去做|完成|$)");
         Matcher rememberMatcher = rememberPattern.matcher(query);
         if (rememberMatcher.find()) {
-            return rememberMatcher.group(1);
+            String title = rememberMatcher.group(1).trim();
+            if (title.length() >= 2 && title.length() <= 100) {
+                return title;
+            }
         }
 
         return null;
@@ -787,8 +939,15 @@ public class RuleBasedExtractor implements ParameterExtractor {
             case CALENDAR_CREATE:
                 hasKeyParams = parameters.containsKey("title");
                 break;
+            case CALENDAR_DELETE:
+                hasKeyParams = parameters.containsKey("eventId") || parameters.containsKey("title");
+                break;
             case TODO_CREATE:
                 hasKeyParams = parameters.containsKey("title");
+                break;
+            case TODO_DELETE:
+            case TODO_COMPLETE:
+                hasKeyParams = parameters.containsKey("todoId") || parameters.containsKey("title");
                 break;
             case ROUTE_QUERY:
                 hasKeyParams = parameters.containsKey("destination");

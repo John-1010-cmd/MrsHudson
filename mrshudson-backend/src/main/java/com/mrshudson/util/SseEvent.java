@@ -75,9 +75,29 @@ public class SseEvent {
   private ToolResultInfo toolResult;
 
   /**
-   * 事件数据 - Token 使用统计
+   * 事件数据 - Token 使用统计（嵌套对象，内部使用）
    */
   private TokenUsageInfo tokenUsage;
+
+  /**
+   * Token 使用统计 - 输入 tokens（顶层字段，符合规范 §3.1）
+   */
+  private Integer inputTokens;
+
+  /**
+   * Token 使用统计 - 输出 tokens（顶层字段，符合规范 §3.1）
+   */
+  private Integer outputTokens;
+
+  /**
+   * Token 使用统计 - 耗时 ms（顶层字段，符合规范 §3.1）
+   */
+  private Long duration;
+
+  /**
+   * Token 使用统计 - 模型名称（顶层字段，符合规范 §3.1）
+   */
+  private String model;
 
   /**
    * 工具调用信息
@@ -189,12 +209,16 @@ public class SseEvent {
 
   /**
    * 创建 Token 使用统计事件
+   * 字段展平到顶层，符合规范 §3.1：
+   * {"type":"token_usage","inputTokens":128,"outputTokens":64,"duration":1230,"model":"..."}
    */
   public static SseEvent tokenUsage(int inputTokens, int outputTokens, long duration,
       String model) {
     return SseEvent.builder().type("token_usage")
-        .tokenUsage(TokenUsageInfo.builder().inputTokens(inputTokens).outputTokens(outputTokens)
-            .duration(duration).model(model).build())
+        .inputTokens(inputTokens)
+        .outputTokens(outputTokens)
+        .duration(duration)
+        .model(model)
         .build();
   }
 

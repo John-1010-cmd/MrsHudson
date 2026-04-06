@@ -235,7 +235,7 @@ fun ThinkingBlock(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 200.dp)  // ≈ 300px in spec
+                    .heightIn(max = 300.dp)  // SSE+TTS 规范 §9.7: max-height 300px
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 12.dp)
                     .padding(bottom = 8.dp)

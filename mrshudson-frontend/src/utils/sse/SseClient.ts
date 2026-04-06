@@ -193,14 +193,19 @@ export class SseClient {
           noaudio: data.noaudio || false
         })
         break
-      case 'token_usage':
+      case 'token_usage': {
+        // 兼容两种格式：
+        //   顶层字段: {"type":"token_usage","inputTokens":128,...}  (规范要求，后端当前格式)
+        //   嵌套字段: {"type":"token_usage","tokenUsage":{"inputTokens":128,...}}  (旧格式兼容)
+        const tu = data.tokenUsage || data
         this.options.onTokenUsage?.({
-          inputTokens: data.inputTokens || 0,
-          outputTokens: data.outputTokens || 0,
-          duration: data.duration || 0,
-          model: data.model || 'unknown'
+          inputTokens: tu.inputTokens || 0,
+          outputTokens: tu.outputTokens || 0,
+          duration: tu.duration || 0,
+          model: tu.model || 'unknown'
         }, conversationId, messageId)
         break
+      }
       case 'tool_call':
         if (data.toolCall) {
           this.options.onToolCall?.({

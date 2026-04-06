@@ -30,6 +30,34 @@ class SseClient(
         private const val TAG = "SseClient"
         private const val SSE_TIMEOUT_MS = 60000L // 60秒超时
         private const val TIMEOUT_CHECK_INTERVAL_MS = 5000L // 超时检测间隔
+
+        /**
+         * 修复 localhost URL：将 localhost:port/127.0.0.1:port 替换为实际服务器地址
+         * 正确处理端口号，避免重复端口问题
+         */
+        fun fixLocalhostUrl(url: String, baseUrl: String): String {
+            // 从 baseUrl 提取服务器主机（包括端口），去掉 /api/ 等路径
+            // e.g., "http://10.0.2.2:8080/api/" -> "10.0.2.2:8080"
+            val serverHost = baseUrl.replace(Regex("https?://"), "")
+                .replace(Regex("/.*$"), "")
+
+            android.util.Log.d("SseClient", "fixLocalhostUrl: 原始URL=$url, baseUrl=$baseUrl, serverHost=$serverHost")
+
+            val result = when {
+                url.contains("localhost") -> {
+                    // 替换 "localhost:port" 或 "localhost" 为实际服务器地址
+                    url.replace(Regex("localhost(:\\d+)?"), serverHost)
+                }
+                url.contains("127.0.0.1") -> {
+                    // 替换 "127.0.0.1:port" 或 "127.0.0.1" 为实际服务器地址
+                    url.replace(Regex("127\\.0\\.0\\.1(:\\d+)?"), serverHost)
+                }
+                else -> url
+            }
+
+            android.util.Log.d("SseClient", "fixLocalhostUrl: 结果URL=$result")
+            return result
+        }
     }
 
     /** 当前活跃会话 ID，conversationId 为 null 时用于关联事件 */
@@ -67,138 +95,195 @@ class SseClient(
 
         val factory = EventSources.createFactory(okHttpClient)
 
-        val eventSourceListener = object : EventSourceListener() {
-            private var closed = false
-            private var lastEventTime = System.currentTimeMillis()
-            private var timeoutHandler: Handler? = null
-            private var timeoutRunnable: Runnable? = null
-
-            override fun onOpen(eventSource: EventSource, response: Response) {
-                Log.d(TAG, "SSE 连接打开")
-                lastEventTime = System.currentTimeMillis()
-                startTimeoutCheck(eventSource)
-            }
-
-            private fun startTimeoutCheck(eventSource: EventSource) {
-                timeoutHandler = Handler(Looper.getMainLooper())
-                timeoutRunnable = object : Runnable {
-                    override fun run() {
-                        if (closed) return
-
-                        val elapsed = System.currentTimeMillis() - lastEventTime
-                        if (elapsed > SSE_TIMEOUT_MS) {
-                            Log.w(TAG, "SSE 超时（${elapsed}ms 无数据）")
-                            eventSource.cancel()
-                            if (!closed) {
-                                closed = true
-                                trySend(StreamEvent.Error(null, "SSE 读取超时（${elapsed / 1000}秒无响应）"))
-                                close()
-                            }
-                        } else {
-                            // 继续检测
-                            timeoutHandler?.postDelayed(this, TIMEOUT_CHECK_INTERVAL_MS)
-                        }
-                    }
-                }
-                timeoutHandler?.postDelayed(timeoutRunnable!!, TIMEOUT_CHECK_INTERVAL_MS)
-            }
-
-            private fun stopTimeoutCheck() {
-                timeoutRunnable?.let { timeoutHandler?.removeCallbacks(it) }
-                timeoutHandler = null
-                timeoutRunnable = null
-            }
-
-            override fun onEvent(
-                eventSource: EventSource,
-                id: String?,
-                type: String?,
-                data: String
-            ) {
-                lastEventTime = System.currentTimeMillis()
-                Log.d(TAG, "SSE 事件: $data")
-
+        // 使用自定义的监听器类替代匿名内部类，避免反射访问私有字段
+        val eventSourceListener = SseEventSourceListener(
+            onEvent = { data ->
                 try {
                     val event = parseEvent(data)
                     event?.let { trySend(it) }
                 } catch (e: Exception) {
                     Log.e(TAG, "SSE 事件解析失败", e)
                 }
-            }
-
-            override fun onClosed(eventSource: EventSource) {
-                Log.d(TAG, "SSE 连接关闭")
-                stopTimeoutCheck()
-                if (!closed) {
-                    closed = true
-                    trySend(StreamEvent.Done(null))
-                    close()
-                }
-            }
-
-            override fun onFailure(
-                eventSource: EventSource,
-                t: Throwable?,
-                response: Response?
-            ) {
-                val errorMsg = when {
-                    t != null -> "SSE 连接失败: ${t.message}"
-                    response != null -> "SSE 错误: ${response.code} ${response.message}"
-                    else -> "SSE 连接失败"
-                }
+            },
+            onError = { errorMsg ->
                 Log.e(TAG, errorMsg)
-                stopTimeoutCheck()
-
-                if (!closed) {
-                    closed = true
-                    trySend(StreamEvent.Error(null, errorMsg))
-                    close()
-                }
+                trySend(StreamEvent.Error(null, errorMsg))
+                close()
+            },
+            onDone = {
+                trySend(StreamEvent.Done(null))
+                close()
+            },
+            onTimeout = { elapsed ->
+                Log.w(TAG, "SSE 超时（${elapsed}ms 无数据）")
+                trySend(StreamEvent.Error(null, "SSE 读取超时（${elapsed / 1000}秒无响应）"))
+                close()
             }
-        }
+        )
 
         val eventSource = factory.newEventSource(request, eventSourceListener)
 
         awaitClose {
             Log.d(TAG, "SSE 清理资源")
-            eventSourceListener.stopTimeoutCheck()
-            if (!eventSourceListener.isClosed) {
-                eventSource.cancel()
-            }
-        }
-    }
-
-    private val EventSourceListener.isClosed: Boolean
-        get() = try {
-            javaClass.getDeclaredField("closed").let { field ->
-                field.isAccessible = true
-                field.getBoolean(this)
-            }
-        } catch (e: Exception) {
-            false
-        }
-
-    private fun EventSourceListener.stopTimeoutCheck() {
-        try {
-            val handlerField = javaClass.getDeclaredField("timeoutHandler")
-            handlerField.isAccessible = true
-            (handlerField.get(this) as? Handler)?.let { handler ->
-                val runnableField = javaClass.getDeclaredField("timeoutRunnable")
-                runnableField.isAccessible = true
-                (runnableField.get(this) as? Runnable)?.let { handler.removeCallbacks(it) }
-            }
-        } catch (e: Exception) {
-            // Ignore if fields don't exist
+            eventSourceListener.cancel()
+            eventSource.cancel()
         }
     }
 
     /**
+     * SSE 事件监听器类
+     * 封装 EventSourceListener 并提供状态管理，避免使用反射访问私有字段
+     */
+    private class SseEventSourceListener(
+        private val onEvent: (String) -> Unit,
+        private val onError: (String) -> Unit,
+        private val onDone: () -> Unit,
+        private val onTimeout: (Long) -> Unit
+    ) : EventSourceListener() {
+
+        @Volatile
+        private var isClosed = false
+        private val closedLock = Object()
+
+        private var lastEventTime = System.currentTimeMillis()
+        private var timeoutHandler: Handler? = null
+        private var timeoutRunnable: Runnable? = null
+        private var currentEventSource: EventSource? = null
+
+        override fun onOpen(eventSource: EventSource, response: Response) {
+            Log.d(TAG, "SSE 连接打开")
+            synchronized(closedLock) {
+                if (isClosed) return
+                currentEventSource = eventSource
+            }
+            lastEventTime = System.currentTimeMillis()
+            startTimeoutCheck(eventSource)
+        }
+
+        private fun startTimeoutCheck(eventSource: EventSource) {
+            timeoutHandler = Handler(Looper.getMainLooper())
+            timeoutRunnable = object : Runnable {
+                override fun run() {
+                    val shouldReturn = synchronized(closedLock) { isClosed }
+                    if (shouldReturn) return
+
+                    val elapsed = System.currentTimeMillis() - lastEventTime
+                    if (elapsed > SSE_TIMEOUT_MS) {
+                        val shouldTimeout = synchronized(closedLock) {
+                            if (!isClosed) {
+                                isClosed = true
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        if (shouldTimeout) {
+                            eventSource.cancel()
+                            stopTimeoutCheck()
+                            onTimeout(elapsed)
+                        }
+                    } else {
+                        // 继续检测
+                        timeoutHandler?.postDelayed(this, TIMEOUT_CHECK_INTERVAL_MS)
+                    }
+                }
+            }
+            timeoutHandler?.postDelayed(timeoutRunnable!!, TIMEOUT_CHECK_INTERVAL_MS)
+        }
+
+        fun stopTimeoutCheck() {
+            timeoutRunnable?.let { timeoutHandler?.removeCallbacks(it) }
+            timeoutHandler = null
+            timeoutRunnable = null
+        }
+
+        override fun onEvent(
+            eventSource: EventSource,
+            id: String?,
+            type: String?,
+            data: String
+        ) {
+            lastEventTime = System.currentTimeMillis()
+            Log.d(TAG, "SSE 事件: $data")
+            onEvent(data)
+        }
+
+        override fun onClosed(eventSource: EventSource) {
+            Log.d(TAG, "SSE 连接关闭")
+            val shouldNotify = synchronized(closedLock) {
+                if (!isClosed) {
+                    isClosed = true
+                    true
+                } else {
+                    false
+                }
+            }
+            stopTimeoutCheck()
+            if (shouldNotify) {
+                onDone()
+            }
+        }
+
+        override fun onFailure(
+            eventSource: EventSource,
+            t: Throwable?,
+            response: Response?
+        ) {
+            val errorMsg = when {
+                t != null -> "SSE 连接失败: ${t.message}"
+                response != null -> "SSE 错误: ${response.code} ${response.message}"
+                else -> "SSE 连接失败"
+            }
+
+            val shouldNotify = synchronized(closedLock) {
+                if (!isClosed) {
+                    isClosed = true
+                    true
+                } else {
+                    false
+                }
+            }
+            stopTimeoutCheck()
+            if (shouldNotify) {
+                onError(errorMsg)
+            }
+        }
+
+        /**
+         * 取消监听器，停止超时检查
+         */
+        fun cancel() {
+            stopTimeoutCheck()
+            synchronized(closedLock) {
+                isClosed = true
+                currentEventSource?.cancel()
+            }
+        }
+
+        /**
+         * 检查监听器是否已关闭（公开访问，无需反射）
+         */
+        fun isClosed(): Boolean = synchronized(closedLock) { isClosed }
+    }
+
+    /**
      * 解析 SSE 事件
+     * 兼容处理后端格式：如果数据以 "data: " 开头，先剥离此前缀
      */
     private fun parseEvent(data: String): StreamEvent? {
         if (data.isBlank()) return null
 
-        val jsonElement = JsonParser.parseString(data)
+        // 处理后端格式不一致问题：剥离 "data: " 前缀（如果存在）
+        val cleanData = data.trimStart().removePrefix("data: ").trimStart()
+
+        if (cleanData.isBlank()) return null
+
+        val jsonElement = try {
+            JsonParser.parseString(cleanData)
+        } catch (e: Exception) {
+            Log.e(TAG, "JSON解析失败: '$cleanData'", e)
+            return null
+        }
         if (!jsonElement.isJsonObject) return null
 
         val obj = jsonElement.asJsonObject
@@ -218,37 +303,64 @@ class SseClient(
                 obj.get("text")?.asString ?: ""
             )
 
-            "content" -> StreamEvent.Content(
-                resolvedConvId,
-                msgId,
-                obj.get("text")?.asString ?: obj.get("content")?.asString ?: ""
-            )
+            "content" -> {
+                val textValue = obj.get("text")?.takeIf { !it.isJsonNull }?.asString
+                val contentValue = obj.get("content")?.takeIf { !it.isJsonNull }?.asString
+                val finalText = textValue ?: contentValue ?: ""
+                Log.d(TAG, "解析content事件: text='$textValue', content='$contentValue', final='$finalText'")
+                StreamEvent.Content(
+                    resolvedConvId,
+                    msgId,
+                    finalText
+                )
+            }
 
             "content_done" -> StreamEvent.ContentDone(resolvedConvId, msgId)
 
-            "audio_done" -> StreamEvent.AudioDone(
-                conversationId = resolvedConvId,
-                messageId = msgId,
-                url = obj.get("url")?.takeIf { !it.isJsonNull }?.asString?.takeIf { it.isNotBlank() },
-                timeout = obj.get("timeout")?.asBoolean ?: false,
-                error = obj.get("error")?.takeIf { !it.isJsonNull }?.asString?.takeIf { it.isNotBlank() },
-                noaudio = obj.get("noaudio")?.asBoolean ?: false
-            )
+            "audio_done" -> {
+                var url = obj.get("url")?.takeIf { !it.isJsonNull }?.asString?.takeIf { it.isNotBlank() }
+                val timeout = obj.get("timeout")?.asBoolean ?: false
+                val error = obj.get("error")?.takeIf { !it.isJsonNull }?.asString?.takeIf { it.isNotBlank() }
+                val noaudio = obj.get("noaudio")?.asBoolean ?: false
 
-            "token_usage" -> StreamEvent.TokenUsage(
-                resolvedConvId,
-                obj.get("inputTokens")?.asInt ?: 0,
-                obj.get("outputTokens")?.asInt ?: 0,
-                obj.get("duration")?.asLong ?: 0L,
-                obj.get("model")?.asString ?: "unknown"
-            )
+                // 修复 localhost URL：替换为实际服务器地址
+                url = url?.let { fixLocalhostUrl(it, baseUrl) }
+
+                // 规范 §14.3: audio_done 专项调试日志
+                Log.d(TAG, "audio_done: url=$url, timeout=$timeout, error=$error, noaudio=$noaudio")
+
+                StreamEvent.AudioDone(
+                    conversationId = resolvedConvId,
+                    messageId = msgId,
+                    url = url,
+                    timeout = timeout,
+                    error = error,
+                    noaudio = noaudio
+                )
+            }
+
+            "token_usage" -> {
+                // 兼容两种格式：
+                //   顶层字段: {"type":"token_usage","inputTokens":128,...}  (规范要求，后端当前格式)
+                //   嵌套字段: {"type":"token_usage","tokenUsage":{"inputTokens":128,...}}  (旧格式兼容)
+                val tu = obj.getAsJsonObject("tokenUsage") ?: obj
+                StreamEvent.TokenUsage(
+                    resolvedConvId,
+                    tu.get("inputTokens")?.asInt ?: 0,
+                    tu.get("outputTokens")?.asInt ?: 0,
+                    tu.get("duration")?.asLong ?: 0L,
+                    tu.get("model")?.asString ?: "unknown"
+                )
+            }
 
             "tool_call" -> {
                 val toolCall = obj.getAsJsonObject("toolCall")
                 if (toolCall != null) {
                     StreamEvent.ToolCall(
                         resolvedConvId,
-                        toolCall.get("id")?.asString ?: "",
+                        // 后端 ToolCallInfo 无 id 字段，用 name 作为标识兜底
+                        toolCall.get("id")?.takeIf { !it.isJsonNull }?.asString
+                            ?: toolCall.get("name")?.asString ?: "",
                         toolCall.get("name")?.asString ?: "",
                         toolCall.get("arguments")?.asString ?: ""
                     )
@@ -278,7 +390,11 @@ class SseClient(
                 obj.get("content")?.asString ?: ""
             )
             "error" -> StreamEvent.Error(resolvedConvId, obj.get("message")?.asString ?: "Unknown error")
-            "done" -> StreamEvent.Done(resolvedConvId)
+            "done" -> {
+                // 收到后端 done 事件
+                // 注意：isClosed 状态在 SseEventSourceListener 中管理，不在此处设置
+                StreamEvent.Done(resolvedConvId)
+            }
 
             else -> null
         }

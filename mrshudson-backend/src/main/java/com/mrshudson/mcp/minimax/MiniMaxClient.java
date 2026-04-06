@@ -247,6 +247,7 @@ public class MiniMaxClient {
             var choices = json.getJSONArray("choices");
             if (choices != null && !choices.isEmpty()) {
                 var choice = choices.getJSONObject(0);
+                boolean isLastMessage = choice.getString("finish_reason") != null;
 
                 // 优先尝试 delta.content（MiniMax 流式格式）
                 var delta = choice.getJSONObject("delta");
@@ -280,15 +281,26 @@ public class MiniMaxClient {
                             }
                         }
                     }
+                    // delta 存在但无有效内容，继续检查 message（最后一条消息可能有 reasoning_content）
                 }
 
-                // 其次尝试 message.content（Kimi 非流式格式）
+                // 检查 message 字段（最后一条消息或 delta 为 null 时）
+                // 注意：最后一条消息的 message.content 是完整内容（已在 delta 流中发送），
+                // 但 message.reasoning_content 可能只在最后一条消息中存在
                 var message = choice.getJSONObject("message");
                 if (message != null) {
+                    // 优先检查 reasoning_content（思考过程可能在最后一条消息中）
+                    String reasoningContent = message.getString("reasoning_content");
+                    if (reasoningContent != null && !reasoningContent.isEmpty()) {
+                        log.debug("MiniMax 最后一条消息发现 reasoning_content");
+                        return Flux.just("[THINKING]" + reasoningContent);
+                    }
+
+                    // 只有非最后一条消息才发送 content（避免重复）
                     String content = message.getString("content");
                     List<com.mrshudson.mcp.kimi.dto.ToolCall> toolCalls = message.getList("tool_calls", com.mrshudson.mcp.kimi.dto.ToolCall.class);
 
-                    if (content != null && !content.isEmpty()) {
+                    if (!isLastMessage && content != null && !content.isEmpty()) {
                         return Flux.just(content);
                     } else if (toolCalls != null && !toolCalls.isEmpty()) {
                         com.mrshudson.mcp.kimi.dto.ToolCall toolCall = toolCalls.get(0);

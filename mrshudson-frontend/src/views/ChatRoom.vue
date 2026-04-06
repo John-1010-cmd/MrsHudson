@@ -65,7 +65,12 @@
               <audio :id="'audio-' + msg.id" :src="msg.audioUrl || undefined" crossorigin="anonymous" preload="none"
                 @ended="onAudioEnded(msg)" @error="onAudioError(msg)" />
             </div>
-            <div class="message-time">{{ formatTime(msg.createdAt) }}</div>
+            <div class="message-time">
+              {{ formatTime(msg.createdAt) }}
+              <span v-if="msg.tokenUsage" class="token-usage" :title="`模型: ${msg.tokenUsage.model}\n耗时: ${msg.tokenUsage.duration}ms`">
+                💡 {{ msg.tokenUsage.inputTokens + msg.tokenUsage.outputTokens }} tokens
+              </span>
+            </div>
           </div>
         </div>
       </template>
@@ -148,6 +153,12 @@ interface Message {
   pausedAt: number              // 暂停位置（秒），0 表示未暂停
   hasPaused: boolean            // 是否曾暂停过
   hasError?: boolean            // 消息是否出错（SSE 错误/超时），用于显示重试按钮
+  tokenUsage?: {                // Token 消耗统计（仅流式消息）
+    inputTokens: number
+    outputTokens: number
+    duration: number
+    model: string
+  }
 }
 
 type TtsStatus =
@@ -441,192 +452,187 @@ async function sendStreamContent(content: string) {
       },
 
       onThinking: (text: string, conversationId: number | null, messageId: number | null) => {
-        clearWaitTimers()  // 首字节到达，清除等待提示
-        console.log('[SSE] thinking:', text.substring(0, 50))
+        clearWaitTimers()
+        console.log('[SSE] thinking:', text.substring(0, 50), 'messageId:', messageId)
+        
+        // 记录后端 messageId 用于后续事件关联
         if (messageId !== null && resolvedMessageId === null) {
           resolvedMessageId = String(messageId)
-          aiMsg.id = resolvedMessageId
         }
-        // 优先用 messageId 精确定位消息气泡
-        if (messageId !== null) {
-          const target = messages.value.find(m => m.id === String(messageId))
-          if (target) {
-            if (target.thinkingContent === undefined) {
-              target.thinkingContent = ''
-            }
-            target.thinkingContent += text
-            scrollToBottom()
-            return
+        
+        // 查找流式 AI 消息（stream- 前缀）
+        const streamIndex = messages.value.findIndex(m => m.id.startsWith('stream-'))
+        if (streamIndex !== -1) {
+          const newMsg = { ...messages.value[streamIndex] }
+          if (newMsg.thinkingContent === undefined) {
+            newMsg.thinkingContent = ''
           }
+          newMsg.thinkingContent += text
+          messages.value.splice(streamIndex, 1, newMsg)
+          scrollToBottom()
         }
-        // 降级：用占位消息
-        if (aiMsg.thinkingContent === undefined) {
-          aiMsg.thinkingContent = ''
-        }
-        aiMsg.thinkingContent += text
-        scrollToBottom()
       },
 
       onContent: (text: string, conversationId: number | null, messageId: number | null) => {
-        // 首次收到 messageId 时，将占位消息 id 更新为后端真实 messageId
+        // 记录后端 messageId 用于后续事件关联
         if (messageId !== null && resolvedMessageId === null) {
           resolvedMessageId = String(messageId)
-          aiMsg.id = resolvedMessageId
         }
-        // 优先用 messageId 精确定位消息气泡
-        if (messageId !== null) {
-          const target = messages.value.find(m => m.id === String(messageId))
-          if (target) {
-            target.content += text
-            scrollToBottom()
-            return
-          }
+        
+        // 查找流式 AI 消息（stream- 前缀）
+        const streamIndex = messages.value.findIndex(m => m.id.startsWith('stream-'))
+        if (streamIndex !== -1) {
+          const newMsg = { ...messages.value[streamIndex] }
+          newMsg.content = (newMsg.content || '') + text
+          messages.value.splice(streamIndex, 1, newMsg)
+          scrollToBottom()
         }
-        // 降级：用占位消息
-        fullContent += text
-        aiMsg.content = fullContent
-        scrollToBottom()
       },
 
       onContentDone: (conversationId: number | null, messageId: number | null) => {
-        console.log('[SSE] content_done 收到')
-        const target = messageId !== null ? messages.value.find(m => m.id === String(messageId)) : null
-        const msg = target || aiMsg
-        msg.ttsStatus = 'synthesizing'
+        console.log('[SSE] content_done 收到, messageId:', messageId)
+        
+        // 记录后端 messageId
+        if (messageId !== null && resolvedMessageId === null) {
+          resolvedMessageId = String(messageId)
+        }
+        
+        // 查找流式 AI 消息（stream- 前缀）
+        const streamIndex = messages.value.findIndex(m => m.id.startsWith('stream-'))
+        if (streamIndex !== -1) {
+          const newMsg = { ...messages.value[streamIndex] }
+          newMsg.ttsStatus = 'synthesizing'
+          messages.value.splice(streamIndex, 1, newMsg)
+        }
       },
 
       onAudioDone: (event) => {
         console.log('[SSE] audio_done:', event)
-        const target = event.messageId !== null ? messages.value.find(m => m.id === String(event.messageId)) : null
-        const msg = target || aiMsg
-        if (event.timeout) {
-          msg.ttsStatus = 'timeout'
-          msg.audioUrl = null
-        } else if (event.error) {
-          msg.ttsStatus = 'error'
-          msg.audioUrl = null
-        } else if (event.noaudio) {
-          msg.ttsStatus = 'noaudio'
-          msg.audioUrl = null
-        } else if (event.url) {
-          msg.ttsStatus = 'ready'
-          msg.audioUrl = event.url
+        
+        // 记录后端 messageId
+        if (event.messageId !== null && resolvedMessageId === null) {
+          resolvedMessageId = String(event.messageId)
+        }
+        
+        // 查找流式 AI 消息（stream- 前缀）
+        const streamIndex = messages.value.findIndex(m => m.id.startsWith('stream-'))
+        if (streamIndex !== -1) {
+          const newMsg = { ...messages.value[streamIndex] }
+          if (event.timeout) {
+            newMsg.ttsStatus = 'timeout'
+            newMsg.audioUrl = null
+          } else if (event.error) {
+            newMsg.ttsStatus = 'error'
+            newMsg.audioUrl = null
+          } else if (event.noaudio) {
+            newMsg.ttsStatus = 'noaudio'
+            newMsg.audioUrl = null
+          } else if (event.url) {
+            newMsg.ttsStatus = 'ready'
+            newMsg.audioUrl = event.url
+          }
+          messages.value.splice(streamIndex, 1, newMsg)
         }
       },
 
       onCacheHit: (text: string, _conversationId: number | null, messageId: number | null) => {
-        // 首次收到 messageId 时，将占位消息 id 更新为后端真实 messageId
+        // 记录后端 messageId 用于后续事件关联
         if (messageId !== null && resolvedMessageId === null) {
           resolvedMessageId = String(messageId)
-          aiMsg.id = resolvedMessageId
         }
-        // 优先用 messageId 精确定位消息气泡
-        if (messageId !== null) {
-          const target = messages.value.find(m => m.id === String(messageId))
-          if (target) {
-            target.content += text
-            scrollToBottom()
-            return
-          }
+        
+        // 查找流式 AI 消息（stream- 前缀）
+        const streamIndex = messages.value.findIndex(m => m.id.startsWith('stream-'))
+        if (streamIndex !== -1) {
+          const newMsg = { ...messages.value[streamIndex] }
+          newMsg.content = (newMsg.content || '') + text
+          messages.value.splice(streamIndex, 1, newMsg)
+          scrollToBottom()
         }
-        // 降级：用占位消息
-        fullContent += text
-        aiMsg.content = fullContent
-        scrollToBottom()
       },
 
       onClarification: (text: string, _conversationId: number | null, messageId: number | null) => {
-        // 首次收到 messageId 时，将占位消息 id 更新为后端真实 messageId
+        // 记录后端 messageId 用于后续事件关联
         if (messageId !== null && resolvedMessageId === null) {
           resolvedMessageId = String(messageId)
-          aiMsg.id = resolvedMessageId
         }
-        // 优先用 messageId 精确定位消息气泡
-        if (messageId !== null) {
-          const target = messages.value.find(m => m.id === String(messageId))
-          if (target) {
-            target.content += text
-            scrollToBottom()
-            return
-          }
+        
+        // 查找流式 AI 消息（stream- 前缀）
+        const streamIndex = messages.value.findIndex(m => m.id.startsWith('stream-'))
+        if (streamIndex !== -1) {
+          const newMsg = { ...messages.value[streamIndex] }
+          newMsg.content = (newMsg.content || '') + text
+          messages.value.splice(streamIndex, 1, newMsg)
+          scrollToBottom()
         }
-        // 降级：用占位消息
-        fullContent += text
-        aiMsg.content = fullContent
-        scrollToBottom()
       },
 
       onToolCall: (tool, _conversationId: number | null, messageId: number | null) => {
-        // 首次收到 messageId 时，将占位消息 id 更新为后端真实 messageId
+        // 记录后端 messageId 用于后续事件关联
         if (messageId !== null && resolvedMessageId === null) {
           resolvedMessageId = String(messageId)
-          aiMsg.id = resolvedMessageId
         }
+        
         toolCalls.push({ name: tool.name, arguments: tool.arguments, result: '' })
-        // 优先用 messageId 精确定位消息气泡
-        if (messageId !== null) {
-          const target = messages.value.find(m => m.id === String(messageId))
-          if (target) {
-            target.toolCalls = [...(target.toolCalls || []), { name: tool.name, arguments: tool.arguments, result: '' }]
-            return
-          }
+        
+        // 查找流式 AI 消息（stream- 前缀）
+        const streamIndex = messages.value.findIndex(m => m.id.startsWith('stream-'))
+        if (streamIndex !== -1) {
+          const newMsg = { ...messages.value[streamIndex] }
+          newMsg.toolCalls = [...(newMsg.toolCalls || []), { name: tool.name, arguments: tool.arguments, result: '' }]
+          messages.value.splice(streamIndex, 1, newMsg)
         }
-        // 降级：用占位消息
-        aiMsg.toolCalls = [...toolCalls]
       },
 
       onToolResult: (result, _conversationId: number | null, messageId: number | null) => {
-        // 首次收到 messageId 时，将占位消息 id 更新为后端真实 messageId
+        // 记录后端 messageId 用于后续事件关联
         if (messageId !== null && resolvedMessageId === null) {
           resolvedMessageId = String(messageId)
-          aiMsg.id = resolvedMessageId
         }
-        // 优先用 messageId 精确定位消息气泡
-        if (messageId !== null) {
-          const target = messages.value.find(m => m.id === String(messageId))
-          if (target && target.toolCalls) {
-            const toolCall = target.toolCalls.find(t => t.name === result.name)
-            if (toolCall) toolCall.result = result.result
-            target.toolCalls = [...target.toolCalls]
-            return
+        
+        // 查找流式 AI 消息（stream- 前缀）
+        const streamIndex = messages.value.findIndex(m => m.id.startsWith('stream-'))
+        if (streamIndex !== -1 && messages.value[streamIndex].toolCalls) {
+          const newMsg = { ...messages.value[streamIndex] }
+          const toolCall = newMsg.toolCalls?.find(t => t.name === result.name)
+          if (toolCall) toolCall.result = result.result
+          if (newMsg.toolCalls) {
+            newMsg.toolCalls = [...newMsg.toolCalls]
           }
+          messages.value.splice(streamIndex, 1, newMsg)
         }
-        // 降级：用占位消息
-        const toolCall = toolCalls.find(t => t.name === result.name)
-        if (toolCall) toolCall.result = result.result
-        aiMsg.toolCalls = [...toolCalls]
       },
 
       onTokenUsage: (usage, _conversationId: number | null, messageId: number | null) => {
-        // 首次收到 messageId 时，将占位消息 id 更新为后端真实 messageId
+        console.log('[SSE] token_usage:', usage, 'messageId:', messageId)
+        
+        // 记录后端 messageId
         if (messageId !== null && resolvedMessageId === null) {
           resolvedMessageId = String(messageId)
-          aiMsg.id = resolvedMessageId
         }
-        const stats = `\n\n--- 💡 本次对话消耗 ---\n` +
-          `📥 输入: ${usage.inputTokens} tokens\n` +
-          `📤 输出: ${usage.outputTokens} tokens\n` +
-          `⏱️ 耗时: ${usage.duration}ms\n` +
-          `🤖 模型: ${usage.model}\n` +
-          `------------------------`
-        // 优先用 messageId 精确定位消息气泡
-        if (messageId !== null) {
-          const target = messages.value.find(m => m.id === String(messageId))
-          if (target) {
-            target.content += stats
-            return
-          }
+        
+        // 查找流式 AI 消息（stream- 前缀）
+        const streamIndex = messages.value.findIndex(m => m.id.startsWith('stream-'))
+        if (streamIndex !== -1) {
+          const newMsg = { ...messages.value[streamIndex] }
+          newMsg.tokenUsage = usage
+          messages.value.splice(streamIndex, 1, newMsg)
+          console.log('[SSE] token_usage 已更新, index:', streamIndex)
         }
-        // 降级：用占位消息
-        aiMsg.content = fullContent + stats
       },
 
       onError: (error: string) => {
         console.error('[SSE] error:', error)
         clearWaitTimers()
         ElMessage.error(error)
-        aiMsg.content = '抱歉，服务器返回异常，请稍后重试。'
-        aiMsg.hasError = true
+        // 更新流式 AI 消息
+        const streamIndex = messages.value.findIndex(m => m.id.startsWith('stream-'))
+        if (streamIndex !== -1) {
+          const newMsg = { ...messages.value[streamIndex] }
+          newMsg.content = '抱歉，服务器返回异常，请稍后重试。'
+          newMsg.hasError = true
+          messages.value.splice(streamIndex, 1, newMsg)
+        }
       },
 
       onDone: () => {
@@ -651,23 +657,49 @@ async function sendStreamContent(content: string) {
 
     // 流结束后重新加载消息列表（获取最新数据库状态）
     if (conversationId.value) {
+      // 保存流式接收期间的临时状态
+      const savedTtsStatus = aiMsg.ttsStatus
+      const savedAudioUrl = aiMsg.audioUrl
+      const savedTokenUsage = aiMsg.tokenUsage
+      const savedThinkingContent = aiMsg.thinkingContent
+      const savedThinkingExpanded = aiMsg.isThinkingExpanded
+      
       await loadConversationMessages(conversationId.value)
-      // 恢复当前消息的 ttsStatus 和 audioUrl（loadConversationMessages 会覆盖）
+      
+      // 恢复临时状态到加载的消息
       const assistantMsgs = messages.value.filter(msg => msg.role === 'assistant')
       if (assistantMsgs.length > 0) {
-        const lastMsg = assistantMsgs[assistantMsgs.length - 1]
-        if (aiMsg.ttsStatus === 'ready' && aiMsg.audioUrl) {
-          lastMsg.ttsStatus = 'ready'
-          lastMsg.audioUrl = aiMsg.audioUrl
+        const lastIndex = messages.value.length - 1
+        const newMsg = { ...messages.value[lastIndex] }
+        // 恢复 TTS 状态
+        if (savedTtsStatus === 'ready' && savedAudioUrl) {
+          newMsg.ttsStatus = 'ready'
+          newMsg.audioUrl = savedAudioUrl
         }
+        // 恢复 Token 消耗统计（数据库不保存）
+        if (savedTokenUsage) {
+          newMsg.tokenUsage = savedTokenUsage
+        }
+        // 恢复思考过程（数据库不保存）
+        if (savedThinkingContent) {
+          newMsg.thinkingContent = savedThinkingContent
+          newMsg.isThinkingExpanded = savedThinkingExpanded ?? false
+        }
+        messages.value.splice(lastIndex, 1, newMsg)
       }
     }
   } catch (error: any) {
     console.error('流式接收失败:', error)
     clearWaitTimers()
     ElMessage.error(error.message || '网络异常，请重试')
-    aiMsg.content = '抱歉，服务器返回异常，请稍后重试。'
-    aiMsg.hasError = true
+    // 更新流式 AI 消息
+    const streamIndex = messages.value.findIndex(m => m.id.startsWith('stream-'))
+    if (streamIndex !== -1) {
+      const newMsg = { ...messages.value[streamIndex] }
+      newMsg.content = '抱歉，服务器返回异常，请稍后重试。'
+      newMsg.hasError = true
+      messages.value.splice(streamIndex, 1, newMsg)
+    }
     currentSseClient = null
   } finally {
     loading.value = false
@@ -1024,6 +1056,20 @@ onUnmounted(() => {
   font-size: 12px;
   color: #999;
   margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.token-usage {
+  font-size: 11px;
+  color: #67c23a;
+  cursor: help;
+  opacity: 0.8;
+}
+
+.token-usage:hover {
+  opacity: 1;
 }
 
 .tool-calls {

@@ -71,6 +71,30 @@ public enum IntentType {
             0.65),
 
     /**
+     * 删除待办
+     * 例："删除待办1"
+     */
+    TODO_DELETE("todo_delete", "删除待办",
+            new HashSet<>(Arrays.asList("删除", "取消", "移除", "删掉", "去掉", "待办", "任务")),
+            0.65),
+
+    /**
+     * 完成待办
+     * 例："完成待办1"
+     */
+    TODO_COMPLETE("todo_complete", "完成待办",
+            new HashSet<>(Arrays.asList("完成", "做完", "划掉", "结束", "搞定", "待办", "任务")),
+            0.65),
+
+    /**
+     * 删除日程
+     * 例："取消会议"
+     */
+    CALENDAR_DELETE("calendar_delete", "删除日程",
+            new HashSet<>(Arrays.asList("删除", "取消", "移除", "删掉", "去掉", "日程", "会议", "安排")),
+            0.65),
+
+    /**
      * 通用对话
      * 无法归类到具体意图的一般对话
      */

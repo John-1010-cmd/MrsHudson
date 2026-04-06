@@ -1,26 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- 开发环境：允许明文通信 -->
+    <!-- 
+        网络安全配置
+        注意：当前配置允许开发环境明文通信（HTTP）
+        生产环境部署前，应删除开发配置，只允许 HTTPS
+    -->
+    
+    <!--
+        开发环境配置：仅允许特定地址明文通信
+        注意：实际开发服务器 IP 通过运行时配置处理，不硬编码在此处
+        如需添加特定 IP，请在 build.gradle 中使用 manifestPlaceholders 动态注入
+    -->
+    <!-- 开发环境：允许所有明文通信（局域网 IP 多变，无法逐一列举） -->
     <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>
     </base-config>
-
-    <!-- 生产环境配置示例（仅允许 HTTPS） -->
-    <!--
-    <base-config cleartextTrafficPermitted="false">
-        <trust-anchors>
-            <certificates src="system" />
-        </trust-anchors>
-    </base-config>
-    -->
-
-    <!-- 特定域名配置示例 -->
-    <!--
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">localhost</domain>
-        <domain includeSubdomains="true">10.0.2.2</domain>
-    </domain-config>
-    -->
+    
 </network-security-config>

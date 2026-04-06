@@ -16,7 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -43,6 +43,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -87,11 +90,12 @@ fun ChatScreen(
     var voiceButtonState by remember { mutableStateOf(VoiceButtonState.IDLE) }
 
     // 响应时间阈值（规范 12.2 节）
+    // 注意：首字节到达后（firstByteReceived=true），计时器停止，等待提示隐藏
     var elapsedSeconds by remember { mutableStateOf(0) }
-    LaunchedEffect(uiState.isSending) {
-        if (uiState.isSending) {
+    LaunchedEffect(uiState.isSending, uiState.firstByteReceived) {
+        if (uiState.isSending && !uiState.firstByteReceived) {
             elapsedSeconds = 0
-            while (uiState.isSending) {
+            while (uiState.isSending && !uiState.firstByteReceived) {
                 kotlinx.coroutines.delay(1000)
                 elapsedSeconds++
             }
@@ -101,11 +105,23 @@ fun ChatScreen(
     // 音频播放器
     val audioPlayer = viewModel.audioPlayer
 
+    // 规范 §3.6: onStop 时中断 SSE 连接
+    val context = LocalContext.current
+    val lifecycleOwner = remember(context) { context as LifecycleOwner }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                viewModel.onActivityStop()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
     // 麦克风权限
     val micPermissionState = rememberPermissionState(android.Manifest.permission.RECORD_AUDIO)
-
-    // 获取本地 Context
-    val context = LocalContext.current
 
     // 语音识别器 - 使用 remember 和 LocalContext
     val voiceRecognizer = remember(context) { VoiceRecognizer(context) }
@@ -252,10 +268,11 @@ fun ChatScreen(
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            items(
+                            itemsIndexed(
                                 items = uiState.messages,
-                                key = { it.id }
-                            ) { message ->
+                                // 使用 id + index 组合作为 key，避免 ID 重复导致崩溃
+                                key = { index, message -> "${message.id}_$index" }
+                            ) { _, message ->
                                 MessageBubble(
                                     message = message,
                                     onPlay = { audioPlayer.replay(message) },

@@ -64,6 +64,22 @@ class UrlRewriteInterceptor @Inject constructor(
         val uri = URI(originalUrlString)
         val path = uri.rawPath ?: "/"
         val query = uri.rawQuery ?: ""
+        
+        // 跳过静态资源请求（如音频文件、图片等）
+        // 这些请求不应该被添加 /api 前缀
+        if (path.startsWith("/uploads/") || path.startsWith("/static/")) {
+            // 只替换主机地址，保持路径不变
+            val customUri = URI(customUrl.trim())
+            val newUrl = if (query.isNotBlank()) {
+                "${customUri.scheme}://${customUri.host}:${customUri.port}$path?$query"
+            } else {
+                "${customUri.scheme}://${customUri.host}:${customUri.port}$path"
+            }
+            val newRequest = originalRequest.newBuilder()
+                .url(newUrl)
+                .build()
+            return chain.proceed(newRequest)
+        }
 
         // 标准化用户输入的地址：
         // 1. 去掉末尾的 /

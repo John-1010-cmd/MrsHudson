@@ -1,6 +1,7 @@
 package com.mrshudson.android
 
 import android.os.Bundle
+import android.view.MotionEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -25,6 +26,7 @@ import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -38,6 +40,24 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+    
+    /**
+     * Workaround for Compose bug: ACTION_HOVER_EXIT event not cleared
+     * This bug causes crash on some devices (especially Xiaomi MIUI) when touch events
+     * are processed while hover events are pending.
+     * 
+     * By consuming hover events here, we prevent the Compose framework from
+     * entering the problematic state.
+     */
+    override fun dispatchGenericMotionEvent(ev: MotionEvent?): Boolean {
+        // Consume hover events to workaround Compose hover bug
+        if (ev?.action == MotionEvent.ACTION_HOVER_ENTER || 
+            ev?.action == MotionEvent.ACTION_HOVER_MOVE ||
+            ev?.action == MotionEvent.ACTION_HOVER_EXIT) {
+            return true
+        }
+        return super.dispatchGenericMotionEvent(ev)
     }
 }
 

@@ -189,11 +189,6 @@ private fun FilterChips(
             label = { Text("待处理") }
         )
         FilterChip(
-            selected = selectedStatus == "in_progress",
-            onClick = { onStatusSelected("in_progress") },
-            label = { Text("进行中") }
-        )
-        FilterChip(
             selected = selectedStatus == "completed",
             onClick = { onStatusSelected("completed") },
             label = { Text("已完成") }

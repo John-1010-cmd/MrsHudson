@@ -43,6 +43,10 @@ public final class SseFormatter {
     return flux.map(jsonStr -> {
       if (jsonStr == null)
         return "";
+      if (jsonStr.startsWith("data:")) {
+        // 已有前缀，只添加后缀（防御性处理，正常情况不应出现）
+        return jsonStr + SSE_SUFFIX;
+      }
       return SSE_DATA_PREFIX + jsonStr + SSE_SUFFIX;
     });
   }
@@ -66,20 +70,21 @@ public final class SseFormatter {
   /**
    * AI 思考推理过程（增量）
    * 仅当模型返回 reasoning_content 时调用
-   * text 为原始字符串，内部自动完成 JSON 转义
+   * text 为原始字符串，由 JSON.toJSONString() 自动完成转义，无需手动转义
+   * （遵循规范 §5.5：SseFormatter 负责 JSON 结构拼接，JSON 序列化时自动转义）
    */
   public static String thinking(String text, Long conversationId, Long messageId) {
-    return toJson(SseEvent.thinking(escapeJson(text), conversationId, messageId));
+    return toJson(SseEvent.thinking(text, conversationId, messageId));
   }
 
-  /** AI 增量内容（带 conversationId / messageId），内部自动完成 JSON 转义 */
+  /** AI 增量内容（带 conversationId / messageId），由 JSON.toJSONString() 自动完成转义 */
   public static String content(String text, Long conversationId, Long messageId) {
-    return toJson(SseEvent.content(escapeJson(text), conversationId, messageId));
+    return toJson(SseEvent.content(text, conversationId, messageId));
   }
 
-  /** AI 增量内容（不带 ID，向后兼容），内部自动完成 JSON 转义 */
+  /** AI 增量内容（不带 ID，向后兼容），由 JSON.toJSONString() 自动完成转义 */
   public static String content(String text) {
-    return toJson(SseEvent.content(escapeJson(text)));
+    return toJson(SseEvent.content(text));
   }
 
   /** AI 内容结束 */
