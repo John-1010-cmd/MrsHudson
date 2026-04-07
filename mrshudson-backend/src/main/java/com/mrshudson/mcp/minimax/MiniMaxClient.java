@@ -7,6 +7,7 @@ import com.mrshudson.mcp.kimi.dto.ChatResponse;
 import com.mrshudson.mcp.kimi.dto.Message;
 import com.mrshudson.mcp.kimi.dto.Tool;
 import com.mrshudson.optim.config.OptimProperties;
+import com.mrshudson.optim.quality.QualityProperties;
 import com.mrshudson.optim.token.TokenUsage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +31,7 @@ public class MiniMaxClient {
 
     private final MiniMaxProperties miniMaxProperties;
     private final OptimProperties optimProperties;
+    private final QualityProperties qualityProperties;
     private final WebClient webClient;
     private final RestTemplate restTemplate = new RestTemplate();
 
@@ -55,13 +57,9 @@ public class MiniMaxClient {
         // MiniMax API 路径格式: /text/chatcompletion_v2
         String url = miniMaxProperties.getBaseUrl() + "/text/chatcompletion_v2";
 
-        // 从配置读取参数
-        double temperature = optimProperties.getKimiParams() != null
-                ? optimProperties.getKimiParams().getTemperature()
-                : miniMaxProperties.getTemperature();
-        int maxTokens = optimProperties.getKimiParams() != null
-                ? optimProperties.getKimiParams().getMaxTokens()
-                : miniMaxProperties.getMaxTokens();
+        // 从配置读取参数：OptimProperties > QualityProperties(质量模式) > MiniMaxProperties
+        double temperature = resolveTemperature();
+        int maxTokens = resolveMaxTokens();
 
         // 构建请求
         ChatRequest request = ChatRequest.builder()
@@ -176,13 +174,9 @@ public class MiniMaxClient {
         // MiniMax API 路径格式: /text/chatcompletion_v2
         String url = miniMaxProperties.getBaseUrl() + "/text/chatcompletion_v2";
 
-        // 从配置读取参数
-        double temperature = optimProperties.getKimiParams() != null
-                ? optimProperties.getKimiParams().getTemperature()
-                : miniMaxProperties.getTemperature();
-        int maxTokens = optimProperties.getKimiParams() != null
-                ? optimProperties.getKimiParams().getMaxTokens()
-                : miniMaxProperties.getMaxTokens();
+        // 从配置读取参数：OptimProperties > QualityProperties(质量模式) > MiniMaxProperties
+        double temperature = resolveTemperature();
+        int maxTokens = resolveMaxTokens();
 
         // 构建请求（启用流式）
         ChatRequest request = ChatRequest.builder()
@@ -331,5 +325,31 @@ public class MiniMaxClient {
      */
     public Flux<String> streamChatCompletion(List<Message> messages) {
         return streamChatCompletion(messages, null);
+    }
+
+    /**
+     * 解析最终温度参数：OptimProperties > QualityProperties(质量模式) > MiniMaxProperties
+     */
+    private double resolveTemperature() {
+        if (optimProperties.getKimiParams() != null) {
+            return optimProperties.getKimiParams().getTemperature();
+        }
+        if (qualityProperties != null) {
+            return qualityProperties.getTemperature();
+        }
+        return miniMaxProperties.getTemperature();
+    }
+
+    /**
+     * 解析最终 maxTokens 参数：OptimProperties > QualityProperties(质量模式) > MiniMaxProperties
+     */
+    private int resolveMaxTokens() {
+        if (optimProperties.getKimiParams() != null) {
+            return optimProperties.getKimiParams().getMaxTokens();
+        }
+        if (qualityProperties != null) {
+            return qualityProperties.getMaxTokens();
+        }
+        return miniMaxProperties.getMaxTokens();
     }
 }

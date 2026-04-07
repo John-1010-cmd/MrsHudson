@@ -73,9 +73,9 @@ public class TodoCompleteIntentHandler extends AbstractIntentHandler {
 
         // 如果提供了标题，尝试查找并完成
         if (completedTodo == null && title != null) {
-            List<TodoItem> todos = todoService.listTodos(userId);
+            List<TodoItem> todos = todoService.getTodos(userId);
             for (TodoItem todo : todos) {
-                if (todo.getTitle().contains(title) && !Boolean.TRUE.equals(todo.getCompleted())) {
+                if (todo.getTitle().contains(title) && !TodoItem.Status.COMPLETED.name().equals(todo.getStatus())) {
                     todoService.completeTodo(userId, todo.getId(), true);
                     completedTodo = todo;
                     break;

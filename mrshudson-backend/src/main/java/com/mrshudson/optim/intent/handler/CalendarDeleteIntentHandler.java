@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -78,7 +79,8 @@ public class CalendarDeleteIntentHandler extends AbstractIntentHandler {
             // 默认查询今天到未来7天的事件
             LocalDate startDate = LocalDate.now();
             LocalDate endDate = startDate.plusDays(7);
-            List<CalendarEvent> events = calendarService.getEvents(userId, startDate, endDate);
+            List<CalendarEvent> events = calendarService.getEvents(
+                userId, startDate.atStartOfDay(), endDate.atTime(LocalTime.MAX));
             
             for (CalendarEvent event : events) {
                 if (event.getTitle().contains(title)) {

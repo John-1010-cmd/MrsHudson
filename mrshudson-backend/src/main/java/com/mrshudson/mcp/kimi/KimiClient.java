@@ -8,6 +8,7 @@ import com.mrshudson.mcp.kimi.dto.Message;
 import com.mrshudson.mcp.kimi.dto.Tool;
 import com.mrshudson.mcp.kimi.dto.ToolCall;
 import com.mrshudson.optim.config.OptimProperties;
+import com.mrshudson.optim.quality.QualityProperties;
 import com.mrshudson.optim.token.TokenUsage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,6 +32,7 @@ public class KimiClient {
 
     private final KimiProperties kimiProperties;
     private final OptimProperties optimProperties;
+    private final QualityProperties qualityProperties;
     private final WebClient webClient;
     private final RestTemplate restTemplate = new RestTemplate();
 
@@ -55,13 +57,9 @@ public class KimiClient {
     public ChatResponse chatCompletion(List<Message> messages, List<Tool> tools) {
         String url = kimiProperties.getBaseUrl() + "/chat/completions";
 
-        // 从配置读取参数，使用 OptimProperties 覆盖 KimiProperties
-        double temperature = optimProperties.getKimiParams() != null
-                ? optimProperties.getKimiParams().getTemperature()
-                : kimiProperties.getTemperature();
-        int maxTokens = optimProperties.getKimiParams() != null
-                ? optimProperties.getKimiParams().getMaxTokens()
-                : kimiProperties.getMaxTokens();
+        // 从配置读取参数：OptimProperties > QualityProperties(质量模式) > KimiProperties
+        double temperature = resolveTemperature();
+        int maxTokens = resolveMaxTokens();
 
         // 构建请求
         ChatRequest request = ChatRequest.builder()
@@ -177,13 +175,9 @@ public class KimiClient {
     public Flux<String> streamChatCompletion(List<Message> messages, List<Tool> tools) {
         String url = kimiProperties.getBaseUrl() + "/chat/completions";
 
-        // 从配置读取参数
-        double temperature = optimProperties.getKimiParams() != null
-                ? optimProperties.getKimiParams().getTemperature()
-                : kimiProperties.getTemperature();
-        int maxTokens = optimProperties.getKimiParams() != null
-                ? optimProperties.getKimiParams().getMaxTokens()
-                : kimiProperties.getMaxTokens();
+        // 从配置读取参数：OptimProperties > QualityProperties(质量模式) > KimiProperties
+        double temperature = resolveTemperature();
+        int maxTokens = resolveMaxTokens();
 
         // 构建请求（启用流式）
         ChatRequest request = ChatRequest.builder()
@@ -321,13 +315,9 @@ public class KimiClient {
     public Flux<String> streamChatCompletion(List<Message> messages, List<Tool> tools, String model) {
         String url = kimiProperties.getBaseUrl() + "/chat/completions";
 
-        // 从配置读取参数
-        double temperature = optimProperties.getKimiParams() != null
-                ? optimProperties.getKimiParams().getTemperature()
-                : kimiProperties.getTemperature();
-        int maxTokens = optimProperties.getKimiParams() != null
-                ? optimProperties.getKimiParams().getMaxTokens()
-                : kimiProperties.getMaxTokens();
+        // 从配置读取参数：OptimProperties > QualityProperties(质量模式) > KimiProperties
+        double temperature = resolveTemperature();
+        int maxTokens = resolveMaxTokens();
 
         // 构建请求（启用流式）
         ChatRequest request = ChatRequest.builder()
@@ -357,5 +347,31 @@ public class KimiClient {
                 .doOnError(e -> log.error("Kimi流式响应异常: {}", e.getMessage(), e))
                 .doOnComplete(() -> log.debug("Kimi流式响应完成, 模型: {}", model))
                 .flatMap(this::parseSseData);
+    }
+
+    /**
+     * 解析最终温度参数：OptimProperties > QualityProperties(质量模式) > KimiProperties
+     */
+    private double resolveTemperature() {
+        if (optimProperties.getKimiParams() != null) {
+            return optimProperties.getKimiParams().getTemperature();
+        }
+        if (qualityProperties != null) {
+            return qualityProperties.getTemperature();
+        }
+        return kimiProperties.getTemperature();
+    }
+
+    /**
+     * 解析最终 maxTokens 参数：OptimProperties > QualityProperties(质量模式) > KimiProperties
+     */
+    private int resolveMaxTokens() {
+        if (optimProperties.getKimiParams() != null) {
+            return optimProperties.getKimiParams().getMaxTokens();
+        }
+        if (qualityProperties != null) {
+            return qualityProperties.getMaxTokens();
+        }
+        return kimiProperties.getMaxTokens();
     }
 }

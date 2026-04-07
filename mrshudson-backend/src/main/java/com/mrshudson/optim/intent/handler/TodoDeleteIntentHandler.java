@@ -73,7 +73,7 @@ public class TodoDeleteIntentHandler extends AbstractIntentHandler {
 
         // 如果提供了标题，尝试查找并删除
         if (deletedTodo == null && title != null) {
-            List<TodoItem> todos = todoService.listTodos(userId);
+            List<TodoItem> todos = todoService.getTodos(userId);
             for (TodoItem todo : todos) {
                 if (todo.getTitle().contains(title)) {
                     todoService.deleteTodo(userId, todo.getId());

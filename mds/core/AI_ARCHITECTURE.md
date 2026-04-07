@@ -59,11 +59,11 @@
 | 流式对话服务 | SSE 流式响应、TTS 语音合成 | 已上线 |
 | 意图路由系统 | 三层混合路由架构 | 已上线 |
 | 响应缓存系统 | 语义缓存、工具缓存 | 已上线 |
-| 上下文管理系统 | 消息压缩、历史管理 | 部分实现（压缩路径尚未接入主调用链） |
+| 上下文管理系统 | 消息压缩、历史管理 | 已接入 |
 | 自纠错系统 | 工具结果验证与纠错 | 已上线 |
 | MCP 工具中心 | 天气、日程、待办、路线规划 | 已上线 |
 | 多 Provider 支持 | Kimi / MiniMax 双引擎 | 已上线 |
-| 意图向量缓存 | 三级缓存架构 | 规划中 |
+| 意图向量缓存 | 三级缓存架构 | 已上线 |
 
 ### 1.3 关键架构决策
 
@@ -174,7 +174,7 @@
                │ 未命中
   ▼
 ┌─────────────────────────────────────────────────┐
-│ L2 意图向量缓存 (IntentCacheStore)    [规划中]   │  ← 命中返回 IntentResult，跳过 AI 识别直接进入意图处理
+│ L2 意图向量缓存 (IntentCacheStore)               │  ← 命中返回 IntentResult，跳过 AI 识别直接进入意图处理
 │   三级缓存：内存 → Redis → 向量搜索              │
 └──────────────┬──────────────────────────────────┘
                │ 未命中
@@ -197,14 +197,14 @@
 └─────────────────────────────────────────────────┘
 ```
 
-> **当前状态**：L2（意图向量缓存）尚未实现，实际生效的为 L1 + L3 + L4 + L5 四层。
+> **当前状态**：L1 + L2 + L3 + L4 + L5 完整五层链路均已上线。
 
 ### 3.3 关键限制
 
 1. **上下文压缩阈值**: 15 条消息触发压缩，保留最近 6 条
 2. **TTS 超时**: 10 秒超时保护，超时后后台继续合成
 3. **缓存 TTL**: 语义缓存使用 Redis 原生 TTL（如 7 天），工具缓存按工具类型定制（通过 `OptimProperties` 配置）
-4. **递归深度**: 工具调用当前无硬限制（规划中）
+4. **递归深度**: 工具调用递归深度限制为 `MAX_TOOL_RECURSION_DEPTH = 5` 层
 
 ---
 
@@ -339,15 +339,13 @@ StreamChatController.streamSendMessage()
         │       消息数 ≥ 15 → 保留最近 6 条原始消息，其余压缩为摘要
         │                      → 摘要 + 最近 6 条 + system prompt + 当前消息
         │     压缩失败 → 降级：截断保留最近 N 条，记录 WARN 日志
-        │     ⚠ ContextManager 压缩路径接入中，当前降级为截取最后 N 条
         │
         ├─ ⑥ Token 计数开始 (TokenTrackerService)
         │
         ├─ ⑦ 质量优化检测 (QualityOptimizer)
-        │     当前：检测复杂度并记录日志，参数尚未传入 AI 调用（见已知问题）
-        │     预期：根据质量模式（SPEED/BALANCED/QUALITY）调整 maxTokens
-        │            和 temperature，传递给步骤 ⑧ 的 AI 调用请求
-        │     ⚠ QualityOptimizer 与 ModelRouter 当前无联动，见附录 C P1 待办
+        │     根据质量模式（SPEED/BALANCED/QUALITY）调整 maxTokens
+        │     和 temperature，通过 AIClient（KimiClient / MiniMaxClient）
+        │     传递给步骤 ⑧ 的 AI 调用请求
         │
         └─ ⑧ 执行流式 AI 调用 (executeStreamingAiCallWithTools)
               │
@@ -491,7 +489,7 @@ Value: JSON 序列化的工具结果
 TTL: 按工具类型定制（通过 OptimProperties 配置）
 ```
 
-**意图识别缓存（规划中）**
+**意图识别缓存（已上线）**
 
 ```
 L1 (内存): ConcurrentHashMap<userId+query, IntentResult>
@@ -508,9 +506,9 @@ L3 (向量): intent:vector:{hash(normalizedQuery)}
 | 子系统 | 包路径 | 职责 | 状态 |
 |--------|--------|------|------|
 | **意图路由** | `optim.intent` | 三层路由：规则 → 轻量AI → 完整AI | 已上线 |
-| **意图向量缓存** | `optim.intent` | 意图识别结果持久化，三级缓存 | 规划中 |
+| **意图向量缓存** | `optim.intent` | 意图识别结果持久化，三级缓存 | 已上线 |
 | **响应缓存** | `optim.cache` + `optim.cost` | 语义缓存、工具结果缓存 | 已上线 |
-| **上下文压缩** | `optim.compress` + `optim.context` | 消息压缩、历史管理 | 部分实现（压缩路径尚未接入主调用链） |
+| **上下文压缩** | `optim.compress` + `optim.context` | 消息压缩、历史管理 | 已接入 |
 | **自纠错** | `optim.correction` | 工具结果验证、纠错重试 | 已上线 |
 | **降级兜底** | `optim.fallback` | 工具失败、AI 异常时的兜底 | 已上线 |
 | **质量/成本** | `optim.quality` + `optim.cost` | 质量模式、模型路由、Token 统计 | 已上线 |
@@ -554,7 +552,7 @@ return tryFullAiLayer(query, intentType);
 | L3 完整AI层 | 完整模型（如 Claude Opus） | 50-100 tokens | 复杂意图分类 |
 | 步骤 ⑧ 生成调用 | 完整模型 + 完整上下文 | 500-2000 tokens | 最终回复生成 |
 
-### 7.3 意图向量缓存（规划中）
+### 7.3 意图向量缓存（已上线）
 
 ```
 用户输入
@@ -612,7 +610,7 @@ IntentCacheStore（三级查找）
 
 > **说明**：当前采用两档路由策略，小模型处理简单查询，标准模型处理其他所有场景。未来可根据实际需求引入中等模型（如 moonshot-v1-128k）形成三档路由。
 
-**已知问题**: `QualityOptimizer` 与 `ModelRouter` 当前无联动，V2 由 `StrategyEngine` 统一。
+**联动策略**: `QualityOptimizer` 与 `ModelRouter` 已实现联动——`QUALITY` 模式强制使用大模型，`SPEED` 模式强制使用小模型，`BALANCED` 模式根据消息复杂度动态选择。详情参见 `CLAUDE.md`。
 
 ### 7.5 缓存策略
 
@@ -620,7 +618,7 @@ IntentCacheStore（三级查找）
 |---------|--------|------|-----|
 | 语义响应缓存 | SemanticCacheService | AI 完整响应缓存，向量相似度匹配 | Redis 原生 TTL（如 7 天） |
 | 工具结果缓存 | ToolCacheManager | 工具调用结果缓存 | 按工具类型定制（`OptimProperties` 配置） |
-| 意图识别缓存 | IntentCacheStore | 意图识别结果缓存（规划中） | L1: 5分钟 / L2: 7天 / L3: 30天 |
+| 意图识别缓存 | IntentCacheStore | 意图识别结果缓存（已上线） | L1: 5分钟 / L2: 7天 / L3: 30天 |
 
 ---
 
@@ -776,8 +774,9 @@ clarification → done
 | `/api/admin/quality/mode` | GET | 查询当前质量模式 |
 | `/api/admin/quality/mode` | PUT | 切换质量模式 |
 | `/api/admin/quality/metrics` | GET | 质量模式使用统计 |
+| `/api/admin/quality/metrics/reset` | POST | 重置质量指标统计 |
 
-> **路径迁移计划**：质量模式接口计划从 `/api/quality/**` 迁移到 `/api/admin/quality/**`，统一管理员 API 前缀。
+> **路径迁移说明**：质量模式接口已从 `/api/quality/**` 迁移到 `/api/admin/quality/**`，统一管理员 API 前缀。
 
 ### 10.2 鉴权
 
@@ -827,9 +826,9 @@ clarification → done
 
 | 风险 | 可能性 | 影响 | 缓解措施 |
 |------|--------|------|----------|
-| 工具调用无限递归 | 中 | 高 | 增加递归深度限制（规划中）|
-| 上下文压缩未接入 | 低 | 中 | P1 待办，长对话可能丢失上下文 |
-| 质量与模型路由割裂 | 中 | 中 | V2 由 StrategyEngine 统一 |
+| 工具调用无限递归 | 低 | 高 | 递归深度已限制为 5 层 |
+| 上下文压缩未接入 | 低 | 中 | 已接入主调用链 |
+| 质量与模型路由割裂 | 低 | 中 | 已通过 QualityProperties 联动实现 |
 | AI Provider 故障 | 低 | 高 | 双 Provider 自动降级 |
 | 缓存数据不一致 | 低 | 中 | 完善缓存失效机制 |
 
@@ -875,13 +874,13 @@ clarification → done
 
 | 优先级 | 事项 | 负责人 | 状态 | 预计完成时间 |
 |--------|------|--------|------|--------------|
-| P0 | 意图向量缓存落地 | TBD | 规划中 | 待定 |
+| P0 | 意图向量缓存落地 | TBD | 已完成 | 2026-04-04 |
 | P0 | 自纠错阈值调优 | TBD | 规划中 | 待定 |
-| P1 | 接通 ContextManager 压缩路径 | TBD | 待开发 | 待定 |
-| P1 | 工具调用递归深度限制 | TBD | 待开发 | 待定 |
-| P1 | QualityOptimizer 与 ModelRouter 联动 | TBD | 待开发 | V2 |
+| P1 | 接通 ContextManager 压缩路径 | TBD | 已完成 | 2026-04-04 |
+| P1 | 工具调用递归深度限制 | TBD | 已完成 | 2026-04-04 |
+| P1 | QualityOptimizer 与 ModelRouter 联动 | TBD | 已完成 | 2026-04-04 |
 | P1 | 缓存策略精细化 | TBD | 待开发 | 待定 |
-| P1 | 质量模式接口路径迁移到 /api/admin/quality/** | TBD | 待开发 | 待定 |
+| P1 | 质量模式接口路径迁移到 /api/admin/quality/** | TBD | 已完成 | 2026-04-04 |
 | P2 | 前端接入管理后台数据接口 | TBD | 待开发 | 待定 |
 
 ### 附录 D：架构决策记录 (ADR)
